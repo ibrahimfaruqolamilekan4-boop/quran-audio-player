@@ -97,22 +97,26 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('ambientVolume', ambientVolume.toString());
   }, [ambientVolume]);
 
-  // Handle ambient track changes
+  // Synchronize ambient audio with play state and current track
   useEffect(() => {
     if (!ambientAudioRef.current) return;
     
     if (currentAmbient) {
-      const wasPlaying = isPlaying;
-      ambientAudioRef.current.src = currentAmbient.url;
+      if (ambientAudioRef.current.src !== currentAmbient.url) {
+        ambientAudioRef.current.src = currentAmbient.url;
+      }
       ambientAudioRef.current.volume = ambientVolume;
-      if (wasPlaying) {
+      
+      if (isPlaying) {
         ambientAudioRef.current.play().catch(e => console.warn('Ambient blocked:', e?.message));
+      } else {
+        ambientAudioRef.current.pause();
       }
     } else {
       ambientAudioRef.current.pause();
       ambientAudioRef.current.src = '';
     }
-  }, [currentAmbient]); // Don't depend on isPlaying to avoid loop re-triggering
+  }, [currentAmbient, isPlaying, ambientVolume]);
 
   // Core playback function (Synchronous URL construction avoids Safari auto-play blocking!)
   const playChapter = (chapter: Chapter) => {
@@ -130,11 +134,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       
       // Promise handles autoplay policies safely
       quranAudioRef.current.play()
-        .then(() => {
-          if (currentAmbient && ambientAudioRef.current) {
-            ambientAudioRef.current.play().catch(e => console.warn('Ambient play failed', e?.message || String(e)));
-          }
-        })
         .catch(error => {
           console.error("Playback failed. Interaction needed.", error?.message || String(error));
           setIsPlaying(false);
@@ -142,7 +141,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         .finally(() => {
           setIsLoading(false);
         });
-
     } catch (error: any) {
       console.error("Unexpected playback error", error?.message || String(error));
       setIsPlaying(false);
@@ -155,16 +153,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     
     if (isPlaying) {
       quranAudioRef.current.pause();
-      ambientAudioRef.current?.pause();
       setIsPlaying(false);
     } else {
       quranAudioRef.current.play()
-        .then(() => {
-          if (currentAmbient && ambientAudioRef.current) {
-            ambientAudioRef.current.play().catch(e => console.warn(e?.message || String(e)));
-          }
-          setIsPlaying(true);
-        })
         .catch(e => console.error("Play blocked", e?.message || String(e)));
     }
   };
@@ -194,9 +185,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // If reciter changes, update current playing audio instantly
   useEffect(() => {
-    if (currentReciter && currentChapter && isPlaying) {
-        const wasPlaying = isPlaying;
-        playChapter(currentChapter); 
+    if (currentReciter && currentChapter && quranAudioRef.current) {
+      const wasPlaying = isPlaying;
+      const savedTime = quranAudioRef.current.currentTime;
+      
+      const chapterNumberString = String(currentChapter.id).padStart(3, '0');
+      const url = `${currentReciter.serverUrl}${chapterNumberString}.mp3`;
+      
+      quranAudioRef.current.src = url;
+      quranAudioRef.current.currentTime = savedTime;
+      
+      if (wasPlaying) {
+        quranAudioRef.current.play().catch(console.error);
+      }
     }
   }, [currentReciter]);
 
