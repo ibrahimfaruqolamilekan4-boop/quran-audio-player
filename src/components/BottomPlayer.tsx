@@ -35,28 +35,31 @@ export function BottomPlayer() {
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className={`fixed bottom-0 left-0 right-0 md:ml-64 bg-[#0A0C10]/90 backdrop-blur-3xl border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 ${expanded ? 'h-[28rem]' : 'h-24'}`}>
+    <div className={`fixed bottom-0 left-0 right-0 md:ml-64 bg-[#0A0C10]/90 backdrop-blur-3xl border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 ${expanded ? 'h-[28rem]' : 'h-28'}`}>
       
-      {/* Top Progress Bar (Mini Player) */}
-      {!expanded && (
-        <div 
-          className="absolute top-0 left-0 h-1 bg-[#151921] w-full cursor-pointer group"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const newTime = (clickX / rect.width) * duration;
-            seekTo(newTime);
-          }}
-        >
-          <div className="h-full bg-gold-500 transition-all duration-100 ease-linear relative group-hover:bg-gold-400" style={{ width: `${progressPercent}%` }}>
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(226,183,83,0.8)] opacity-0 group-hover:opacity-100 transition-opacity translate-x-1/2" />
-          </div>
+      {/* Always Visible Progress Bar */}
+      <div className={`absolute top-0 left-0 w-full -mt-2 group ${expanded ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div className="px-6 md:px-10 flex items-center gap-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity absolute -top-4 w-full justify-between text-[10px] text-slate-400 font-mono tracking-widest z-10 pointer-events-none">
+           <span>{formatTime(currentTime)}</span>
+           <span>{formatTime(duration)}</span>
         </div>
-      )}
+        <input
+          type="range"
+          min="0"
+          max={duration || 100}
+          value={currentTime}
+          onChange={(e) => seekTo(parseFloat(e.target.value))}
+          className="w-full h-1.5 appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all z-20 absolute top-0 block"
+          style={{ 
+            padding: 0, margin: 0, outline: 'none', borderRadius: 0,
+            background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)`
+          }}
+        />
+      </div>
 
       {/* Compact Mini Player */}
       <div 
-        className="h-24 px-6 md:px-10 flex items-center justify-between cursor-pointer group"
+        className="h-28 px-6 md:px-10 flex items-center justify-between cursor-pointer group pt-1"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-5 flex-1 overflow-hidden">
@@ -134,7 +137,8 @@ export function BottomPlayer() {
               max={duration || 100}
               value={currentTime}
               onChange={(e) => seekTo(parseFloat(e.target.value))}
-              className="w-full h-2 bg-[#151921] rounded-full appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all"
+              className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all"
+              style={{ background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)` }}
             />
           </div>
 
@@ -156,7 +160,8 @@ export function BottomPlayer() {
                 step="0.01"
                 value={quranVolume}
                 onChange={(e) => setQuranVolume(parseFloat(e.target.value))}
-                className="w-full h-2 bg-[#1A1F29] rounded-full appearance-none cursor-pointer accent-gold-500"
+                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500"
+                style={{ background: `linear-gradient(to right, #E2B753 ${quranVolume * 100}%, #1A1F29 ${quranVolume * 100}%)` }}
               />
             </div>
 
@@ -178,7 +183,8 @@ export function BottomPlayer() {
                 value={ambientVolume}
                 onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
                 disabled={!currentAmbient}
-                className="w-full h-2 bg-[#1A1F29] rounded-full appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-blue-500"
+                style={{ background: `linear-gradient(to right, #3B82F6 ${ambientVolume * 100}%, #1A1F29 ${ambientVolume * 100}%)` }}
               />
             </div>
           </div>

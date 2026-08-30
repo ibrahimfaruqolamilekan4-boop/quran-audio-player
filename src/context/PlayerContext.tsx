@@ -134,6 +134,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       
       // Promise handles autoplay policies safely
       quranAudioRef.current.play()
+        .then(() => {
+          if (currentAmbient && ambientAudioRef.current && ambientAudioRef.current.src) {
+            ambientAudioRef.current.play().catch(e => console.warn('Ambient play failed', e?.message || String(e)));
+          }
+        })
         .catch(error => {
           console.error("Playback failed. Interaction needed.", error?.message || String(error));
           setIsPlaying(false);
@@ -153,9 +158,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     
     if (isPlaying) {
       quranAudioRef.current.pause();
+      ambientAudioRef.current?.pause();
       setIsPlaying(false);
     } else {
       quranAudioRef.current.play()
+        .then(() => {
+          if (currentAmbient && ambientAudioRef.current && ambientAudioRef.current.src) {
+            ambientAudioRef.current.play().catch(e => console.warn(e?.message || String(e)));
+          }
+          setIsPlaying(true);
+        })
         .catch(e => console.error("Play blocked", e?.message || String(e)));
     }
   };
