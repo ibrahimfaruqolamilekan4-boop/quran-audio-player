@@ -1,0 +1,7 @@
+{
+  "name": "Quranify Focus",
+  "description": "A distraction-free Quranic audio player with layered ambient soundscapes, designed for deep focus, studying, and relaxation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
