@@ -15,7 +15,7 @@ export function BackgroundMedia() {
   const activeVideoUrl = currentAmbient?.id ? BACKGROUND_VIDEOS[currentAmbient.id] : null;
 
   return (
-    <div className="absolute inset-0 -z-10 overflow-hidden bg-[#050608]">
+    <div className="fixed inset-0 -z-50 w-full h-full overflow-hidden bg-black">
       <AnimatePresence mode="wait">
         {activeVideoUrl ? (
           <motion.div
@@ -31,7 +31,8 @@ export function BackgroundMedia() {
               loop
               muted
               playsInline
-              className="w-full h-full object-cover transform scale-105 transition-opacity duration-1000"
+              aria-hidden="true"
+              className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover pointer-events-none"
               src={activeVideoUrl}
             />
           </motion.div>
@@ -46,8 +47,8 @@ export function BackgroundMedia() {
           />
         )}
       </AnimatePresence>
-      {/* Dark overlay gradient to ensure UI readability */}
-      <div className="absolute inset-0 bg-black/40 backdrop-brightness-90" />
+      {/* Subtle overlay gradient to make text legible while keeping video vivid */}
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
     </div>
   );
 }
