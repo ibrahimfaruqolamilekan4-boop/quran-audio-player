@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, ChevronUp, ChevronDown, ListMusic, Maximize2 } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
+import { AMBIENT_TRACKS } from '../lib/constants';
 
 function formatTime(seconds: number) {
   if (isNaN(seconds)) return '0:00';
@@ -25,7 +26,8 @@ export function BottomPlayer() {
     quranVolume,
     ambientVolume,
     setQuranVolume,
-    setAmbientVolume
+    setAmbientVolume,
+    setAmbientTrack
   } = usePlayer();
 
   const [expanded, setExpanded] = useState(false);
@@ -120,75 +122,84 @@ export function BottomPlayer() {
         </div>
       </div>
 
-      {/* Expanded Controls */}
-      <div className={`px-10 pt-4 pb-12 transition-all duration-700 ease-out ${expanded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'}`}>
-        <div className="max-w-3xl mx-auto space-y-12">
+      {/* Expanded Controls: Dual Audio Mixer */}
+      <div className={`px-10 pt-4 pb-12 transition-all duration-700 ease-out h-full overflow-y-auto ${expanded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'}`}>
+        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
           
-          {/* Main Scrubber */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500 tracking-widest font-mono">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
+          {/* Left Side: Sliders and Scrubber */}
+          <div className="space-y-8">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-medium text-slate-500 tracking-widest font-mono">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                value={currentTime}
+                onChange={(e) => seekTo(parseFloat(e.target.value))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all"
+                style={{ background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)` }}
+              />
             </div>
             
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              value={currentTime}
-              onChange={(e) => seekTo(parseFloat(e.target.value))}
-              className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all"
-              style={{ background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)` }}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            <div className="space-y-6 bg-[#11141A] p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-              <div className="flex items-center gap-4 mb-2">
-                <div className="w-10 h-10 rounded-xl bg-gold-500/10 text-gold-500 flex items-center justify-center border border-gold-500/20">
-                  <ListMusic size={18} />
-                </div>
-                <div>
-                  <h4 className="text-base font-serif text-white tracking-wide">Recitation Volume</h4>
-                  <p className="text-xs text-slate-500 font-light mt-0.5">{currentReciter?.name}</p>
-                </div>
+            <div className="space-y-6 bg-[#11141A] p-6 rounded-[2rem] border border-white/5">
+              <div>
+                <label className="text-sm font-serif text-white tracking-wide block mb-3">Quran Recitation</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={quranVolume}
+                  onChange={(e) => setQuranVolume(parseFloat(e.target.value))}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500"
+                  style={{ background: `linear-gradient(to right, #E2B753 ${quranVolume * 100}%, #1A1F29 ${quranVolume * 100}%)` }}
+                />
               </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={quranVolume}
-                onChange={(e) => setQuranVolume(parseFloat(e.target.value))}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500"
-                style={{ background: `linear-gradient(to right, #E2B753 ${quranVolume * 100}%, #1A1F29 ${quranVolume * 100}%)` }}
-              />
-            </div>
-
-            <div className={`space-y-6 bg-[#11141A] p-8 rounded-[2rem] border border-white/5 shadow-2xl transition-all duration-500 ${!currentAmbient ? 'opacity-50 grayscale' : ''}`}>
-              <div className="flex items-center gap-4 mb-2">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${currentAmbient ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-[#151921] text-slate-600 border-white/5'}`}>
-                  {currentAmbient ? <currentAmbient.icon size={18} /> : <Volume2 size={18} />}
-                </div>
-                <div>
-                  <h4 className="text-base font-serif text-white tracking-wide">Ambient Layer</h4>
-                  <p className="text-xs text-slate-500 font-light mt-0.5">{currentAmbient ? currentAmbient.name : 'No ambient track selected'}</p>
-                </div>
+              <div>
+                <label className="text-sm font-serif text-white tracking-wide block mb-3">Background Sound</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={ambientVolume}
+                  onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
+                  disabled={!currentAmbient}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
+                  style={{ background: `linear-gradient(to right, #3B82F6 ${ambientVolume * 100}%, #1A1F29 ${ambientVolume * 100}%)` }}
+                />
               </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={ambientVolume}
-                onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
-                disabled={!currentAmbient}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-blue-500"
-                style={{ background: `linear-gradient(to right, #3B82F6 ${ambientVolume * 100}%, #1A1F29 ${ambientVolume * 100}%)` }}
-              />
             </div>
           </div>
-          
+
+          {/* Right Side: Ambient Selection Grid */}
+          <div className="bg-[#11141A] p-6 rounded-[2rem] border border-white/5 overflow-y-auto max-h-[16rem] custom-scrollbar">
+            <h3 className="text-sm font-serif text-white tracking-wide mb-4 sticky top-0 bg-[#11141A] z-10 pb-2">Select Ambient Track</h3>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              <button
+                onClick={() => setAmbientTrack(null)}
+                className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${!currentAmbient ? 'border-white/40 bg-white/10' : 'border-transparent bg-white/5 hover:bg-white/10'}`}
+              >
+                <VolumeX size={24} className="mb-2 text-slate-400" />
+                <span className="text-xs text-slate-300">No Sound</span>
+              </button>
+              
+              {AMBIENT_TRACKS.map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => setAmbientTrack(opt)}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${currentAmbient?.id === opt.id ? 'border-blue-500/50 bg-blue-500/20 text-blue-400' : 'border-transparent bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'}`}
+                >
+                  <opt.icon size={24} className="mb-2" />
+                  <span className="text-[10px] sm:text-xs font-medium text-center truncate w-full">{opt.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

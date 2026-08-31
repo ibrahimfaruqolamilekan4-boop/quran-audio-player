@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
 import { Chapter, Reciter, AmbientTrack } from '../types';
+import { addListeningLog } from '../lib/storage';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -11,8 +12,10 @@ interface PlayerContextType {
   duration: number;
   quranVolume: number;
   ambientVolume: number;
+  playbackRate: number;
   setQuranVolume: (val: number) => void;
   setAmbientVolume: (val: number) => void;
+  setPlaybackRate: (val: number) => void;
   playChapter: (chapter: Chapter) => void;
   togglePlayPause: () => void;
   setReciter: (reciter: Reciter) => void;
@@ -20,6 +23,8 @@ interface PlayerContextType {
   playNextChapter: () => void;
   playPreviousChapter: () => void;
   seekTo: (time: number) => void;
+  skipForward: () => void;
+  skipBackward: () => void;
   chapters: Chapter[];
   setChapters: (chapters: Chapter[]) => void;
 }
@@ -42,13 +47,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem('quranVolume');
     return saved ? parseFloat(saved) : 1.0;
   });
+
   const [ambientVolume, setAmbientVolume] = useState(() => {
     const saved = localStorage.getItem('ambientVolume');
     return saved ? parseFloat(saved) : 0.4;
   });
 
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    const saved = localStorage.getItem('playbackRate');
+    return saved ? parseFloat(saved) : 1.0;
+  });
+
   const quranAudioRef = useRef<HTMLAudioElement | null>(null);
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
+  const listeningLogRef = useRef<{ surahId: number, reciterId: string, seconds: number, lastLoggedAt: number } | null>(null);
 
   // Initialize audio elements
   useEffect(() => {
@@ -86,6 +98,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     };
   }, [chapters]); // Dependency to ensure handleEnded captures the latest chapters array via closure (simplified)
 
+  // Tracking Listening Time (every 10 seconds of active playback)
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isPlaying && currentChapter && currentReciter) {
+      // Init log state if needed
+      if (!listeningLogRef.current || listeningLogRef.current.surahId !== currentChapter.id) {
+        listeningLogRef.current = {
+          surahId: currentChapter.id,
+          reciterId: currentReciter.id,
+          seconds: 0,
+          lastLoggedAt: Date.now()
+        };
+      }
+      
+      interval = setInterval(() => {
+        if (listeningLogRef.current) {
+          listeningLogRef.current.seconds += 10;
+          // Commit to storage every 10 seconds for durability
+          addListeningLog(listeningLogRef.current.surahId, listeningLogRef.current.reciterId, 10);
+        }
+      }, 10000);
+    }
+
+    return () => clearInterval(interval);
+  }, [isPlaying, currentChapter, currentReciter]);
+
   // Update volumes when state changes
   useEffect(() => {
     if (quranAudioRef.current) quranAudioRef.current.volume = quranVolume;
@@ -96,6 +134,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (ambientAudioRef.current) ambientAudioRef.current.volume = ambientVolume;
     localStorage.setItem('ambientVolume', ambientVolume.toString());
   }, [ambientVolume]);
+
+  useEffect(() => {
+    if (quranAudioRef.current) quranAudioRef.current.playbackRate = playbackRate;
+    localStorage.setItem('playbackRate', playbackRate.toString());
+  }, [playbackRate]);
 
   // Synchronize ambient audio with play state and current track
   useEffect(() => {
@@ -179,6 +222,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const skipForward = () => {
+    if (quranAudioRef.current) {
+      quranAudioRef.current.currentTime = Math.min(quranAudioRef.current.currentTime + 15, duration);
+    }
+  };
+
+  const skipBackward = () => {
+    if (quranAudioRef.current) {
+      quranAudioRef.current.currentTime = Math.max(quranAudioRef.current.currentTime - 15, 0);
+    }
+  };
+
   const playNextChapter = () => {
     if (!currentChapter || chapters.length === 0) return;
     const currentIndex = chapters.findIndex(c => c.id === currentChapter.id);
@@ -224,8 +279,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       duration,
       quranVolume,
       ambientVolume,
+      playbackRate,
       setQuranVolume,
       setAmbientVolume,
+      setPlaybackRate,
       playChapter,
       togglePlayPause,
       setReciter: setCurrentReciter,
@@ -233,6 +290,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playNextChapter,
       playPreviousChapter,
       seekTo,
+      skipForward,
+      skipBackward,
       chapters,
       setChapters
     }}>

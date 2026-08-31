@@ -11,6 +11,7 @@ export interface Reciter {
   name: string;
   style: string;
   location?: string;
+  region?: string;
   serverUrl: string;
 }
 
