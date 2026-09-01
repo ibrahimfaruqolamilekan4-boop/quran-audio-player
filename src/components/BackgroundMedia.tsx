@@ -11,8 +11,11 @@ const BACKGROUND_VIDEOS: Record<string, string> = {
 };
 
 export function BackgroundMedia() {
-  const { currentAmbient } = usePlayer();
+  const { currentAmbient, ambientVolume } = usePlayer();
   const activeVideoUrl = currentAmbient?.id ? BACKGROUND_VIDEOS[currentAmbient.id] : null;
+
+  // Calculate visual intensity based on ambient volume (minimum 0.2 opacity)
+  const visualIntensity = 0.2 + (ambientVolume * 0.8);
 
   return (
     <div className="fixed inset-0 -z-50 w-full h-full overflow-hidden bg-black">
@@ -21,7 +24,7 @@ export function BackgroundMedia() {
           <motion.div
             key={activeVideoUrl}
             initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            animate={{ opacity: visualIntensity }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1.5 }}
             className="absolute inset-0"
@@ -33,6 +36,7 @@ export function BackgroundMedia() {
               playsInline
               aria-hidden="true"
               className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover pointer-events-none"
+              style={{ filter: `brightness(${0.4 + ambientVolume * 0.6})` }}
               src={activeVideoUrl}
             />
           </motion.div>
