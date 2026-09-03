@@ -12,77 +12,34 @@
 
 @layer base {
   body {
-    @apply bg-[#0A0C10] text-slate-300 antialiased selection:bg-gold-500/30;
+    @apply bg-[#0A0C10] text-slate-300 antialiased;
     font-family: var(--font-sans);
   }
 }
 
 /* Custom Scrollbar for a cleaner look */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #334155; }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
-}
-
-/* Custom range slider styling for cross-browser consistency */
-input[type=range] {
-  -webkit-appearance: none;
-  width: 100%;
-  background: transparent;
-}
-
+/* Custom range slider */
+input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
 input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  height: 12px;
-  width: 12px;
-  border-radius: 50%;
-  background: currentColor;
-  cursor: pointer;
-  margin-top: -4px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.5);
-  transition: transform 0.1s ease;
+  -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%;
+  background: currentColor; cursor: pointer; margin-top: -4px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5); transition: transform 0.1s ease;
 }
-
-input[type=range]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-}
-
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 input[type=range]::-webkit-slider-runnable-track {
-  width: 100%;
-  height: 4px;
-  cursor: pointer;
-  background: #1e293b;
-  border-radius: 9999px;
+  width: 100%; height: 4px; cursor: pointer; background: #1e293b; border-radius: 9999px;
 }
 
-
-
-@layer utilities {
-  .animate-rain {
-    animation: rainDrop 0.8s linear infinite;
-  }
-  .animate-wind {
-    animation: windBlow 1.5s linear infinite;
-  }
-  .animate-wave {
-    animation: gentleWave 8s ease-in-out infinite;
-  }
-  .animate-fire {
-    animation: fireFlicker 4s ease-in-out infinite alternate;
-  }
-}
+/* Custom Animation Classes (Plain CSS to avoid Tailwind v4 layer issues) */
+.animate-rain { animation: rainDrop 0.8s linear infinite; }
+.animate-wind { animation: windBlow 1.5s linear infinite; }
+.animate-wave { animation: gentleWave 8s ease-in-out infinite; }
+.animate-fire { animation: fireFlicker 4s ease-in-out infinite alternate; }
 
 @keyframes rainDrop {
   0% { background-position: 0px 0px; }
