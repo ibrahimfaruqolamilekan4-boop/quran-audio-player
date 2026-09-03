@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX, Volume2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { AMBIENT_TRACKS } from '../lib/constants';
 
@@ -140,13 +140,20 @@ export function BottomPlayer() {
                 value={currentTime}
                 onChange={(e) => seekTo(parseFloat(e.target.value))}
                 className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500 hover:accent-teal-400 transition-all"
-                style={{ background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)` }}
+                style={{ background: `linear-gradient(to right, #14B8A6 ${progressPercent}%, #0F172A ${progressPercent}%)` }}
               />
             </div>
             
-            <div className="space-y-6 bg-[#11141A] p-6 rounded-[2rem] border border-white/5">
+            <div className="space-y-6 bg-[#0F172A]/80 p-6 rounded-[2rem] border border-teal-900/30">
+              <div className="flex items-center gap-3 mb-2">
+                <Volume2 className="text-teal-500 w-5 h-5" />
+                <h3 className="text-sm font-semibold text-white tracking-widest uppercase">Audio Mixer</h3>
+              </div>
               <div>
-                <label className="text-sm font-serif text-white tracking-wide block mb-3">Quran Recitation</label>
+                <label className="text-xs font-medium text-slate-400 tracking-wide block mb-3 flex justify-between">
+                  <span>Quran Recitation</span>
+                  <span>{Math.round(quranVolume * 100)}%</span>
+                </label>
                 <input
                   type="range"
                   min="0"
@@ -155,11 +162,14 @@ export function BottomPlayer() {
                   value={quranVolume}
                   onChange={(e) => setQuranVolume(parseFloat(e.target.value))}
                   className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500"
-                  style={{ background: `linear-gradient(to right, #E2B753 ${quranVolume * 100}%, #1A1F29 ${quranVolume * 100}%)` }}
+                  style={{ background: `linear-gradient(to right, #14B8A6 ${quranVolume * 100}%, #1E293B ${quranVolume * 100}%)` }}
                 />
               </div>
               <div>
-                <label className="text-sm font-serif text-white tracking-wide block mb-3">Background Sound</label>
+                <label className="text-xs font-medium text-slate-400 tracking-wide block mb-3 flex justify-between">
+                  <span>Background Soundscape</span>
+                  <span>{Math.round(ambientVolume * 100)}%</span>
+                </label>
                 <input
                   type="range"
                   min="0"
@@ -169,29 +179,29 @@ export function BottomPlayer() {
                   onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
                   disabled={!currentAmbient}
                   className="w-full h-2 rounded-full appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
-                  style={{ background: `linear-gradient(to right, #3B82F6 ${ambientVolume * 100}%, #1A1F29 ${ambientVolume * 100}%)` }}
+                  style={{ background: `linear-gradient(to right, #3B82F6 ${ambientVolume * 100}%, #1E293B ${ambientVolume * 100}%)` }}
                 />
               </div>
             </div>
           </div>
 
           {/* Right Side: Ambient Selection Grid */}
-          <div className="bg-[#11141A] p-6 rounded-[2rem] border border-white/5 overflow-y-auto max-h-[16rem] custom-scrollbar">
-            <h3 className="text-sm font-serif text-white tracking-wide mb-4 sticky top-0 bg-[#11141A] z-10 pb-2">Select Ambient Track</h3>
+          <div className="bg-[#0F172A]/80 p-6 rounded-[2rem] border border-teal-900/30 overflow-y-auto max-h-[18rem] custom-scrollbar">
+            <h3 className="text-sm font-semibold text-white tracking-widest uppercase mb-4 sticky top-0 bg-[#0F172A] z-10 pb-2">Select Ambient Track</h3>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
               <button
                 onClick={() => setAmbientTrack(null)}
-                className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${!currentAmbient ? 'border-white/40 bg-white/10' : 'border-transparent bg-white/5 hover:bg-white/10'}`}
+                className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${!currentAmbient ? 'border-teal-500/50 bg-teal-500/10 text-teal-400' : 'border-slate-800 bg-slate-800/30 hover:bg-slate-800/60'}`}
               >
-                <VolumeX size={24} className="mb-2 text-slate-400" />
-                <span className="text-xs text-slate-300">No Sound</span>
+                <VolumeX size={24} className="mb-2 opacity-70" />
+                <span className="text-xs font-medium">No Sound</span>
               </button>
               
               {AMBIENT_TRACKS.map((opt) => (
                 <button
                   key={opt.id}
                   onClick={() => setAmbientTrack(opt)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${currentAmbient?.id === opt.id ? 'border-blue-500/50 bg-blue-500/20 text-blue-400' : 'border-transparent bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'}`}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${currentAmbient?.id === opt.id ? 'border-blue-500/50 bg-blue-500/20 text-blue-400' : 'border-slate-800 bg-slate-800/30 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}
                 >
                   <opt.icon size={24} className="mb-2" />
                   <span className="text-[10px] sm:text-xs font-medium text-center truncate w-full">{opt.name}</span>
@@ -199,7 +209,6 @@ export function BottomPlayer() {
               ))}
             </div>
           </div>
-
         </div>
       </div>
     </div>
