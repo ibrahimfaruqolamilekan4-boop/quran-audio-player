@@ -8,12 +8,13 @@ import { HubView } from './views/HubView';
 import { SurahLibraryView } from './views/SurahLibraryView';
 import { RecitersHubView } from './views/RecitersHubView';
 import { InsightsView } from './views/InsightsView';
+import { SettingsView } from './views/SettingsView';
 import { getChapters } from './lib/api';
 import { CURATED_RECITERS, DEFAULT_RECITER_ID } from './lib/constants';
 
 function AppContent() {
   const [currentTab, setCurrentTab] = useState('home');
-  const { setChapters, setReciter } = usePlayer();
+  const { setChapters, setReciter, customReciters } = usePlayer();
 
   useEffect(() => {
     let isMounted = true;
@@ -22,29 +23,30 @@ function AppContent() {
       if (!isMounted) return;
       setChapters(chaptersData);
       
-      const defaultReciter = CURATED_RECITERS.find(r => r.id === DEFAULT_RECITER_ID) || CURATED_RECITERS[0];
+      const allReciters = [...CURATED_RECITERS, ...customReciters];
+      const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
       setReciter(defaultReciter);
     }
     
     initApp();
     return () => { isMounted = false; };
-  }, []);
+  }, [customReciters]); // Re-evaluate default if custom reciters load
 
   return (
-    <div className="min-h-screen flex bg-[#0A0C10] text-slate-300 font-sans selection:bg-gold-500/30">
+    <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
       <BackgroundMedia />
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
       
-      <main className="flex-1 md:ml-64 pb-40 overflow-y-auto h-screen relative z-10">
-        <div className="p-6 md:p-12 md:max-w-7xl mx-auto h-full">
+      <main className="flex-1 md:ml-72 pb-40 overflow-y-auto h-screen relative z-10 transition-all">
+        <div className="p-4 md:p-10 md:max-w-7xl mx-auto h-full">
           {currentTab === 'home' && <HomeView />}
           {currentTab === 'hub' && <HubView />}
           {currentTab === 'library' && <SurahLibraryView />}
           {currentTab === 'reciters' && <RecitersHubView />}
           {currentTab === 'insights' && <InsightsView />}
+          {currentTab === 'settings' && <SettingsView />}
         </div>
       </main>
-
       <BottomPlayer />
     </div>
   );

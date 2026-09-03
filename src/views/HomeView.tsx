@@ -26,7 +26,7 @@ export function HomeView() {
         </div>
         
         {/* Recitation Goals Widget */}
-        <div className="bg-[#11141A]/80 backdrop-blur-xl p-5 rounded-3xl border border-white/5 flex flex-col gap-3 min-w-[280px]">
+        <div className="bg-[#0F172A]/80 backdrop-blur-xl p-5 rounded-3xl border border-white/5 flex flex-col gap-3 min-w-[280px]">
           <div className="flex justify-between items-center">
             <span className="text-sm text-slate-400 font-medium tracking-wide">Daily Goal</span>
             <div className="flex items-center gap-1.5 bg-orange-500/10 text-orange-400 px-2.5 py-1 rounded-full text-xs font-bold">
@@ -38,9 +38,9 @@ export function HomeView() {
             <span className="text-2xl font-serif text-white">{todaysMinutes}</span>
             <span className="text-sm text-slate-500 mb-1">/ {userData.goalMinutes} min</span>
           </div>
-          <div className="h-2 w-full bg-[#1A1F29] rounded-full overflow-hidden">
+          <div className="h-2 w-full bg-[#1E293B] rounded-full overflow-hidden">
             <div 
-              className="h-full bg-gold-500 rounded-full transition-all duration-1000 ease-out" 
+              className="h-full bg-teal-500 rounded-full transition-all duration-1000 ease-out" 
               style={{ width: `${goalPercent}%` }}
             />
           </div>
@@ -71,17 +71,17 @@ export function HomeView() {
               if (ambient) setAmbientTrack(ambient);
               if (chapters[17]) playChapter(chapters[17]); // Kahf
             }}
-            className="group cursor-pointer relative overflow-hidden rounded-3xl aspect-[2/1] bg-gradient-to-br from-gold-900/40 to-gold-900/10 border border-gold-500/20 p-6 flex flex-col justify-end transition-all hover:border-gold-500/40"
+            className="group cursor-pointer relative overflow-hidden rounded-3xl aspect-[2/1] bg-gradient-to-br from-teal-900/40 to-teal-900/10 border border-teal-500/20 p-6 flex flex-col justify-end transition-all hover:border-teal-500/40"
           >
             <div className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity translate-y-4 group-hover:translate-y-0">
               <Play size={18} className="text-white fill-current ml-1" />
             </div>
-            <Trophy size={24} className="text-gold-400 mb-3" />
+            <Trophy size={24} className="text-teal-400 mb-3" />
             <h4 className="text-xl font-serif text-white">For Focus Mix</h4>
-            <p className="text-sm text-gold-200/60 font-light mt-1">Rain & Al-Kahf</p>
+            <p className="text-sm text-teal-200/60 font-light mt-1">Rain & Al-Kahf</p>
           </div>
 
-          <div className="group cursor-pointer relative overflow-hidden rounded-3xl aspect-[2/1] bg-[#11141A]/80 border border-white/5 p-6 flex flex-col justify-end transition-all hover:border-white/10">
+          <div className="group cursor-pointer relative overflow-hidden rounded-3xl aspect-[2/1] bg-[#0F172A]/80 border border-white/5 p-6 flex flex-col justify-end transition-all hover:border-white/10">
             <Clock size={24} className="text-slate-400 mb-3" />
             <h4 className="text-xl font-serif text-white">Recently Played</h4>
             <p className="text-sm text-slate-500 font-light mt-1">Al-Baqarah</p>
@@ -99,12 +99,12 @@ export function HomeView() {
               onClick={() => playChapter(chapter)}
               className={`group flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer ${
                 currentChapter?.id === chapter.id
-                  ? 'bg-gold-500/10 border-gold-500/30 text-gold-400'
-                  : 'bg-[#11141A]/50 border-white/5 hover:bg-[#151921] hover:border-white/10 text-slate-300'
+                  ? 'bg-teal-500/10 border-teal-500/30 text-teal-400'
+                  : 'bg-[#0F172A]/50 border-white/5 hover:bg-[#0F172A] hover:border-white/10 text-slate-300'
               }`}
             >
               <div className="flex items-center gap-4">
-                <span className={`text-sm font-mono opacity-50 ${currentChapter?.id === chapter.id ? 'text-gold-400' : ''}`}>
+                <span className={`text-sm font-mono opacity-50 ${currentChapter?.id === chapter.id ? 'text-teal-400' : ''}`}>
                   {chapter.id}.
                 </span>
                 <div className="flex flex-col">

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
-import { Chapter, Reciter, AmbientTrack } from '../types';
+import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
+import localforage from 'localforage';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -27,6 +28,10 @@ interface PlayerContextType {
   skipBackward: () => void;
   chapters: Chapter[];
   setChapters: (chapters: Chapter[]) => void;
+  customReciters: Reciter[];
+  setCustomReciters: (r: Reciter[]) => void;
+  customVideos: CustomVideo[];
+  setCustomVideos: (v: CustomVideo[]) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -37,6 +42,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentReciter, setCurrentReciter] = useState<Reciter | null>(null);
   const [currentAmbient, setCurrentAmbient] = useState<AmbientTrack | null>(null);
   
+  const [customReciters, setCustomReciters] = useState<Reciter[]>([]);
+  const [customVideos, setCustomVideos] = useState<CustomVideo[]>([]);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -47,10 +55,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem('quranVolume');
     return saved ? parseFloat(saved) : 1.0;
   });
-
+  
   const [ambientVolume, setAmbientVolume] = useState(() => {
     const saved = localStorage.getItem('ambientVolume');
-    return saved ? parseFloat(saved) : 0.4;
+    return saved ? parseFloat(saved) : 0.5;
   });
 
   const [playbackRate, setPlaybackRate] = useState(() => {
@@ -62,13 +70,23 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
   const listeningLogRef = useRef<{ surahId: number, reciterId: string, seconds: number, lastLoggedAt: number } | null>(null);
 
+  // Initialize DB and Load Custom Assets
+  useEffect(() => {
+    async function loadCustomAssets() {
+      const reciters = await localforage.getItem<Reciter[]>('customReciters') || [];
+      const videos = await localforage.getItem<CustomVideo[]>('customVideos_list') || [];
+      setCustomReciters(reciters);
+      setCustomVideos(videos);
+    }
+    loadCustomAssets();
+  }, []);
+
   // Initialize audio elements
   useEffect(() => {
     quranAudioRef.current = new Audio();
     ambientAudioRef.current = new Audio();
     ambientAudioRef.current.loop = true;
     
-    // Attach event listeners for progress tracking
     const updateTime = () => setCurrentTime(quranAudioRef.current?.currentTime || 0);
     const updateDuration = () => setDuration(quranAudioRef.current?.duration || 0);
     const handleEnded = () => playNextChapter();
@@ -83,7 +101,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     quranAudio.addEventListener('play', handlePlay);
     quranAudio.addEventListener('pause', handlePause);
     
-    // Attempt to buffer enough data smoothly
     quranAudio.preload = "metadata";
 
     return () => {
@@ -96,13 +113,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       quranAudio.pause();
       ambientAudioRef.current?.pause();
     };
-  }, [chapters]); // Dependency to ensure handleEnded captures the latest chapters array via closure (simplified)
+  }, [chapters]); 
 
-  // Tracking Listening Time (every 10 seconds of active playback)
+  // Tracking Listening Time
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isPlaying && currentChapter && currentReciter) {
-      // Init log state if needed
       if (!listeningLogRef.current || listeningLogRef.current.surahId !== currentChapter.id) {
         listeningLogRef.current = {
           surahId: currentChapter.id,
@@ -115,16 +131,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       interval = setInterval(() => {
         if (listeningLogRef.current) {
           listeningLogRef.current.seconds += 10;
-          // Commit to storage every 10 seconds for durability
           addListeningLog(listeningLogRef.current.surahId, listeningLogRef.current.reciterId, 10);
         }
       }, 10000);
     }
-
     return () => clearInterval(interval);
   }, [isPlaying, currentChapter, currentReciter]);
 
-  // Update volumes when state changes
   useEffect(() => {
     if (quranAudioRef.current) quranAudioRef.current.volume = quranVolume;
     localStorage.setItem('quranVolume', quranVolume.toString());
@@ -140,7 +153,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('playbackRate', playbackRate.toString());
   }, [playbackRate]);
 
-  // Synchronize ambient audio with play state and current track
   useEffect(() => {
     if (!ambientAudioRef.current) return;
     
@@ -161,21 +173,44 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentAmbient, isPlaying, ambientVolume]);
 
-  // Core playback function (Synchronous URL construction avoids Safari auto-play blocking!)
-  const playChapter = (chapter: Chapter) => {
+  // Handle cached playback
+  const fetchAndCacheAudio = async (url: string, cacheKey: string) => {
+    try {
+      const cachedBlob = await localforage.getItem<Blob>(cacheKey);
+      if (cachedBlob) {
+        return URL.createObjectURL(cachedBlob);
+      }
+      
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Network response was not ok');
+      const blob = await response.blob();
+      
+      // Save for later
+      await localforage.setItem(cacheKey, blob);
+      
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      console.warn("Failed to cache audio, streaming directly:", e);
+      return url; // fallback to direct streaming
+    }
+  };
+
+  const playChapter = async (chapter: Chapter) => {
     if (!currentReciter || !quranAudioRef.current) return;
     
     try {
       setIsLoading(true);
       setCurrentChapter(chapter);
       
-      // Construct mp3quran server URL directly based on Chapter ID (001.mp3, 114.mp3)
       const chapterNumberString = String(chapter.id).padStart(3, '0');
       const url = `${currentReciter.serverUrl}${chapterNumberString}.mp3`;
+      const cacheKey = `quran_audio_${currentReciter.id}_${chapter.id}`;
       
-      quranAudioRef.current.src = url;
+      // Fetch Blob from IndexedDB or Network, then create object URL
+      const finalUrl = await fetchAndCacheAudio(url, cacheKey);
       
-      // Promise handles autoplay policies safely
+      quranAudioRef.current.src = finalUrl;
+      
       quranAudioRef.current.play()
         .then(() => {
           if (currentAmbient && ambientAudioRef.current && ambientAudioRef.current.src) {
@@ -250,21 +285,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // If reciter changes, update current playing audio instantly
   useEffect(() => {
+    // Only auto-play if we actually switched reciter *while* already playing a track
     if (currentReciter && currentChapter && quranAudioRef.current) {
-      const wasPlaying = isPlaying;
-      const savedTime = quranAudioRef.current.currentTime;
-      
-      const chapterNumberString = String(currentChapter.id).padStart(3, '0');
-      const url = `${currentReciter.serverUrl}${chapterNumberString}.mp3`;
-      
-      quranAudioRef.current.src = url;
-      quranAudioRef.current.currentTime = savedTime;
-      
-      if (wasPlaying) {
-        quranAudioRef.current.play().catch(console.error);
-      }
+      // Small debounce/check to prevent infinite loop on first load
+      // Realistically we want to pause, load new URL, and play.
+      const handleReciterChange = async () => {
+        const wasPlaying = isPlaying;
+        const savedTime = quranAudioRef.current!.currentTime;
+        
+        setIsLoading(true);
+        const chapterNumberString = String(currentChapter.id).padStart(3, '0');
+        const url = `${currentReciter.serverUrl}${chapterNumberString}.mp3`;
+        const cacheKey = `quran_audio_${currentReciter.id}_${currentChapter.id}`;
+        
+        const finalUrl = await fetchAndCacheAudio(url, cacheKey);
+        
+        quranAudioRef.current!.src = finalUrl;
+        quranAudioRef.current!.currentTime = savedTime;
+        
+        setIsLoading(false);
+        if (wasPlaying) {
+          quranAudioRef.current!.play().catch(console.error);
+        }
+      };
+      // To avoid triggering on first mount incorrectly, check if src is already set to current reciter
+      // Just re-run play logic
     }
   }, [currentReciter]);
 
@@ -293,7 +339,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       skipForward,
       skipBackward,
       chapters,
-      setChapters
+      setChapters,
+      customReciters,
+      setCustomReciters,
+      customVideos,
+      setCustomVideos
     }}>
       {children}
     </PlayerContext.Provider>

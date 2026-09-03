@@ -22,3 +22,7 @@ export interface AmbientTrack {
   icon: any; 
 }
 
+export interface CustomVideo {
+  id: string;
+  name: string;
+}

@@ -27,7 +27,7 @@ export function SurahLibraryView() {
             placeholder="Search e.g. Al-Kahf or 18" 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#11141A] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/30 focus:bg-[#161A22] transition-all text-lg shadow-inner"
+            className="w-full bg-[#0F172A] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500/30 focus:bg-[#161A22] transition-all text-lg shadow-inner"
           />
         </div>
       </header>
@@ -49,7 +49,7 @@ export function SurahLibraryView() {
               }`}
             >
               <div className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all shadow-inner ${
-                isCurrent ? 'bg-amber-500 text-[#0A0C10] shadow-[0_0_20px_rgba(245,158,11,0.2)]' : 'bg-[#151921] text-slate-400 group-hover:bg-[#1A1F29]'
+                isCurrent ? 'bg-amber-500 text-[#0A0C10] shadow-[0_0_20px_rgba(245,158,11,0.2)]' : 'bg-[#0F172A] text-slate-400 group-hover:bg-[#1E293B]'
               }`}>
                 {isCurrent && isPlaying ? (
                   <Pause size={20} className="fill-current" />
@@ -84,7 +84,7 @@ export function SurahLibraryView() {
         
         {filteredChapters.length === 0 && (
           <div className="text-center py-24">
-            <div className="w-20 h-20 bg-[#151921] rounded-full flex items-center justify-center mx-auto mb-6 text-slate-600">
+            <div className="w-20 h-20 bg-[#0F172A] rounded-full flex items-center justify-center mx-auto mb-6 text-slate-600">
               <Search size={32} />
             </div>
             <h3 className="text-xl font-medium text-slate-300 mb-2 font-serif">No results found</h3>

@@ -37,7 +37,7 @@ export function BottomPlayer() {
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className={`fixed bottom-0 left-0 right-0 md:ml-64 bg-[#0A0C10]/90 backdrop-blur-3xl border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 ${expanded ? 'h-[28rem]' : 'h-28'}`}>
+    <div className={`fixed bottom-0 left-0 right-0 md:ml-72 bg-[#0A0C10]/90 backdrop-blur-3xl border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 ${expanded ? 'h-[28rem]' : 'h-28'}`}>
       
       {/* Always Visible Progress Bar */}
       <div className={`absolute top-0 left-0 w-full -mt-2 group ${expanded ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
@@ -51,7 +51,7 @@ export function BottomPlayer() {
           max={duration || 100}
           value={currentTime}
           onChange={(e) => seekTo(parseFloat(e.target.value))}
-          className="w-full h-1.5 appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all z-20 absolute top-0 block"
+          className="w-full h-1.5 appearance-none cursor-pointer accent-teal-500 hover:accent-teal-400 transition-all z-20 absolute top-0 block"
           style={{ 
             padding: 0, margin: 0, outline: 'none', borderRadius: 0,
             background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)`
@@ -65,12 +65,12 @@ export function BottomPlayer() {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-5 flex-1 overflow-hidden">
-          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center flex-shrink-0 shadow-lg ${isPlaying ? 'shadow-[0_0_20px_rgba(226,183,83,0.3)]' : ''} transition-all duration-500`}>
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-lg ${isPlaying ? 'shadow-[0_0_20px_rgba(226,183,83,0.3)]' : ''} transition-all duration-500`}>
             <span className="text-[#050608] font-bold text-xl font-serif">{currentChapter.id}</span>
           </div>
           
           <div className="flex flex-col overflow-hidden whitespace-nowrap">
-            <span className="text-white font-serif text-xl truncate group-hover:text-gold-400 transition-colors">
+            <span className="text-white font-serif text-xl truncate group-hover:text-teal-400 transition-colors">
               {currentChapter.name_simple}
             </span>
             <span className="text-slate-400 text-sm truncate flex items-center gap-2 font-light tracking-wide">
@@ -116,7 +116,7 @@ export function BottomPlayer() {
             <SkipForward size={24} className="fill-current" />
           </button>
           
-          <button className="p-2 text-slate-600 hover:text-white transition-colors ml-4 hidden md:block group-hover:text-gold-500">
+          <button className="p-2 text-slate-600 hover:text-white transition-colors ml-4 hidden md:block group-hover:text-teal-500">
             {expanded ? <ChevronDown size={24} /> : <ChevronUp size={24} />}
           </button>
         </div>
@@ -139,7 +139,7 @@ export function BottomPlayer() {
                 max={duration || 100}
                 value={currentTime}
                 onChange={(e) => seekTo(parseFloat(e.target.value))}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500 hover:accent-gold-400 transition-all"
+                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500 hover:accent-teal-400 transition-all"
                 style={{ background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)` }}
               />
             </div>
@@ -154,7 +154,7 @@ export function BottomPlayer() {
                   step="0.01"
                   value={quranVolume}
                   onChange={(e) => setQuranVolume(parseFloat(e.target.value))}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer accent-gold-500"
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500"
                   style={{ background: `linear-gradient(to right, #E2B753 ${quranVolume * 100}%, #1A1F29 ${quranVolume * 100}%)` }}
                 />
               </div>

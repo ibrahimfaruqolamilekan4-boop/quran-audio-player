@@ -23,7 +23,7 @@ export function HubView() {
       description: 'Steady recitation combined with light rain to aid retention.',
       icon: BookOpen,
       bgClass: 'bg-gradient-to-br from-[#1C1710] to-[#0A0C10]',
-      accentColor: 'text-gold-400',
+      accentColor: 'text-teal-400',
       ambientId: 'rain',
       defaultSurahId: 36
     },
@@ -52,7 +52,7 @@ export function HubView() {
   return (
     <div className="max-w-5xl mx-auto space-y-20">
       <header className="pt-8">
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#151921] border border-white/5 text-gold-500 text-sm font-medium mb-6 uppercase tracking-widest">
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0F172A] border border-white/5 text-teal-500 text-sm font-medium mb-6 uppercase tracking-widest">
           <Headphones size={14} />
           Focus Engine
         </div>
@@ -69,19 +69,19 @@ export function HubView() {
           {modes.map(mode => (
             <div 
               key={mode.id}
-              className={`relative overflow-hidden rounded-[2rem] ${mode.bgClass} border border-white/5 p-8 flex flex-col justify-between min-h-[320px] group hover:border-gold-500/30 transition-all duration-700 hover:-translate-y-1 shadow-2xl`}
+              className={`relative overflow-hidden rounded-[2rem] ${mode.bgClass} border border-white/5 p-8 flex flex-col justify-between min-h-[320px] group hover:border-teal-500/30 transition-all duration-700 hover:-translate-y-1 shadow-2xl`}
             >
               <div className={`w-14 h-14 rounded-2xl bg-black/40 backdrop-blur-md flex items-center justify-center shadow-inner ${mode.accentColor} border border-white/5 group-hover:scale-110 transition-transform duration-500`}>
                 <mode.icon size={24} strokeWidth={1.5} />
               </div>
               
               <div className="mt-12 space-y-3 relative z-10 w-full">
-                <h4 className="text-2xl font-serif text-white tracking-wide group-hover:text-gold-400 transition-colors">{mode.title}</h4>
+                <h4 className="text-2xl font-serif text-white tracking-wide group-hover:text-teal-400 transition-colors">{mode.title}</h4>
                 <p className="text-base text-slate-400 font-light leading-relaxed">{mode.description}</p>
                 
                 <button 
                   onClick={() => handleStartMode(mode.ambientId, mode.defaultSurahId)}
-                  className="mt-8 w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-white/5 hover:bg-gold-500 text-slate-300 hover:text-black font-medium transition-all duration-500"
+                  className="mt-8 w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-white/5 hover:bg-teal-500 text-slate-300 hover:text-black font-medium transition-all duration-500"
                 >
                   <Play size={18} className="fill-current" />
                   Start Session
@@ -107,8 +107,8 @@ export function HubView() {
                 onClick={() => setAmbientTrack(isActive ? null : track)}
                 className={`p-6 rounded-[1.5rem] flex flex-col items-center justify-center gap-4 transition-all duration-500 ${
                   isActive 
-                    ? 'bg-gold-500/10 border-gold-500/40 text-gold-400 shadow-[0_0_30px_rgba(226,183,83,0.15)] scale-105' 
-                    : 'bg-[#11141A] border-white/5 text-slate-500 hover:bg-[#151921] hover:text-slate-300 hover:border-white/10'
+                    ? 'bg-teal-500/10 border-teal-500/40 text-teal-400 shadow-[0_0_30px_rgba(226,183,83,0.15)] scale-105' 
+                    : 'bg-[#0F172A] border-white/5 text-slate-500 hover:bg-[#0F172A] hover:text-slate-300 hover:border-white/10'
                 } border`}
               >
                 <track.icon size={32} strokeWidth={1} />
