@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
+import { usePlayer } from '../context/PlayerContext';
 
 /**
  * THEME CONFIGURATION INTERFACE
@@ -373,15 +374,43 @@ export function QuranicPremiumBackground({
   ambientVolume = 0.6,
 }: QuranicPremiumBackgroundProps) {
   const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['midnight-scholar'];
+  const { activeBackgroundVideoId } = usePlayer();
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const visualIntensity = Math.max(0.2, ambientVolume);
 
   useEffect(() => {
+    let objectUrl: string | null = null;
+    let isMounted = true;
+
+    async function loadCustomVideo() {
+      if (!activeBackgroundVideoId) {
+        if (isMounted) setVideoUrl(null);
+        return;
+      }
+      try {
+        const blob = await localforage.getItem('customVideo_blob_' + activeBackgroundVideoId);
+        if (blob && isMounted) {
+          objectUrl = URL.createObjectURL(blob);
+          setVideoUrl(objectUrl);
+        } else if (isMounted) {
+          setVideoUrl(null);
+        }
+      } catch (e) {
+        console.error("Failed to load background video:", e);
+        if (isMounted) setVideoUrl(null);
+      }
+    }
+
+    loadCustomVideo();
+
     return () => {
-      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      isMounted = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
-  }, [videoUrl]);
+  }, [activeBackgroundVideoId]);
 
   return (
     <div className="fixed inset-0 -z-50 w-full h-full overflow-hidden">
@@ -424,8 +453,8 @@ export function QuranicPremiumBackground({
               aria-hidden="true"
               className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover pointer-events-none mix-blend-screen transition-opacity duration-1000"
               style={{
-                opacity: visualIntensity * 0.5,
-                filter: `brightness(${0.3 + visualIntensity * 0.4})`,
+                opacity: Math.max(0.4, visualIntensity * 0.8),
+                filter: `brightness(${0.5 + visualIntensity * 0.5})`,
               }}
               src={videoUrl}
             />

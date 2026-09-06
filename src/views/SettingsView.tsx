@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { usePlayer } from '../context/PlayerContext';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
-import { Plus, Trash2, Upload, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Upload, Settings as SettingsIcon, AlertCircle, Play } from 'lucide-react';
 
 export function SettingsView() {
-  const { customReciters, setCustomReciters, customVideos, setCustomVideos } = usePlayer();
+  const { customReciters, setCustomReciters, customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId } = usePlayer();
   const [newReciterName, setNewReciterName] = useState('');
   const [newReciterUrl, setNewReciterUrl] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -197,14 +197,27 @@ export function SettingsView() {
               <p className="text-slate-500 text-center py-4">No custom videos uploaded yet.</p>
             ) : (
               customVideos.map(video => (
-                <div key={video.id} className="flex items-center justify-between bg-[#030712]/50 border border-slate-800 rounded-xl p-4">
+                <div key={video.id} className={`flex items-center justify-between ${activeBackgroundVideoId === video.id ? 'bg-teal-500/10 border-teal-500/50' : 'bg-[#030712]/50 border-slate-800'} border rounded-xl p-4 transition-all`}>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-slate-800 rounded-lg flex items-center justify-center">
-                      <Upload className="w-5 h-5 text-slate-400" />
+                    <button 
+                      onClick={() => setActiveBackgroundVideoId(activeBackgroundVideoId === video.id ? null : video.id)}
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${activeBackgroundVideoId === video.id ? 'bg-teal-500 text-slate-900' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                      title={activeBackgroundVideoId === video.id ? "Active Background" : "Set as Background"}
+                    >
+                      {activeBackgroundVideoId === video.id ? <Play className="w-5 h-5 fill-current" /> : <Upload className="w-5 h-5" />}
+                    </button>
+                    <div>
+                      <h3 className={`font-medium ${activeBackgroundVideoId === video.id ? 'text-teal-400' : 'text-white'}`}>{video.name}</h3>
+                      {activeBackgroundVideoId === video.id && <span className="text-[10px] uppercase tracking-wider text-teal-500/80 font-semibold">Active Background</span>}
                     </div>
-                    <h3 className="text-white font-medium">{video.name}</h3>
                   </div>
-                  <button onClick={() => handleRemoveVideo(video.id)} className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => {
+                      if (activeBackgroundVideoId === video.id) setActiveBackgroundVideoId(null);
+                      handleRemoveVideo(video.id);
+                    }} 
+                    className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                  >
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>

@@ -32,6 +32,8 @@ interface PlayerContextType {
   setCustomReciters: (r: Reciter[]) => void;
   customVideos: CustomVideo[];
   setCustomVideos: (v: CustomVideo[]) => void;
+  activeBackgroundVideoId: string | null;
+  setActiveBackgroundVideoId: (id: string | null) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -44,6 +46,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   
   const [customReciters, setCustomReciters] = useState<Reciter[]>([]);
   const [customVideos, setCustomVideos] = useState<CustomVideo[]>([]);
+  const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => localStorage.getItem("activeBackgroundVideoId") || null);
+
+  useEffect(() => {
+    if (activeBackgroundVideoId) localStorage.setItem("activeBackgroundVideoId", activeBackgroundVideoId);
+    else localStorage.removeItem("activeBackgroundVideoId");
+  }, [activeBackgroundVideoId]);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -343,7 +351,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       customReciters,
       setCustomReciters,
       customVideos,
-      setCustomVideos
+      setCustomVideos,
+      activeBackgroundVideoId,
+      setActiveBackgroundVideoId
     }}>
       {children}
     </PlayerContext.Provider>
