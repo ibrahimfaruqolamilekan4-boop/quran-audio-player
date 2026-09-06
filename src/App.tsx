@@ -18,13 +18,12 @@ function AppContent() {
   const [currentTheme, setCurrentTheme] = useState('midnight-scholar');
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   
-  // ✨ UPDATED: Get isPlaying from context
   const { 
     setChapters, 
     setReciter, 
     customReciters, 
     ambientVolume,
-    isPlaying  // ← NEW: Get playback state
+    isPlaying
   } = usePlayer();
   
   const themes = Object.keys(THEME_LIBRARY);
@@ -47,11 +46,10 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
-      {/* ✨ IMPROVED: Pass isPlaying to background component */}
       <QuranicPremiumBackground 
         themeName={currentTheme}
         ambientVolume={ambientVolume}
-        isPlaying={isPlaying}  {/* ← NEW: Video shows when playing */}
+        isPlaying={isPlaying}
       />
       
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
@@ -121,19 +119,3 @@ export default function App() {
     </PlayerProvider>
   );
 }
-
-/**
- * WHAT CHANGED:
- * 
- * 1. Line 22: Added isPlaying to usePlayer destructuring
- *    const { 
- *      // ... existing items ...
- *      isPlaying  // ← NEW
- *    } = usePlayer();
- * 
- * 2. Line 46: Pass isPlaying to QuranicPremiumBackground
- *    <QuranicPremiumBackground 
- *      themeName={currentTheme}
- *      ambientVolume={ambientVolume}
- *      isPlaying={isPlaying}  {/* ← NEW */}
- *    />
