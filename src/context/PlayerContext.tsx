@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useRef, useEffect } from 'r
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
 import localforage from 'localforage';
+import { useAuth } from './AuthContext';
+import { db } from '../lib/firebase';
+import { collection, getDocs, doc, setDoc, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -39,6 +42,7 @@ interface PlayerContextType {
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   const [currentReciter, setCurrentReciter] = useState<Reciter | null>(null);
@@ -78,16 +82,55 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
   const listeningLogRef = useRef<{ surahId: number, reciterId: string, seconds: number, lastLoggedAt: number } | null>(null);
 
-  // Initialize DB and Load Custom Assets
+    // Initialize DB and Load Custom Assets
   useEffect(() => {
     async function loadCustomAssets() {
-      const reciters = await localforage.getItem<Reciter[]>('customReciters') || [];
+      // Always load local first
+      const localReciters = await localforage.getItem<Reciter[]>('customReciters') || [];
       const videos = await localforage.getItem<CustomVideo[]>('customVideos_list') || [];
-      setCustomReciters(reciters);
+      
       setCustomVideos(videos);
+
+      if (user) {
+        // Sync reciters from firestore
+        try {
+          const snapshot = await getDocs(collection(db, 'users', user.uid, 'customReciters'));
+          const cloudReciters = snapshot.docs.map(doc => doc.data() as Reciter);
+          
+          // Merge local and cloud reciters
+          const merged = [...localReciters];
+          for (const cr of cloudReciters) {
+            if (!merged.find(r => r.id === cr.id)) {
+              merged.push(cr);
+            }
+          }
+          setCustomReciters(merged);
+          await localforage.setItem('customReciters', merged);
+        } catch (e) {
+          console.error('Failed to sync reciters from cloud', e);
+          setCustomReciters(localReciters);
+        }
+
+        // Sync active video from firestore
+        try {
+          const prefRef = doc(db, 'users', user.uid, 'preferences', 'default');
+          const prefSnap = await getDoc(prefRef);
+          if (prefSnap.exists() && prefSnap.data().activeBackgroundVideoId !== undefined) {
+             const cloudVideoId = prefSnap.data().activeBackgroundVideoId;
+             if (cloudVideoId !== activeBackgroundVideoId) {
+               setActiveBackgroundVideoId(cloudVideoId);
+             }
+          }
+        } catch (e) {
+          console.error('Failed to sync preferences from cloud', e);
+        }
+
+      } else {
+        setCustomReciters(localReciters);
+      }
     }
     loadCustomAssets();
-  }, []);
+  }, [user]);
 
   // Initialize audio elements
   useEffect(() => {
