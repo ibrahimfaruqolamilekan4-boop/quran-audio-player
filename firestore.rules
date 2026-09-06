@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // Validation Blueprint for UserPreferences
+    function isValidUserPreferences(data) {
+      return data.keys().hasAll(['userId'])
+        && data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid
+        && (notHas(data, 'theme') || (data.theme is string && data.theme.size() <= 100))
+        && (notHas(data, 'createdAt') || data.createdAt is timestamp)
+        && (notHas(data, 'updatedAt') || data.updatedAt is timestamp);
+    }
+    
+    function notHas(data, key) {
+      return !(key in data);
+    }
+
+    // Rules for UserPreferences
+    match /users/{userId}/preferences/{preferenceId} {
+      allow read, list: if isSignedIn() && request.auth.uid == userId;
+      
+      allow create: if isSignedIn() 
+        && isValidId(userId) 
+        && request.auth.uid == userId
+        && isValidUserPreferences(incoming());
+        
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserPreferences(incoming())
+        && incoming().userId == existing().userId; // Immutable
+        
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}
