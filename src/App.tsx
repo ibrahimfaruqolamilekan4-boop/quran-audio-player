@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
-import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
 import { Sidebar } from './components/Sidebar';
 import { QuranicPremiumBackground, THEME_LIBRARY } from './components/QuranicPremiumBackground';
@@ -18,7 +17,16 @@ function AppContent() {
   const [currentTab, setCurrentTab] = useState('home');
   const [currentTheme, setCurrentTheme] = useState('midnight-scholar');
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
-  const { setChapters, setReciter, customReciters, ambientVolume } = usePlayer();
+  
+  // ✨ UPDATED: Get isPlaying from context
+  const { 
+    setChapters, 
+    setReciter, 
+    customReciters, 
+    ambientVolume,
+    isPlaying  // ← NEW: Get playback state
+  } = usePlayer();
+  
   const themes = Object.keys(THEME_LIBRARY);
 
   useEffect(() => {
@@ -35,13 +43,15 @@ function AppContent() {
     
     initApp();
     return () => { isMounted = false; };
-  }, [customReciters]); // Re-evaluate default if custom reciters load
+  }, [customReciters]);
 
   return (
     <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
+      {/* ✨ IMPROVED: Pass isPlaying to background component */}
       <QuranicPremiumBackground 
         themeName={currentTheme}
         ambientVolume={ambientVolume}
+        isPlaying={isPlaying}  {/* ← NEW: Video shows when playing */}
       />
       
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
@@ -106,10 +116,24 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <PlayerProvider>
-        <AppContent />
-      </PlayerProvider>
-    </AuthProvider>
+    <PlayerProvider>
+      <AppContent />
+    </PlayerProvider>
   );
 }
+
+/**
+ * WHAT CHANGED:
+ * 
+ * 1. Line 22: Added isPlaying to usePlayer destructuring
+ *    const { 
+ *      // ... existing items ...
+ *      isPlaying  // ← NEW
+ *    } = usePlayer();
+ * 
+ * 2. Line 46: Pass isPlaying to QuranicPremiumBackground
+ *    <QuranicPremiumBackground 
+ *      themeName={currentTheme}
+ *      ambientVolume={ambientVolume}
+ *      isPlaying={isPlaying}  {/* ← NEW */}
+ *    />
