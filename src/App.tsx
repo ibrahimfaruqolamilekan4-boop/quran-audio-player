@@ -31,18 +31,22 @@ function AppContent() {
   useEffect(() => {
     let isMounted = true;
     async function initApp() {
-      const chaptersData = await getChapters();
-      if (!isMounted) return;
-      setChapters(chaptersData);
-      
-      const allReciters = [...CURATED_RECITERS, ...customReciters];
-      const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
-      setReciter(defaultReciter);
+      try {
+        const chaptersData = await getChapters();
+        if (!isMounted) return;
+        setChapters(chaptersData);
+        
+        const allReciters = [...CURATED_RECITERS, ...customReciters];
+        const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
+        setReciter(defaultReciter);
+      } catch (error) {
+        console.error('Error initializing app:', error);
+      }
     }
     
     initApp();
     return () => { isMounted = false; };
-  }, [customReciters]);
+  }, [customReciters, setChapters, setReciter]);
 
   return (
     <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
