@@ -7,27 +7,100 @@
       "properties": {
         "userId": {
           "type": "string",
-          "description": "The UID of the user."
+          "maxLength": 128
         },
         "theme": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 100
         },
-        "createdAt": {
-          "type": "number",
-          "description": "Timestamp of creation."
+        "activeBackgroundVideoId": {
+          "type": "string",
+          "maxLength": 100
         },
         "updatedAt": {
-          "type": "number",
-          "description": "Timestamp of last update."
+          "type": "number"
         }
       },
-      "required": ["userId"]
+      "required": [
+        "userId"
+      ]
+    },
+    "CustomReciter": {
+      "title": "CustomReciter",
+      "description": "User uploaded custom reciter configurations",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "serverUrl": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "style": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "serverUrl"
+      ]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Top-level user profile.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "lastLoginAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "userId"
+      ]
     }
   },
   "firestore": {
     "/users/{userId}/preferences/{preferenceId}": {
       "schema": "UserPreferences",
       "description": "User preferences stored securely for each user."
+    },
+    "/users/{userId}/customReciters/{reciterId}": {
+      "schema": "CustomReciter",
+      "description": "User's custom reciters."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document."
     }
   }
 }

@@ -20,9 +20,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
-      // Initialize user preferences if they don't exist
       if (currentUser) {
         try {
+          // 1. Sync User Profile
+          const userRef = doc(db, 'users', currentUser.uid);
+          const userSnap = await getDoc(userRef);
+          
+          const userData = {
+            userId: currentUser.uid,
+            email: currentUser.email || null,
+            displayName: currentUser.displayName || null,
+            photoURL: currentUser.photoURL || null,
+            lastLoginAt: serverTimestamp()
+          };
+
+          if (!userSnap.exists()) {
+            await setDoc(userRef, {
+              ...userData,
+              createdAt: serverTimestamp()
+            });
+          } else {
+            await setDoc(userRef, userData, { merge: true });
+          }
+
+          // 2. Initialize user preferences if they don't exist
           const prefRef = doc(db, 'users', currentUser.uid, 'preferences', 'default');
           const prefSnap = await getDoc(prefRef);
           if (!prefSnap.exists()) {
@@ -34,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } catch (e) {
-          console.error("Failed to initialize user preferences", e);
+          console.error("Failed to sync user profile or initialize preferences", e);
         }
       }
       
