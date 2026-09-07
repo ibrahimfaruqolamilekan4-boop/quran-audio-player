@@ -4,11 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { BookOpen, AlertCircle } from 'lucide-react';
 
 export function AuthView() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { user, signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { user, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   const [inIframe, setInIframe] = useState(false);
@@ -20,36 +17,17 @@ export function AuthView() {
     }
   }, []);
 
-
   useEffect(() => {
     if (user) {
       navigate('/dashboard');
     }
   }, [user, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    try {
-      if (isLogin) {
-        await signInWithEmail(email, password);
-      } else {
-        await signUpWithEmail(email, password);
-      }
-    } catch (err: any) {
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('Email/Password login is not enabled in your Firebase Console. Please go to Authentication -> Sign-in method -> Add new provider -> Enable Email/Password.');
-      } else {
-        setError(err.message || 'Authentication failed');
-      }
-    }
-  };
-
   const handleGoogle = async () => {
     try {
       await signInWithGoogle();
     } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user' || err.message.includes('popup')) {
+      if (err.code === 'auth/popup-closed-by-user' || err?.message?.includes('popup')) {
         setError('Popup was blocked or closed. If you are viewing this inside the AI Studio editor, please click the "Open App in New Tab" icon at the top right of the preview window to sign in.');
       } else {
         setError(err.message || 'Google sign-in failed');
@@ -66,67 +44,30 @@ export function AuthView() {
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-[0_0_20px_rgba(45,212,191,0.2)] mb-4">
             <BookOpen size={24} className="text-[#020617]" />
           </div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">{isLogin ? 'Welcome back' : 'Create your account'}</h2>
-          <p className="text-slate-400 mt-2 text-sm">{isLogin ? 'Enter your credentials to access your dashboard' : 'Join Nooraya to sync your progress'}</p>
+          <h2 className="text-2xl font-bold text-white tracking-tight">Welcome to Nooraya</h2>
+          <p className="text-slate-400 mt-2 text-sm text-center">Sign in to access your dashboard, track your progress, and manage your focus space.</p>
         </div>
 
-        
         {inIframe && (
           <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-3 rounded-xl flex items-start gap-3 mb-6 text-xs leading-relaxed">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
             <span>
-              <strong>Running in preview mode.</strong> Google Sign-In popups may be blocked by your browser here. 
-              If the Google button doesn't work, please open this app in a <strong>new full-screen tab</strong> using the icon at the top right of your screen.
+              <strong>Running in preview mode.</strong> Google Sign-In popups are blocked by your browser here. 
+              Please open this app in a <strong>new full-screen tab</strong> using the icon at the top right of your screen to sign in.
             </span>
           </div>
         )}
         
         {error && (
-
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl flex items-start gap-3 mb-6 text-sm">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4 mb-6">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 ml-1">Email Address</label>
-            <input 
-              type="email" 
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="w-full bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 ml-1">Password</label>
-            <input 
-              type="password" 
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all"
-              required
-              minLength={6}
-            />
-          </div>
-          <button 
-            type="submit"
-            className="w-full bg-teal-500 hover:bg-teal-400 text-slate-900 font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(20,184,166,0.3)] mt-2"
-          >
-            {isLogin ? 'Sign In' : 'Sign Up'}
-          </button>
-        </form>
-
-        <div className="relative flex items-center justify-center mb-6">
-          <div className="absolute border-t border-slate-800 w-full" />
-          <span className="bg-[#131722] px-4 text-xs text-slate-500 relative z-10">OR</span>
-        </div>
-
         <button 
           onClick={handleGoogle}
-          className="w-full bg-white hover:bg-slate-200 text-slate-900 font-semibold py-3 rounded-xl flex items-center justify-center gap-2 transition-all"
+          className="w-full bg-white hover:bg-slate-200 text-slate-900 font-semibold py-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -137,13 +78,6 @@ export function AuthView() {
           </svg>
           Continue with Google
         </button>
-
-        <p className="text-center text-sm text-slate-400 mt-8">
-          {isLogin ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => setIsLogin(!isLogin)} className="text-teal-400 font-medium hover:underline">
-            {isLogin ? 'Sign up' : 'Sign in'}
-          </button>
-        </p>
       </div>
     </div>
   );
