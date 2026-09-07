@@ -390,7 +390,11 @@ export function QuranicPremiumBackground({
         return;
       }
       try {
-        const blob = await localforage.getItem<Blob>('customVideo_blob_' + activeBackgroundVideoId);
+        let blob = await localforage.getItem<Blob>(activeBackgroundVideoId);
+        if (!blob) {
+          blob = await localforage.getItem<Blob>('customVideo_blob_' + activeBackgroundVideoId);
+        }
+        
         if (blob && isMounted) {
           objectUrl = URL.createObjectURL(blob);
           setVideoUrl(objectUrl);

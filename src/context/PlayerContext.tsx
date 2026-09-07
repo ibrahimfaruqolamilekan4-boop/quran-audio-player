@@ -35,6 +35,8 @@ interface PlayerContextType {
   setCustomReciters: (r: Reciter[]) => void;
   customVideos: CustomVideo[];
   setCustomVideos: (v: CustomVideo[]) => void;
+  ambientVideoMapping: Record<string, string>;
+  setAmbientVideoMapping: (m: Record<string, string>) => void;
   activeBackgroundVideoId: string | null;
   setActiveBackgroundVideoId: (id: string | null) => void;
 }
@@ -50,6 +52,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   
   const [customReciters, setCustomReciters] = useState<Reciter[]>([]);
   const [customVideos, setCustomVideos] = useState<CustomVideo[]>([]);
+
+  const [ambientVideoMapping, setAmbientVideoMapping] = useState<Record<string, string>>({});
+
+  // Sync ambient mapping from local storage initially
+  useEffect(() => {
+    localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
+      if (mapping) setAmbientVideoMapping(mapping);
+    });
+  }, []);
+
+  // Update active background video when ambient track changes
+  useEffect(() => {
+    if (currentAmbient) {
+      const mappedId = ambientVideoMapping[currentAmbient.id];
+      setActiveBackgroundVideoId(mappedId || null);
+    }
+  }, [currentAmbient, ambientVideoMapping]);
+
   const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => localStorage.getItem("activeBackgroundVideoId") || null);
 
   useEffect(() => {
@@ -394,6 +414,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       customReciters,
       setCustomReciters,
       customVideos,
+      ambientVideoMapping,
+      setAmbientVideoMapping,
       setCustomVideos,
       activeBackgroundVideoId,
       setActiveBackgroundVideoId

@@ -19,6 +19,9 @@
         },
         "updatedAt": {
           "type": "number"
+        },
+        "ambientVideoMapping": {
+          "type": "object"
         }
       },
       "required": [

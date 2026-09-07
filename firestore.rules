@@ -27,7 +27,8 @@ service cloud.firestore {
         && data.userId is string && data.userId.size() <= 128 && data.userId == userId
         && (notHas(data, 'theme') || (data.theme is string && data.theme.size() <= 100))
         && (notHas(data, 'activeBackgroundVideoId') || data.activeBackgroundVideoId == null || (data.activeBackgroundVideoId is string && data.activeBackgroundVideoId.size() <= 100))
-        && (notHas(data, 'updatedAt') || data.updatedAt is timestamp);
+        && (notHas(data, 'updatedAt') || data.updatedAt is timestamp)
+        && (notHas(data, 'ambientVideoMapping') || data.ambientVideoMapping is map);
     }
 
     function isValidCustomReciter(data, userId) {

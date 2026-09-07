@@ -6,9 +6,10 @@ import { doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from 'firebase/fir
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import { Plus, Trash2, Upload, Settings as SettingsIcon, AlertCircle, Play, X, Video } from 'lucide-react';
+import { AMBIENT_TRACKS } from '../lib/constants';
 
 export function SettingsView() {
-  const { customReciters, setCustomReciters, customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId } = usePlayer();
+  const { customReciters, setCustomReciters, customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId, ambientVideoMapping, setAmbientVideoMapping } = usePlayer();
   const { user, signInWithGoogle, logOut } = useAuth();
   
   const [newReciterName, setNewReciterName] = useState('');
@@ -20,22 +21,24 @@ export function SettingsView() {
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+    useEffect(() => {
     let isMounted = true;
-    
-    // Load object URLs for thumbnails
     async function loadThumbnails() {
       const urls: Record<string, string> = {};
-      for (const video of customVideos) {
+      
+      const mappedIds = Object.values(ambientVideoMapping) as string[];
+      for (const vId of mappedIds) {
+        if (!vId) continue;
         try {
-          const blob = await localforage.getItem<Blob>('customVideo_blob_' + video.id);
+          const blob = await localforage.getItem<Blob>(vId);
           if (blob) {
-            urls[video.id] = URL.createObjectURL(blob);
+            urls[vId] = URL.createObjectURL(blob);
           }
         } catch (e) {
-          console.error("Error loading thumbnail", e);
+          console.error("Error loading ambient thumbnail", e);
         }
       }
+      
       if (isMounted) setVideoUrls(urls);
     }
     
@@ -45,7 +48,7 @@ export function SettingsView() {
       isMounted = false;
       Object.values(videoUrls).forEach(url => URL.revokeObjectURL(url as string));
     };
-  }, [customVideos]);
+  }, [ambientVideoMapping]);
 
   const validateUrl = (url: string) => {
     try {
@@ -53,6 +56,55 @@ export function SettingsView() {
       return true;
     } catch {
       return false;
+    }
+  };
+
+
+  const handleUploadAmbientVideo = async (trackId: string, file: File) => {
+    if (!file.type.startsWith('video/')) {
+      alert('Please select a valid video file.');
+      return;
+    }
+    const blob = new Blob([file], { type: file.type });
+    const videoId = 'ambient_vid_' + trackId;
+    
+    await localforage.setItem(videoId, blob);
+    const newMapping = { ...ambientVideoMapping, [trackId]: videoId };
+    setAmbientVideoMapping(newMapping);
+    await localforage.setItem('ambientVideoMapping', newMapping);
+    
+    if (user) {
+      try {
+         await updateDoc(doc(db, 'users', user.uid, 'preferences', 'default'), {
+           ambientVideoMapping: newMapping,
+           updatedAt: serverTimestamp()
+         });
+      } catch (e) {
+         console.error("Failed to sync video preferences", e);
+      }
+    }
+  };
+
+  const handleRemoveAmbientVideo = async (trackId: string) => {
+    const videoId = ambientVideoMapping[trackId];
+    if (videoId) {
+      await localforage.removeItem(videoId);
+    }
+    const newMapping = { ...ambientVideoMapping };
+    delete newMapping[trackId];
+    
+    setAmbientVideoMapping(newMapping);
+    await localforage.setItem('ambientVideoMapping', newMapping);
+    
+    if (user) {
+      try {
+         await updateDoc(doc(db, 'users', user.uid, 'preferences', 'default'), {
+           ambientVideoMapping: newMapping,
+           updatedAt: serverTimestamp()
+         });
+      } catch (e) {
+         console.error("Failed to sync video preferences", e);
+      }
     }
   };
 
@@ -267,107 +319,78 @@ export function SettingsView() {
           </div>
         </section>
 
-        {/* Custom Videos */}
+        
+        {/* Background Media Settings */}
         <section className="bg-[#131722]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl p-6 lg:p-8">
-          <h2 className="text-xl font-bold text-white mb-2">Custom Background Videos</h2>
-          <p className="text-slate-400 mb-6 text-sm">Upload videos directly from your device/gallery. Tap the play icon next to an uploaded video to set it as your active background.</p>
+          <h2 className="text-xl font-bold text-white mb-2">Background Media Settings</h2>
+          <p className="text-slate-400 mb-6 text-sm">Upload custom background videos for each ambient sound category. These will play automatically when the ambient sound is active.</p>
           
-          <div className="flex flex-col md:flex-row gap-4 mb-3">
-            <div className="flex-1 relative">
-              <input 
-                type="file" 
-                accept="video/mp4,video/webm,video/*"
-                onChange={e => { setVideoFile(e.target.files?.[0] || null); setVideoError(''); }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                title="Upload from Gallery / Device"
-              />
-              <div className={`bg-[#030712] border ${videoError && !videoFile ? 'border-red-500' : 'border-slate-700'} hover:border-teal-500/50 rounded-xl px-4 py-3 text-white flex items-center justify-between transition-all`}>
-                <span className="truncate">{videoFile ? videoFile.name : 'Choose Video from Gallery/Device...'}</span>
-                <Upload className="w-5 h-5 text-slate-400" />
-              </div>
-            </div>
-            {videoFile && (
-              <div className="w-16 h-12 bg-black rounded-lg overflow-hidden border border-slate-700 relative flex-shrink-0">
-                 <video src={URL.createObjectURL(videoFile)} className="w-full h-full object-cover opacity-70" />
-                 <div className="absolute inset-0 flex items-center justify-center">
-                   <Video className="w-5 h-5 text-white/80" />
-                 </div>
-              </div>
-            )}
-            <button 
-               onClick={handleUploadVideo}
-              className="bg-teal-500 hover:bg-teal-400 text-slate-900 font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition-all relative z-20"
-            >
-              <Plus className="w-5 h-5" /> Upload
-            </button>
-          </div>
-          <AnimatePresence>
-            {videoError && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="flex items-center gap-2 text-red-400 text-sm mb-4">
-                <AlertCircle size={16} />
-                <span>{videoError}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="space-y-3 mt-6">
-            {customVideos.length === 0 ? (
-              <p className="text-slate-500 text-center py-8 bg-[#030712]/30 rounded-xl border border-slate-800/50 border-dashed">No custom background videos uploaded yet.</p>
-            ) : (
-              customVideos.map(video => {
-                const isActive = activeBackgroundVideoId === video.id;
-                const thumbUrl = videoUrls[video.id];
-                return (
-                  <div key={video.id} className={`flex items-center justify-between ${isActive ? 'bg-teal-500/10 border-teal-500/50' : 'bg-[#030712]/50 border-slate-800'} border rounded-xl p-4 transition-all group`}>
-                    <div className="flex items-center gap-4">
-                      
-                      {/* Thumbnail & Preview Button */}
-                      <button 
-                        onClick={() => thumbUrl && setPreviewVideoUrl(thumbUrl)}
-                        className="w-16 h-12 bg-black rounded-lg overflow-hidden border border-slate-700 relative flex-shrink-0 group-hover:border-teal-500/50 transition-colors"
-                        title="Preview Video"
-                      >
-                         {thumbUrl ? (
-                           <>
-                             <video src={thumbUrl} className="w-full h-full object-cover opacity-60" />
-                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-                               <Play className="w-5 h-5 text-white fill-current" />
-                             </div>
-                           </>
-                         ) : (
-                           <div className="w-full h-full flex items-center justify-center bg-slate-800">
-                             <Video className="w-5 h-5 text-slate-500" />
-                           </div>
-                         )}
-                      </button>
-
-                      <div className="flex flex-col">
-                        <h3 className={`font-medium truncate max-w-[120px] sm:max-w-xs ${isActive ? 'text-teal-400' : 'text-white'}`}>{video.name}</h3>
-                        {isActive && <span className="text-[10px] uppercase tracking-wider text-teal-500/80 font-semibold">Active Background</span>}
-                      </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {AMBIENT_TRACKS.map(track => {
+              const videoId = ambientVideoMapping[track.id];
+              const thumbUrl = videoId ? videoUrls[videoId] : null;
+              
+              return (
+                <div key={track.id} className="flex items-center justify-between bg-[#030712]/50 border border-slate-800 rounded-xl p-4 transition-all hover:border-slate-700">
+                  <div className="flex items-center gap-4">
+                    {/* Icon */}
+                    <div className="w-12 h-12 rounded-xl bg-teal-500/10 flex items-center justify-center border border-teal-500/20">
+                      <track.icon className="w-6 h-6 text-teal-500" />
                     </div>
                     
-                    <div className="flex items-center gap-2">
+                    {/* Thumbnail / Upload Trigger */}
+                    {thumbUrl ? (
                       <button 
-                        onClick={() => updateActiveBackgroundVideo(isActive ? null : video.id)}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-teal-500 text-slate-900' : 'bg-slate-800 text-teal-400 hover:bg-slate-700'}`}
+                         onClick={() => setPreviewVideoUrl(thumbUrl)}
+                         className="w-20 h-14 bg-black rounded-lg overflow-hidden border border-slate-700 relative flex-shrink-0 group hover:border-teal-500/50 transition-colors"
+                         title="Preview Video"
                       >
-                        {isActive ? 'Active' : 'Set Active'}
+                         <video src={thumbUrl} className="w-full h-full object-cover opacity-60" />
+                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                           <Play className="w-5 h-5 text-white fill-current" />
+                         </div>
                       </button>
-                      <button 
-                        onClick={() => handleRemoveVideo(video.id)} 
-                        className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors ml-2"
-                        title="Delete Video"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
+                    ) : (
+                      <div className="relative w-20 h-14 bg-slate-800/50 rounded-lg border border-slate-700 border-dashed flex items-center justify-center overflow-hidden hover:border-teal-500/50 transition-colors group cursor-pointer">
+                        <input 
+                           type="file" 
+                           accept="video/mp4,video/webm,video/*"
+                           onChange={(e) => {
+                             const file = e.target.files?.[0];
+                             if (file) handleUploadAmbientVideo(track.id, file);
+                           }}
+                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                           title={`Upload video for ${track.name}`}
+                        />
+                        <Upload className="w-5 h-5 text-slate-500 group-hover:text-teal-400" />
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-col">
+                      <h3 className="font-medium text-white text-sm">{track.name}</h3>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400">
+                        {thumbUrl ? 'Custom Video' : 'Default'}
+                      </span>
                     </div>
                   </div>
-                );
-              })
-            )}
+                  
+                  <div className="flex items-center gap-2">
+                    {thumbUrl && (
+                      <button 
+                         onClick={() => handleRemoveAmbientVideo(track.id)}
+                         className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                         title="Remove Video"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
+
 
         {/* Video Preview Modal */}
         <AnimatePresence>
