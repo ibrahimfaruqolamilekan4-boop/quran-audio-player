@@ -27,10 +27,13 @@ export function AuthView() {
     try {
       await signInWithGoogle();
     } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user' || err?.message?.includes('popup')) {
-        setError('Popup was blocked or closed. If you are viewing this inside the AI Studio editor, please click the "Open App in New Tab" icon at the top right of the preview window to sign in.');
+      console.error("Auth Error:", err);
+      if (err.code === 'auth/unauthorized-domain') {
+        setError('DOMAIN NOT AUTHORIZED: Google Security is blocking this login. You must add this URL (' + window.location.hostname + ') to Firebase Console -> Authentication -> Settings -> Authorized Domains.');
+      } else if (err.code === 'auth/popup-closed-by-user' || err?.message?.includes('popup')) {
+        setError('POPUP BLOCKED: Your browser closed the window. You MUST click the "Open App in New Tab" icon at the top right of this screen to log in.');
       } else {
-        setError(err.message || 'Google sign-in failed');
+        setError('ERROR (' + err.code + '): ' + (err.message || 'Google sign-in failed'));
       }
     }
   };
