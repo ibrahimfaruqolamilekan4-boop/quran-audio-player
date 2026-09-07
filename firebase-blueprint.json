@@ -85,10 +85,50 @@
         },
         "lastLoginAt": {
           "type": "number"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "user",
+            "admin"
+          ]
         }
       },
       "required": [
         "userId"
+      ]
+    },
+    "AmbientSound": {
+      "title": "AmbientSound",
+      "description": "Global ambient sound configuration including video URLs",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "audioUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "videoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "isCustom": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name"
       ]
     }
   },
@@ -104,6 +144,10 @@
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile document."
+    },
+    "/ambient_sounds/{soundId}": {
+      "schema": "AmbientSound",
+      "description": "Global configuration for ambient sounds and background videos."
     }
   }
 }

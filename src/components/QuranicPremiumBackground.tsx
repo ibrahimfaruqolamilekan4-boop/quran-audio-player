@@ -389,6 +389,10 @@ export function QuranicPremiumBackground({
         if (isMounted) setVideoUrl(null);
         return;
       }
+      if (activeBackgroundVideoId.startsWith('http') || activeBackgroundVideoId.startsWith('blob:')) {
+        if (isMounted) setVideoUrl(activeBackgroundVideoId);
+        return;
+      }
       try {
         let blob = await localforage.getItem<Blob>(activeBackgroundVideoId);
         if (!blob) {

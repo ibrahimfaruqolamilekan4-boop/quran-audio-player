@@ -1,5 +1,7 @@
 import React from 'react';
-import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings } from 'lucide-react';
+import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 interface SidebarProps {
   currentTab: string;
@@ -7,6 +9,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
+  const { user, role, logOut } = useAuth();
+  const navigate = useNavigate();
   const tabs = [
     { id: 'home', label: 'Explore', icon: Compass },
     { id: 'hub', label: 'Focus Space', icon: Headphones },
@@ -46,19 +50,52 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
           ))}
         </nav>
         
-        <div className="px-4 mt-auto">
+        
+        <div className="px-4 mt-auto space-y-2">
+           {role === 'admin' && (
+             <button
+               onClick={() => navigate('/admin')}
+               className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-medium text-amber-500 hover:bg-amber-500/10 border border-transparent"
+             >
+               <Shield size={22} strokeWidth={1.5} />
+               <span className="tracking-wide">Admin Panel</span>
+             </button>
+           )}
            <button
              onClick={() => setCurrentTab('settings')}
              className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-medium ${
-               currentTab === 'settings' 
-                 ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20' 
-                 : 'text-slate-400 hover:bg-white/5 hover:text-white border border-transparent'
+               currentTab === 'settings'
+                  ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
+                  : 'text-slate-400 hover:bg-white/5 hover:text-white border border-transparent'
              }`}
            >
              <Settings size={22} strokeWidth={currentTab === 'settings' ? 2 : 1.5} />
              <span className="tracking-wide">Settings</span>
            </button>
+           <div className="relative group">
+             <div className="w-full flex items-center gap-3 px-5 py-3 rounded-2xl bg-[#030712] border border-slate-800 cursor-pointer">
+               {user?.photoURL ? (
+                 <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full" />
+               ) : (
+                 <div className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-500"><UserIcon size={16} /></div>
+               )}
+               <div className="flex flex-col flex-1 truncate">
+                 <span className="text-xs font-medium text-white truncate">{user?.displayName || user?.email?.split('@')[0]}</span>
+                 <span className="text-[10px] text-slate-500 truncate">{user?.email}</span>
+               </div>
+             </div>
+             
+             {/* Dropdown Menu */}
+             <div className="absolute bottom-full left-0 w-full mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+               <div className="bg-[#0A0F1C] border border-slate-800 rounded-xl p-2 shadow-2xl">
+                 <button onClick={logOut} className="w-full flex items-center gap-3 px-3 py-2 text-red-400 hover:bg-red-400/10 rounded-lg text-xs font-medium transition-colors">
+                   <LogOut size={16} /> Sign Out
+                 </button>
+               </div>
+             </div>
+           </div>
         </div>
+
       </div>
 
       {/* Mobile Bottom Nav */}

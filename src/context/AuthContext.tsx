@@ -1,9 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User } from '../lib/firebase';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 
 interface AuthContextType {
+  role: 'user' | 'admin' | null;
+  signInWithEmail: (email: string, pass: string) => Promise<void>;
+  signUpWithEmail: (email: string, pass: string) => Promise<void>;
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
@@ -14,6 +18,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [role, setRole] = useState<'user' | 'admin' | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,23 +31,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const userRef = doc(db, 'users', currentUser.uid);
           const userSnap = await getDoc(userRef);
           
-          const userData = {
-            userId: currentUser.uid,
-            email: currentUser.email || null,
-            displayName: currentUser.displayName || null,
-            photoURL: currentUser.photoURL || null,
-            lastLoginAt: serverTimestamp()
-          };
-
+          let currentRole = 'user';
+          if (currentUser.email === 'ibrahimfaruqolamilekan4@gmail.com') {
+             currentRole = 'admin';
+          }
+          
           if (!userSnap.exists()) {
             await setDoc(userRef, {
-              ...userData,
-              createdAt: serverTimestamp()
+              userId: currentUser.uid,
+              email: currentUser.email || null,
+              displayName: currentUser.displayName || null,
+              photoURL: currentUser.photoURL || null,
+              role: currentRole,
+              createdAt: serverTimestamp(),
+              lastLoginAt: serverTimestamp()
             });
+            setRole(currentRole as any);
           } else {
-            await setDoc(userRef, userData, { merge: true });
+            const data = userSnap.data();
+            currentRole = data.role || currentRole;
+            await setDoc(userRef, {
+              userId: currentUser.uid,
+              email: currentUser.email || null,
+              displayName: currentUser.displayName || null,
+              photoURL: currentUser.photoURL || null,
+              lastLoginAt: serverTimestamp()
+            }, { merge: true });
+            setRole(currentRole as any);
           }
-
           // 2. Initialize user preferences if they don't exist
           const prefRef = doc(db, 'users', currentUser.uid, 'preferences', 'default');
           const prefSnap = await getDoc(prefRef);
@@ -65,6 +81,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+
+  const signInWithEmail = async (email: string, pass: string) => {
+    await signInWithEmailAndPassword(auth, email, pass);
+  };
+  const signUpWithEmail = async (email: string, pass: string) => {
+    await createUserWithEmailAndPassword(auth, email, pass);
+  };
+
   const signInWithGoogle = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -82,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, logOut }}>
+    <AuthContext.Provider value={{ user, role, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logOut }}>
       {children}
     </AuthContext.Provider>
   );

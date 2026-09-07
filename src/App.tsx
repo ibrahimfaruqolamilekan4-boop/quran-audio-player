@@ -4,7 +4,12 @@ import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
 import { Sidebar } from './components/Sidebar';
 import { QuranicPremiumBackground, THEME_LIBRARY } from './components/QuranicPremiumBackground';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { HomeView } from './views/HomeView';
+import { LandingView } from './views/LandingView';
+import { AuthView } from './views/AuthView';
+import { AdminView } from './views/AdminView';
+import { useAuth } from './context/AuthContext';
 import { HubView } from './views/HubView';
 import { SurahLibraryView } from './views/SurahLibraryView';
 import { RecitersHubView } from './views/RecitersHubView';
@@ -14,8 +19,20 @@ import { getChapters } from './lib/api';
 import { CURATED_RECITERS, DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
 
-function AppContent() {
-  const [currentTab, setCurrentTab] = useState('home');
+
+function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
+  const { user, role, loading } = useAuth();
+  if (loading) return <div className="h-screen flex items-center justify-center text-teal-500">Loading...</div>;
+  if (!user) return <Navigate to="/auth" />;
+  if (adminOnly && role !== 'admin') return <Navigate to="/dashboard" />;
+  return <>{children}</>;
+}
+
+function DashboardLayout() {
+  const location = useLocation();
+  const currentTab = location.pathname.split('/').pop() || 'home';
+  const navigate = useNavigate();
+  const setCurrentTab = (tab: string) => navigate(`/dashboard/${tab}`);
   const [currentTheme, setCurrentTheme] = useState('midnight-scholar');
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   
@@ -61,12 +78,15 @@ function AppContent() {
       
       <main className="flex-1 md:ml-72 pb-40 overflow-y-auto h-screen relative z-10 transition-all">
         <div className="p-4 md:p-10 md:max-w-7xl mx-auto h-full">
-          {currentTab === 'home' && <HomeView />}
-          {currentTab === 'hub' && <HubView />}
-          {currentTab === 'library' && <SurahLibraryView />}
-          {currentTab === 'reciters' && <RecitersHubView />}
-          {currentTab === 'insights' && <InsightsView />}
-          {currentTab === 'settings' && <SettingsView />}
+          <Routes>
+            <Route path="/" element={<Navigate to="home" />} />
+            <Route path="home" element={<HomeView />} />
+            <Route path="hub" element={<HubView />} />
+            <Route path="library" element={<SurahLibraryView />} />
+            <Route path="reciters" element={<RecitersHubView />} />
+            <Route path="insights" element={<InsightsView />} />
+            <Route path="settings" element={<SettingsView />} />
+          </Routes>
         </div>
       </main>
       <BottomPlayer />
@@ -117,12 +137,21 @@ function AppContent() {
   );
 }
 
+
 export default function App() {
   return (
-    <AuthProvider>
-      <PlayerProvider>
-        <AppContent />
-      </PlayerProvider>
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <PlayerProvider>
+          <Routes>
+            <Route path="/" element={<LandingView />} />
+            <Route path="/auth" element={<AuthView />} />
+            <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </PlayerProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }

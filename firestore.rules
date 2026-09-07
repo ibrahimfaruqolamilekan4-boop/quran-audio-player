@@ -6,11 +6,23 @@ service cloud.firestore {
     }
 
     function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function notHas(data, key) { return !(key in data); }
 
+
+
+    function isValidAmbientSound(data, soundId) {
+      return data.keys().hasAll(['id', 'name'])
+        && data.id is string && data.id.size() <= 100 && data.id == soundId
+        && data.name is string && data.name.size() <= 100
+        && (notHas(data, 'audioUrl') || data.audioUrl == null || (data.audioUrl is string && data.audioUrl.size() <= 500))
+        && (notHas(data, 'videoUrl') || data.videoUrl == null || (data.videoUrl is string && data.videoUrl.size() <= 500))
+        && (notHas(data, 'isCustom') || data.isCustom is bool)
+        && (notHas(data, 'updatedAt') || data.updatedAt is timestamp);
+    }
 
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['userId'])
@@ -19,7 +31,8 @@ service cloud.firestore {
         && (notHas(data, 'displayName') || data.displayName == null || (data.displayName is string && data.displayName.size() <= 100))
         && (notHas(data, 'photoURL') || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 500))
         && (notHas(data, 'createdAt') || data.createdAt is timestamp)
-        && (notHas(data, 'lastLoginAt') || data.lastLoginAt is timestamp);
+        && (notHas(data, 'lastLoginAt') || data.lastLoginAt is timestamp)
+        && (notHas(data, 'role') || (data.role is string && (data.role == 'user' || data.role == 'admin')));
     }
 
     function isValidUserPreferences(data, userId) {
@@ -41,15 +54,27 @@ service cloud.firestore {
     }
 
 
+
+
+    match /global_reciters/{reciterId} {
+      allow read, list: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /ambient_sounds/{soundId} {
+      allow read, list: if true; // Public read so all users can see
+      allow create, update, delete: if isAdmin();
+    }
+
     match /users/{userId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow read, list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isSignedIn() 
         && isValidId(userId)
         && request.auth.uid == userId
         && isValidUserProfile(incoming(), userId);
       allow update: if isSignedIn() 
         && isValidId(userId)
-        && request.auth.uid == userId
+        && (request.auth.uid == userId || isAdmin())
         && isValidUserProfile(incoming(), userId)
         && incoming().userId == existing().userId;
     }
