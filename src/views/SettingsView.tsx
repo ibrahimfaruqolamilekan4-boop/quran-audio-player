@@ -43,7 +43,7 @@ export function SettingsView() {
     
     return () => {
       isMounted = false;
-      Object.values(videoUrls).forEach(url => URL.revokeObjectURL(url));
+      Object.values(videoUrls).forEach(url => URL.revokeObjectURL(url as string));
     };
   }, [customVideos]);
 

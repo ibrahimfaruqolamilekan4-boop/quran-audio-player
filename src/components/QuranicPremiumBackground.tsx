@@ -134,7 +134,7 @@ export const THEME_LIBRARY: Record<string, ThemeConfig> = {
 // ============================================
 const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeConfig }) => {
   const opacity = 0.15 + (intensity * 0.25);
-  const { primary, secondary } = theme.patterns;
+  const { primaryColor, secondaryColor } = theme.patterns;
 
   return (
     <svg
@@ -146,10 +146,10 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
       <defs>
         {/* Star Pattern Grid */}
         <pattern id="stars" x="120" y="120" width="120" height="120" patternUnits="userSpaceOnUse">
-          <circle cx="60" cy="60" r="3" fill={primary} opacity={opacity * 0.8} />
-          <circle cx="60" cy="60" r="8" fill="none" stroke={primary} strokeWidth="1" opacity={opacity * 0.4} />
-          <line x1="60" y1="30" x2="60" y2="90" stroke={primary} strokeWidth="0.5" opacity={opacity * 0.3} />
-          <line x1="30" y1="60" x2="90" y2="60" stroke={primary} strokeWidth="0.5" opacity={opacity * 0.3} />
+          <circle cx="60" cy="60" r="3" fill={primaryColor} opacity={opacity * 0.8} />
+          <circle cx="60" cy="60" r="8" fill="none" stroke={primaryColor} strokeWidth="1" opacity={opacity * 0.4} />
+          <line x1="60" y1="30" x2="60" y2="90" stroke={primaryColor} strokeWidth="0.5" opacity={opacity * 0.3} />
+          <line x1="30" y1="60" x2="90" y2="60" stroke={primaryColor} strokeWidth="0.5" opacity={opacity * 0.3} />
         </pattern>
         
         {/* Hexagon Pattern */}
@@ -157,7 +157,7 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
           <polygon
             points="50,0 100,25 100,75 50,100 0,75 0,25"
             fill="none"
-            stroke={secondary}
+            stroke={secondaryColor}
             strokeWidth="1"
             opacity={opacity * 0.5}
           />
@@ -165,16 +165,16 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
 
         {/* Divine Light Radial Gradient */}
         <radialGradient id="divineLight" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor={primary} stopOpacity={opacity * 0.6} />
-          <stop offset="50%" stopColor={secondary} stopOpacity={opacity * 0.2} />
+          <stop offset="0%" stopColor={primaryColor} stopOpacity={opacity * 0.6} />
+          <stop offset="50%" stopColor={secondaryColor} stopOpacity={opacity * 0.2} />
           <stop offset="100%" stopColor={theme.colors.background} stopOpacity="0" />
         </radialGradient>
 
         {/* Verse Glow Gradient */}
         <linearGradient id="verseGlow" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor={theme.colors.accent} stopOpacity="0" />
-          <stop offset="50%" stopColor={primary} stopOpacity={opacity * 0.4} />
-          <stop offset="100%" stopColor={secondary} stopOpacity="0" />
+          <stop offset="50%" stopColor={primaryColor} stopOpacity={opacity * 0.4} />
+          <stop offset="100%" stopColor={secondaryColor} stopOpacity="0" />
         </linearGradient>
       </defs>
 
@@ -200,7 +200,7 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
       </g>
 
       {/* Corner ornamental frames */}
-      <g stroke={primary} strokeWidth="2" fill="none" opacity={opacity * 0.7}>
+      <g stroke={primaryColor} strokeWidth="2" fill="none" opacity={opacity * 0.7}>
         {/* Top-left corner */}
         <path d="M 20,50 L 20,20 L 50,20" />
         <circle cx="20" cy="20" r="8" fill="none" />
@@ -221,7 +221,7 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
         cy="400"
         r="150"
         fill="none"
-        stroke={primary}
+        stroke={primaryColor}
         strokeWidth="1"
         opacity={opacity * 0.3}
       />
@@ -230,7 +230,7 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
         cy="400"
         r="120"
         fill="none"
-        stroke={secondary}
+        stroke={secondaryColor}
         strokeWidth="0.5"
         opacity={opacity * 0.2}
       />
@@ -367,6 +367,7 @@ const QuranicVerseScroll = ({ intensity, theme }: { intensity: number; theme: Th
 interface QuranicPremiumBackgroundProps {
   themeName?: string;
   ambientVolume?: number;
+  isPlaying?: boolean;
 }
 
 export function QuranicPremiumBackground({ 
@@ -389,7 +390,7 @@ export function QuranicPremiumBackground({
         return;
       }
       try {
-        const blob = await localforage.getItem('customVideo_blob_' + activeBackgroundVideoId);
+        const blob = await localforage.getItem<Blob>('customVideo_blob_' + activeBackgroundVideoId);
         if (blob && isMounted) {
           objectUrl = URL.createObjectURL(blob);
           setVideoUrl(objectUrl);
