@@ -11,6 +11,16 @@ export function AuthView() {
   const { user, signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const navigate = useNavigate();
 
+  const [inIframe, setInIframe] = useState(false);
+  useEffect(() => {
+    try {
+      setInIframe(window !== window.top);
+    } catch (e) {
+      setInIframe(true);
+    }
+  }, []);
+
+
   useEffect(() => {
     if (user) {
       navigate('/dashboard');
@@ -27,7 +37,11 @@ export function AuthView() {
         await signUpWithEmail(email, password);
       }
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Email/Password login is not enabled in your Firebase Console. Please go to Authentication -> Sign-in method -> Add new provider -> Enable Email/Password.');
+      } else {
+        setError(err.message || 'Authentication failed');
+      }
     }
   };
 
@@ -35,7 +49,11 @@ export function AuthView() {
     try {
       await signInWithGoogle();
     } catch (err: any) {
-      setError(err.message || 'Google sign-in failed');
+      if (err.code === 'auth/popup-closed-by-user' || err.message.includes('popup')) {
+        setError('Popup was blocked or closed. If you are viewing this inside the AI Studio editor, please click the "Open App in New Tab" icon at the top right of the preview window to sign in.');
+      } else {
+        setError(err.message || 'Google sign-in failed');
+      }
     }
   };
 
@@ -52,7 +70,19 @@ export function AuthView() {
           <p className="text-slate-400 mt-2 text-sm">{isLogin ? 'Enter your credentials to access your dashboard' : 'Join Nooraya to sync your progress'}</p>
         </div>
 
+        
+        {inIframe && (
+          <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-3 rounded-xl flex items-start gap-3 mb-6 text-xs leading-relaxed">
+            <AlertCircle size={18} className="shrink-0 mt-0.5" />
+            <span>
+              <strong>Running in preview mode.</strong> Google Sign-In popups may be blocked by your browser here. 
+              If the Google button doesn't work, please open this app in a <strong>new full-screen tab</strong> using the icon at the top right of your screen.
+            </span>
+          </div>
+        )}
+        
         {error && (
+
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl flex items-start gap-3 mb-6 text-sm">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
             <span>{error}</span>
