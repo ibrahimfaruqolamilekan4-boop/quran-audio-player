@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { appApi } from '../lib/api';
 import { Shield, Users, Video, Settings as SettingsIcon, Save } from 'lucide-react';
 import { AMBIENT_TRACKS } from '../lib/constants';
 
@@ -19,23 +18,14 @@ export function AdminView() {
 
   const fetchAdminData = async () => {
     try {
-      
-      // Fetch global reciters
-      const recitersSnap = await getDocs(collection(db, 'global_reciters'));
-      setGlobalReciters(recitersSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      // Fetch users
-      const usersSnap = await getDocs(collection(db, 'users'));
-      setUsers(usersSnap.docs.map(d => d.data()));
-      
-      // Fetch ambient settings
-      const ambientSnap = await getDocs(collection(db, 'ambient_sounds'));
-      const ambSettings: Record<string, string> = {};
-      ambientSnap.docs.forEach(d => {
-        ambSettings[d.id] = d.data().videoUrl || '';
-      });
-      setAmbientSettings(ambSettings);
-      
+      const data = await appApi<{
+        users: any[];
+        globalReciters: any[];
+        ambientSounds: Record<string, string>;
+      }>('/admin/overview');
+      setUsers(data.users);
+      setGlobalReciters(data.globalReciters);
+      setAmbientSettings(data.ambientSounds);
     } catch (e) {
       console.error("Failed to fetch admin data", e);
     }
@@ -46,15 +36,11 @@ export function AdminView() {
   const handleAddGlobalReciter = async () => {
     if (!newReciterName || !newReciterUrl) return;
     try {
-      const id = 'global_' + Date.now();
-      await setDoc(doc(db, 'global_reciters', id), {
-        id,
-        name: newReciterName,
-        serverUrl: newReciterUrl,
-        style: 'Custom Global',
-        updatedAt: serverTimestamp()
+      const { reciter } = await appApi<{ reciter: any }>('/admin/reciters', {
+        method: 'POST',
+        body: { name: newReciterName, serverUrl: newReciterUrl },
       });
-      setGlobalReciters([...globalReciters, { id, name: newReciterName, serverUrl: newReciterUrl, style: 'Custom Global' }]);
+      setGlobalReciters([...globalReciters, reciter]);
       setNewReciterName('');
       setNewReciterUrl('');
     } catch(e) {
@@ -65,10 +51,7 @@ export function AdminView() {
   const handleRoleToggle = async (userId: string, currentRole: string) => {
     const newRole = currentRole === 'admin' ? 'user' : 'admin';
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        role: newRole,
-        lastLoginAt: serverTimestamp() // Ensure we don't break schema rules if it's required
-      });
+      await appApi('/admin/role', { method: 'PUT', body: { userId, role: newRole } });
       setUsers(users.map(u => u.userId === userId ? { ...u, role: newRole } : u));
     } catch (e) {
       console.error("Failed to update role", e);
@@ -78,14 +61,7 @@ export function AdminView() {
   const handleSaveAmbient = async () => {
     setSaving(true);
     try {
-      for (const [id, url] of Object.entries(ambientSettings)) {
-        await setDoc(doc(db, 'ambient_sounds', id), {
-          id,
-          name: AMBIENT_TRACKS.find(t => t.id === id)?.name || id,
-          videoUrl: url,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-      }
+      await appApi('/admin/ambient', { method: 'PUT', body: { sounds: ambientSettings } });
       alert('Global ambient settings saved successfully.');
     } catch (e) {
       console.error("Failed to save ambient settings", e);

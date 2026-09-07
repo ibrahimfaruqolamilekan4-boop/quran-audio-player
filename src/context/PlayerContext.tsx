@@ -3,8 +3,7 @@ import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
 import localforage from 'localforage';
 import { useAuth } from './AuthContext';
-import { db } from '../lib/firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { appApi, type AppPreferences } from '../lib/api';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -112,11 +111,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setCustomVideos(videos);
 
       if (user) {
-        // Sync reciters from firestore
+        // Sync reciters from Neon
         try {
-          const snapshot = await getDocs(collection(db, 'users', user.uid, 'customReciters'));
-          const cloudReciters = snapshot.docs.map(doc => doc.data() as Reciter);
-          
+          const { reciters: cloudReciters } = await appApi<{ reciters: Reciter[] }>('/me/reciters');
+
           // Merge local and cloud reciters
           const merged = [...localReciters];
           for (const cr of cloudReciters) {
@@ -131,15 +129,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           setCustomReciters(localReciters);
         }
 
-        // Sync active video from firestore
+        // Sync active video from Neon
         try {
-          const prefRef = doc(db, 'users', user.uid, 'preferences', 'default');
-          const prefSnap = await getDoc(prefRef);
-          if (prefSnap.exists() && prefSnap.data().activeBackgroundVideoId !== undefined) {
-             const cloudVideoId = prefSnap.data().activeBackgroundVideoId;
-             if (cloudVideoId !== activeBackgroundVideoId) {
-               setActiveBackgroundVideoId(cloudVideoId);
-             }
+          const { preferences } = await appApi<{ preferences: AppPreferences }>('/me/preferences');
+          if (preferences.activeBackgroundVideoId) {
+            setActiveBackgroundVideoId(preferences.activeBackgroundVideoId);
           }
         } catch (e) {
           console.error('Failed to sync preferences from cloud', e);

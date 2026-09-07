@@ -1,115 +1,51 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User } from '../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { db } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { appApi, type AppUser } from '../lib/api';
 
 interface AuthContextType {
+  user: AppUser | null;
   role: 'user' | 'admin' | null;
+  loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
   signup: (email: string, pass: string, name: string) => Promise<void>;
-  user: User | null;
-  loading: boolean;
-  signInWithGoogle: () => Promise<void>;
   logOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<'user' | 'admin' | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Restore the session from the httpOnly cookie on first load.
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      
-      if (currentUser) {
-        try {
-          // 1. Sync User Profile
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-          
-          let currentRole = 'user';
-          if (currentUser.email === 'ibrahimfaruqolamilekan4@gmail.com') {
-             currentRole = 'admin';
-          }
-          
-          if (!userSnap.exists()) {
-            await setDoc(userRef, {
-              userId: currentUser.uid,
-              email: currentUser.email || null,
-              displayName: currentUser.displayName || null,
-              photoURL: currentUser.photoURL || null,
-              role: currentRole,
-              createdAt: serverTimestamp(),
-              lastLoginAt: serverTimestamp()
-            });
-            setRole(currentRole as any);
-          } else {
-            const data = userSnap.data();
-            currentRole = data.role || currentRole;
-            await setDoc(userRef, {
-              userId: currentUser.uid,
-              email: currentUser.email || null,
-              displayName: currentUser.displayName || null,
-              photoURL: currentUser.photoURL || null,
-              lastLoginAt: serverTimestamp()
-            }, { merge: true });
-            setRole(currentRole as any);
-          }
-          // 2. Initialize user preferences if they don't exist
-          const prefRef = doc(db, 'users', currentUser.uid, 'preferences', 'default');
-          const prefSnap = await getDoc(prefRef);
-          if (!prefSnap.exists()) {
-            await setDoc(prefRef, {
-              userId: currentUser.uid,
-              theme: 'midnight-scholar',
-              activeBackgroundVideoId: null,
-              updatedAt: serverTimestamp()
-            });
-          }
-        } catch (e) {
-          console.error("Failed to sync user profile or initialize preferences", e);
-        }
-      }
-      
-      setLoading(false);
-    });
-    
-    return () => unsubscribe();
+    let cancelled = false;
+    appApi<{ user: AppUser | null }>('/auth/me')
+      .then(data => { if (!cancelled) setUser(data.user); })
+      .catch(err => console.error('Failed to restore session', err))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
-
   const login = async (email: string, pass: string) => {
-    await signInWithEmailAndPassword(auth, email, pass);
-  };
-  const signup = async (email: string, pass: string, name: string) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
-    if (name) {
-      await updateProfile(cred.user, { displayName: name });
-    }
+    const data = await appApi<{ user: AppUser }>('/auth/login', { method: 'POST', body: { email, password: pass } });
+    setUser(data.user);
   };
 
-  const signInWithGoogle = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Error signing in with Google", error);
-    }
+  const signup = async (email: string, pass: string, name: string) => {
+    const data = await appApi<{ user: AppUser }>('/auth/signup', { method: 'POST', body: { email, password: pass, name } });
+    setUser(data.user);
   };
 
   const logOut = async () => {
     try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Error signing out", error);
+      await appApi('/auth/logout', { method: 'POST' });
+    } finally {
+      setUser(null);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, role, loading, signInWithGoogle, login, signup, logOut }}>
+    <AuthContext.Provider value={{ user, role: user?.role ?? null, loading, login, signup, logOut }}>
       {children}
     </AuthContext.Provider>
   );
