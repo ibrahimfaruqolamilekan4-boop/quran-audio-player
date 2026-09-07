@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
+import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
 import { Sidebar } from './components/Sidebar';
 import { QuranicPremiumBackground, THEME_LIBRARY } from './components/QuranicPremiumBackground';
@@ -118,8 +119,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <PlayerProvider>
-      <AppContent />
-    </PlayerProvider>
+    <AuthProvider>
+      <PlayerProvider>
+        <AppContent />
+      </PlayerProvider>
+    </AuthProvider>
   );
 }
