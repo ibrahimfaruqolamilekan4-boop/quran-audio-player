@@ -82,11 +82,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
 
-  const signInWithEmail = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string) => {
     await signInWithEmailAndPassword(auth, email, pass);
   };
-  const signUpWithEmail = async (email: string, pass: string) => {
-    await createUserWithEmailAndPassword(auth, email, pass);
+  const signup = async (email: string, pass: string, name: string) => {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    if (name) {
+      await updateProfile(cred.user, { displayName: name });
+    }
   };
 
   const signInWithGoogle = async () => {
