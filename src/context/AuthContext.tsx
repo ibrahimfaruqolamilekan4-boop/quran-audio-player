@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User } from '../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 
 interface AuthContextType {
   role: 'user' | 'admin' | null;
-  signInWithEmail: (email: string, pass: string) => Promise<void>;
-  signUpWithEmail: (email: string, pass: string) => Promise<void>;
+  login: (email: string, pass: string) => Promise<void>;
+  signup: (email: string, pass: string, name: string) => Promise<void>;
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
@@ -106,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, role, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logOut }}>
+    <AuthContext.Provider value={{ user, role, loading, signInWithGoogle, login, signup, logOut }}>
       {children}
     </AuthContext.Provider>
   );

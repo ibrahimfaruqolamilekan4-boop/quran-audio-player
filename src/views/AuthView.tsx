@@ -5,6 +5,7 @@ import { BookOpen, AlertCircle } from 'lucide-react';
 
 export function AuthView() {
   const [isLogin, setIsLogin] = useState(true);
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -34,7 +35,7 @@ export function AuthView() {
       if (isLogin) {
         await login(email, password);
       } else {
-        await signup(email, password);
+        await signup(email, password, name || email.split('@')[0]);
       }
     } catch (err: any) {
       console.error("Auth Error:", err);
@@ -92,6 +93,19 @@ export function AuthView() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 mb-6">
+          {!isLogin && (
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Full Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-all"
+                placeholder="John Doe"
+                required={!isLogin}
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
             <input
