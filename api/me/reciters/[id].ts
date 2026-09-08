@@ -1,5 +1,5 @@
 // DELETE /api/me/reciters/<id>
-import { type Handler, q, requireAuth, sendJson, apiPath } from '../../_lib';
+import { type Handler, q, requireAuth, sendJson, apiPath } from '../../_lib.mjs';
 
 const handler: Handler = async (req, res) => {
   try {

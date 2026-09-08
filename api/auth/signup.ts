@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import {
   type Handler, q, hashPassword, createSessionToken, sessionCookie,
   sendJson, readJson, isSecureRequest, validEmail, adminEmail, mapUser,
-} from '../_lib';
+} from '../_lib.mjs';
 
 interface UserRow {
   uid: string; email: string; password_hash: string | null;
@@ -31,7 +31,7 @@ const handler: Handler = async (req, res) => {
         'UPDATE users SET password_hash = $1, display_name = $2, last_login_at = now() WHERE uid = $3',
         [hashPassword(password), displayName, row.uid]
       );
-      const user = mapUser({ ...row, password_hash: null, display_name: displayName });
+      const user = mapUser({ ...row, display_name: displayName });
       res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user.uid), isSecureRequest(req)));
       return sendJson(res, 200, { user });
     }

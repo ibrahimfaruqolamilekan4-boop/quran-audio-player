@@ -1,6 +1,6 @@
 // GET /api/me/preferences   -> { preferences }
 // PUT /api/me/preferences   { theme?, activeBackgroundVideoId?, ambientVideoMapping? }
-import { type Handler, q, requireAuth, sendJson, readJson } from '../_lib';
+import { type Handler, q, requireAuth, sendJson, readJson } from '../_lib.mjs';
 
 interface PrefRow {
   theme: string;

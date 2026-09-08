@@ -1,5 +1,5 @@
 // GET /api/admin/overview -> { users, globalReciters, ambientSounds }
-import { type Handler, q, requireAdmin, sendJson } from '../_lib';
+import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
 
 const handler: Handler = async (req, res) => {
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });

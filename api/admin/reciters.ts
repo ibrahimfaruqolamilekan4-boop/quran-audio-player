@@ -1,5 +1,5 @@
 // POST /api/admin/reciters  { name, serverUrl }  -> add/update a global reciter
-import { type Handler, q, requireAdmin, sendJson, readJson } from '../_lib';
+import { type Handler, q, requireAdmin, sendJson, readJson } from '../_lib.mjs';
 
 const handler: Handler = async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });

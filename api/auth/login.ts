@@ -2,7 +2,7 @@
 import {
   type Handler, q, verifyPassword, createSessionToken, sessionCookie,
   sendJson, readJson, isSecureRequest, validEmail, mapUser,
-} from '../_lib';
+} from '../_lib.mjs';
 
 interface UserRow {
   uid: string; email: string; password_hash: string | null;

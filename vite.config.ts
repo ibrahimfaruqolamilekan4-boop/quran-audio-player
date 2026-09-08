@@ -16,7 +16,7 @@ import adminOverview from './api/admin/overview';
 import adminReciters from './api/admin/reciters';
 import adminRole from './api/admin/role';
 import adminAmbient from './api/admin/ambient';
-import health from './api/health';
+import health from './api/health.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

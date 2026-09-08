@@ -1,6 +1,6 @@
 // GET  /api/me/reciters  -> { reciters: [{ id, name, style, serverUrl }] }
 // POST /api/me/reciters  { id?, name, style?, serverUrl }
-import { type Handler, q, requireAuth, sendJson, readJson } from '../_lib';
+import { type Handler, q, requireAuth, sendJson, readJson } from '../_lib.mjs';
 
 interface ReciterRow { id: string; name: string; style: string | null; server_url: string }
 

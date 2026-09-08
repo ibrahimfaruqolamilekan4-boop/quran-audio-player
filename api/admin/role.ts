@@ -1,5 +1,5 @@
 // PUT /api/admin/role  { userId, role: 'user' | 'admin' }
-import { type Handler, q, requireAdmin, sendJson, readJson } from '../_lib';
+import { type Handler, q, requireAdmin, sendJson, readJson } from '../_lib.mjs';
 
 const handler: Handler = async (req, res) => {
   if (req.method !== 'PUT') return sendJson(res, 405, { error: 'Method not allowed' });
