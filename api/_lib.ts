@@ -2,7 +2,10 @@
 // Handlers use only standard Node req/res APIs so the same code runs in both places.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import crypto from 'node:crypto';
-import pg from 'pg';
+
+// pg is imported lazily (see getPool) so that a bundling/tracing problem with
+// the driver can never prevent these serverless functions from loading.
+type PgPool = { query: (text: string, params?: unknown[]) => Promise<unknown> };
 
 export type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -19,22 +22,25 @@ const SESSION_DAYS = 30;
 
 // ---------- database ----------
 
-let pool: pg.Pool | undefined;
+let pool: PgPool | undefined;
 
-export function getPool(): pg.Pool {
+export async function getPool(): Promise<PgPool> {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error('DATABASE_URL environment variable is not set');
-    pool = new pg.Pool({ connectionString, max: 3 });
+    const mod: any = await import('pg');
+    const PG = mod.default ?? mod;
+    pool = new PG.Pool({ connectionString, max: 3 }) as PgPool;
   }
   return pool;
 }
 
-export async function q<T extends pg.QueryResultRow = pg.QueryResultRow>(
+export async function q<T = any>(
   text: string,
   params?: unknown[]
-): Promise<pg.QueryResult<T>> {
-  return getPool().query<T>(text, params as unknown[]);
+): Promise<{ rows: T[] }> {
+  const p = await getPool();
+  return p.query(text, params) as Promise<{ rows: T[] }>;
 }
 
 interface UserRow {
