@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import { usePlayer } from '../context/PlayerContext';
+import { applyThemeVars } from '../lib/theme';
 
 /**
  * THEME CONFIGURATION INTERFACE
@@ -182,13 +183,7 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
       <rect width="1200" height="800" fill={theme.colors.background} />
       
       {/* Subtle gradient base */}
-      <rect
-        width="1200"
-        height="800"
-        fill="url(#divineLight)"
-        cx="600"
-        cy="400"
-      />
+      <rect width="1200" height="800" fill="url(#divineLight)" />
 
       {/* Islamic geometric patterns */}
       <g opacity={opacity * 0.6}>
@@ -379,6 +374,12 @@ export function QuranicPremiumBackground({
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const visualIntensity = Math.max(0.2, ambientVolume);
+
+  // Publish the active ambience onto CSS custom properties so every gold
+  // surface in the app re-gilds together with the background.
+  useEffect(() => {
+    applyThemeVars(themeName);
+  }, [themeName]);
 
   useEffect(() => {
     let objectUrl: string | null = null;
