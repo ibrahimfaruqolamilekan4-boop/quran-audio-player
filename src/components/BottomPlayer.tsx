@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX, Volume2 } from 'lucide-react';
+import { Pause, Play, Repeat, SkipBack, SkipForward, SlidersHorizontal, Volume1, Volume2, VolumeX } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
-import { AMBIENT_TRACKS } from '../lib/constants';
+import { AMBIENT_TRACKS, CURATED_RECITERS } from '../lib/constants';
+import { cx, Equalizer, Khatam, ReciterAvatar } from './ui';
 
 function formatTime(seconds: number) {
-  if (isNaN(seconds)) return '0:00';
+  if (!isFinite(seconds) || isNaN(seconds)) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
@@ -12,205 +13,232 @@ function formatTime(seconds: number) {
 
 export function BottomPlayer() {
   const {
-    currentChapter,
-    currentReciter,
-    currentAmbient,
-    isPlaying,
-    isLoading,
-    currentTime,
-    duration,
-    togglePlayPause,
-    playNextChapter,
-    playPreviousChapter,
-    seekTo,
-    quranVolume,
-    ambientVolume,
-    setQuranVolume,
-    setAmbientVolume,
-    setAmbientTrack
+    currentChapter, currentReciter, currentAmbient, isPlaying, isLoading,
+    currentTime, duration, togglePlayPause, playNextChapter, playPreviousChapter, seekTo,
+    quranVolume, ambientVolume, setQuranVolume, setAmbientVolume, setAmbientTrack, customReciters,
+    playbackRate, setPlaybackRate,
   } = usePlayer();
 
   const [expanded, setExpanded] = useState(false);
-
   if (!currentChapter) return null;
-  
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  const reciter = CURATED_RECITERS.concat(customReciters).find((r) => r.id === currentReciter?.id) ?? currentReciter;
+  const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const rates = [0.75, 1, 1.25, 1.5];
 
   return (
-    <div className={`fixed bottom-0 left-0 right-0 md:ml-72 bg-[#0A0C10]/90 backdrop-blur-3xl border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 ${expanded ? 'h-[28rem]' : 'h-28'}`}>
-      
-      {/* Always Visible Progress Bar */}
-      <div className={`absolute top-0 left-0 w-full -mt-2 group ${expanded ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-        <div className="px-6 md:px-10 flex items-center gap-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity absolute -top-4 w-full justify-between text-[10px] text-slate-400 font-mono tracking-widest z-10 pointer-events-none">
-           <span>{formatTime(currentTime)}</span>
-           <span>{formatTime(duration)}</span>
+    <div
+      className={cx(
+        'fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.07] bg-ink-950/85 backdrop-blur-3xl transition-[height] duration-500 ease-[cubic-bezier(.32,.72,0,1)] md:left-[276px]',
+        expanded ? 'h-[27rem]' : 'h-[92px]',
+      )}
+      style={{ boxShadow: '0 -30px 60px -40px rgba(0,0,0,.95)' }}
+    >
+      {/* hairline glow along the top edge */}
+      <span className="pointer-events-none absolute inset-x-[12%] -top-px h-px bg-gradient-to-r from-transparent via-gold/45 to-transparent" />
+
+      {/* Scrubber (mini) */}
+      <div className={cx('group absolute -top-1 left-0 right-0 z-10 px-6 transition-opacity md:px-8', expanded ? 'pointer-events-none opacity-0' : 'opacity-100')}>
+        <div className="absolute -top-6 left-6 right-6 flex justify-between font-mono text-[10px] tracking-widest text-mist-dim opacity-0 transition-opacity group-hover:opacity-100">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
         </div>
         <input
-          type="range"
-          min="0"
-          max={duration || 100}
-          value={currentTime}
+          type="range" min="0" max={duration || 100} value={currentTime}
           onChange={(e) => seekTo(parseFloat(e.target.value))}
-          className="w-full h-1.5 appearance-none cursor-pointer accent-teal-500 hover:accent-teal-400 transition-all z-20 absolute top-0 block"
-          style={{ 
-            padding: 0, margin: 0, outline: 'none', borderRadius: 0,
-            background: `linear-gradient(to right, #E2B753 ${progressPercent}%, #151921 ${progressPercent}%)`
-          }}
+          aria-label="Seek"
+          className="h-2 w-full cursor-pointer appearance-none rounded-full"
+          style={{ background: `linear-gradient(90deg, var(--accent) ${pct}%, rgba(255,255,255,.08) ${pct}%)` }}
         />
       </div>
 
-      {/* Compact Mini Player */}
-      <div 
-        className="h-28 px-6 md:px-10 flex items-center justify-between cursor-pointer group pt-1"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center gap-5 flex-1 overflow-hidden">
-          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-lg ${isPlaying ? 'shadow-[0_0_20px_rgba(226,183,83,0.3)]' : ''} transition-all duration-500`}>
-            <span className="text-[#050608] font-bold text-xl font-serif">{currentChapter.id}</span>
-          </div>
-          
-          <div className="flex flex-col overflow-hidden whitespace-nowrap">
-            <span className="text-white font-serif text-xl truncate group-hover:text-teal-400 transition-colors">
-              {currentChapter.name_simple}
+      {/* ---------- Mini bar ---------- */}
+      <div className={cx('flex h-[92px] items-center justify-between gap-4 px-6 md:px-8', expanded && 'max-md:hidden')}>
+        <button
+          onClick={() => setExpanded(true)}
+          className="group flex min-w-0 flex-1 items-center gap-4 text-left"
+        >
+          <span className="relative shrink-0">
+            <span className="grid h-14 w-14 place-items-center rounded-[18px] border border-gold/20 bg-ink-900" style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)' }}>
+              {isPlaying ? <Equalizer playing className="h-5" /> : <Khatam size={20} className="text-gold/70" />}
             </span>
-            <span className="text-slate-400 text-sm truncate flex items-center gap-2 font-light tracking-wide">
-              {currentReciter?.name}
+            {reciter && (
+              <span className="absolute -bottom-1.5 -right-1.5">
+                <ReciterAvatar reciter={reciter} size="xs" ring className="!h-7 !w-7 !rounded-full" imgClassName="object-[50%_20%]" />
+              </span>
+            )}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="display block truncate text-[17px] leading-tight text-white group-hover:text-gold-100">
+              {currentChapter.name_simple}
+              <span className="arabic ml-3 text-[15px] text-gold/70">{currentChapter.name_arabic}</span>
+            </span>
+            <span className="mt-1 flex items-center gap-2 truncate text-[12px] font-light text-mist-dim">
+              {reciter?.name}
               {currentAmbient && (
                 <>
-                  <span className="w-1 h-1 rounded-full bg-slate-700" />
-                  <span className="text-blue-400 flex items-center gap-1.5 opacity-90">
-                    <currentAmbient.icon size={12} /> {currentAmbient.name}
-                  </span>
+                  <span className="h-1 w-1 rounded-full bg-white/20" />
+                  <span className="inline-flex items-center gap-1.5"><currentAmbient.icon size={12} strokeWidth={1.6} /> {currentAmbient.name}</span>
                 </>
               )}
             </span>
-          </div>
-        </div>
+          </span>
+        </button>
 
-        <div className="flex items-center gap-4 md:gap-8" onClick={(e) => e.stopPropagation()}>
-          <button 
-            onClick={playPreviousChapter}
-            className="p-2 text-slate-500 hover:text-white transition-colors hidden sm:block"
-          >
-            <SkipBack size={24} className="fill-current" />
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          <button onClick={playPreviousChapter} aria-label="Previous surah" className="hidden p-2 text-mist-dim transition-colors hover:text-white sm:block">
+            <SkipBack size={19} className="fill-current" />
           </button>
-          
-          <button 
+          <button
             onClick={togglePlayPause}
             disabled={isLoading}
-            className={`w-14 h-14 flex items-center justify-center rounded-full bg-white text-[#0A0C10] hover:scale-105 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:scale-100 shadow-[0_0_30px_rgba(255,255,255,0.15)]`}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            className="btn-gold sheen !h-12 !w-12 !p-0 disabled:opacity-60"
           >
-            {isLoading ? (
-              <div className="w-6 h-6 border-2 border-slate-300 border-t-[#0A0C10] rounded-full animate-spin" />
-            ) : isPlaying ? (
-              <Pause size={24} className="fill-current" />
-            ) : (
-              <Play size={24} className="fill-current ml-1" />
-            )}
+            {isLoading
+              ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/25 border-t-black" />
+              : isPlaying ? <Pause size={19} className="fill-current" /> : <Play size={19} className="ml-0.5 fill-current" />}
           </button>
-          
-          <button 
-            onClick={playNextChapter}
-            className="p-2 text-slate-500 hover:text-white transition-colors hidden sm:block"
-          >
-            <SkipForward size={24} className="fill-current" />
+          <button onClick={playNextChapter} aria-label="Next surah" className="hidden p-2 text-mist-dim transition-colors hover:text-white sm:block">
+            <SkipForward size={19} className="fill-current" />
           </button>
-          
-          <button className="p-2 text-slate-600 hover:text-white transition-colors ml-4 hidden md:block group-hover:text-teal-500">
-            {expanded ? <ChevronDown size={24} /> : <ChevronUp size={24} />}
+          <button onClick={() => setExpanded(true)} aria-label="Open mixer" className="ml-1 hidden p-2 text-mist-dim transition-colors hover:text-gold md:block">
+            <SlidersHorizontal size={19} />
           </button>
         </div>
       </div>
 
-      {/* Expanded Controls: Dual Audio Mixer */}
-      <div className={`px-10 pt-4 pb-12 transition-all duration-700 ease-out h-full overflow-y-auto ${expanded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'}`}>
-        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
-          
-          {/* Left Side: Sliders and Scrubber */}
-          <div className="space-y-8">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500 tracking-widest font-mono">
+      {/* ---------- Expanded console ---------- */}
+      <div className={cx('h-[calc(100%-92px)] overflow-y-auto px-5 pb-6 pt-5 transition-all duration-500 max-md:hidden', expanded ? 'opacity-100' : 'pointer-events-none opacity-0')}>
+        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          {/* Now reciting */}
+          <div className="surface p-6">
+            <div className="flex items-start gap-5">
+              <ReciterAvatar reciter={reciter} size="md" />
+              <div className="min-w-0 flex-1">
+                <p className="eyebrow">Now reciting</p>
+                <h3 className="display mt-2 truncate text-[26px] leading-tight text-white">{currentChapter.name_simple}</h3>
+                <p className="truncate text-[13px] font-light text-mist-dim">
+                  {currentChapter.translated_name?.name} · {currentChapter.verses_count} verses · {reciter?.name}
+                </p>
+              </div>
+              <span className="arabic shrink-0 text-3xl text-gold/80">{currentChapter.name_arabic}</span>
+            </div>
+
+            <div className="mt-7">
+              <div className="mb-2 flex justify-between font-mono text-[11px] tracking-widest text-mist-dim">
                 <span>{formatTime(currentTime)}</span>
                 <span>{formatTime(duration)}</span>
               </div>
               <input
-                type="range"
-                min="0"
-                max={duration || 100}
-                value={currentTime}
+                type="range" min="0" max={duration || 100} value={currentTime}
                 onChange={(e) => seekTo(parseFloat(e.target.value))}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500 hover:accent-teal-400 transition-all"
-                style={{ background: `linear-gradient(to right, #14B8A6 ${progressPercent}%, #0F172A ${progressPercent}%)` }}
+                aria-label="Seek"
+                className="h-1.5 w-full cursor-pointer appearance-none rounded-full"
+                style={{ background: `linear-gradient(90deg, var(--accent) ${pct}%, rgba(255,255,255,.08) ${pct}%)` }}
               />
             </div>
-            
-            <div className="space-y-6 bg-[#0F172A]/80 p-6 rounded-[2rem] border border-teal-900/30">
-              <div className="flex items-center gap-3 mb-2">
-                <Volume2 className="text-teal-500 w-5 h-5" />
-                <h3 className="text-sm font-semibold text-white tracking-widest uppercase">Audio Mixer</h3>
+
+            <div className="mt-6 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button onClick={playPreviousChapter} className="grid h-10 w-10 place-items-center rounded-full border border-white/[0.07] text-mist transition-all hover:border-gold/30 hover:text-white">
+                  <SkipBack size={16} className="fill-current" />
+                </button>
+                <button onClick={togglePlayPause} className="btn-gold !h-12 !w-12 !p-0">
+                  {isPlaying ? <Pause size={18} className="fill-current" /> : <Play size={18} className="ml-0.5 fill-current" />}
+                </button>
+                <button onClick={playNextChapter} className="grid h-10 w-10 place-items-center rounded-full border border-white/[0.07] text-mist transition-all hover:border-gold/30 hover:text-white">
+                  <SkipForward size={16} className="fill-current" />
+                </button>
               </div>
-              <div>
-                <label className="text-xs font-medium text-slate-400 tracking-wide block mb-3 flex justify-between">
-                  <span>Quran Recitation</span>
-                  <span>{Math.round(quranVolume * 100)}%</span>
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={quranVolume}
-                  onChange={(e) => setQuranVolume(parseFloat(e.target.value))}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer accent-teal-500"
-                  style={{ background: `linear-gradient(to right, #14B8A6 ${quranVolume * 100}%, #1E293B ${quranVolume * 100}%)` }}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-slate-400 tracking-wide block mb-3 flex justify-between">
-                  <span>Background Soundscape</span>
-                  <span>{Math.round(ambientVolume * 100)}%</span>
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={ambientVolume}
-                  onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
-                  disabled={!currentAmbient}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
-                  style={{ background: `linear-gradient(to right, #3B82F6 ${ambientVolume * 100}%, #1E293B ${ambientVolume * 100}%)` }}
-                />
+
+              <div className="flex items-center gap-1.5">
+                <Repeat size={14} className="mr-1 text-mist-dim" />
+                {rates.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setPlaybackRate(r)}
+                    className={cx(
+                      'rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all',
+                      playbackRate === r ? 'bg-gold/15 text-gold-100 ring-1 ring-gold/30' : 'text-mist-dim hover:bg-white/5 hover:text-white',
+                    )}
+                  >
+                    {r}×
+                  </button>
+                ))}
               </div>
             </div>
           </div>
 
-          {/* Right Side: Ambient Selection Grid */}
-          <div className="bg-[#0F172A]/80 p-6 rounded-[2rem] border border-teal-900/30 overflow-y-auto max-h-[18rem] custom-scrollbar">
-            <h3 className="text-sm font-semibold text-white tracking-widest uppercase mb-4 sticky top-0 bg-[#0F172A] z-10 pb-2">Select Ambient Track</h3>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-              <button
-                onClick={() => setAmbientTrack(null)}
-                className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${!currentAmbient ? 'border-teal-500/50 bg-teal-500/10 text-teal-400' : 'border-slate-800 bg-slate-800/30 hover:bg-slate-800/60'}`}
-              >
-                <VolumeX size={24} className="mb-2 opacity-70" />
-                <span className="text-xs font-medium">No Sound</span>
-              </button>
-              
-              {AMBIENT_TRACKS.map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={() => setAmbientTrack(opt)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${currentAmbient?.id === opt.id ? 'border-blue-500/50 bg-blue-500/20 text-blue-400' : 'border-slate-800 bg-slate-800/30 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}
-                >
-                  <opt.icon size={24} className="mb-2" />
-                  <span className="text-[10px] sm:text-xs font-medium text-center truncate w-full">{opt.name}</span>
-                </button>
-              ))}
+          {/* Mixer + ambience */}
+          <div className="space-y-5">
+            <div className="surface p-6">
+              <p className="eyebrow mb-5">Audio mixer</p>
+              <MixerRow
+                label="Recitation" value={quranVolume} onChange={setQuranVolume}
+                icon={quranVolume === 0 ? VolumeX : quranVolume < 0.5 ? Volume1 : Volume2}
+              />
+              <div className="my-5 hairline" />
+              <MixerRow
+                label="Ambience" value={ambientVolume} onChange={setAmbientVolume}
+                icon={currentAmbient ? currentAmbient.icon : VolumeX}
+                disabled={!currentAmbient}
+                hint={currentAmbient ? currentAmbient.name : 'No soundscape'}
+              />
+            </div>
+
+            <div className="surface max-h-[13.5rem] overflow-y-auto p-4">
+              <p className="eyebrow sticky top-0 z-10 bg-transparent px-2 pb-3 pt-1">Soundscape</p>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                <SoundTile active={!currentAmbient} onClick={() => setAmbientTrack(null)} icon={VolumeX} label="Silence" />
+                {AMBIENT_TRACKS.map((t) => (
+                  <SoundTile key={t.id} active={currentAmbient?.id === t.id} onClick={() => setAmbientTrack(t)} icon={t.icon} label={t.name} />
+                ))}
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function MixerRow({
+  label, value, onChange, icon: Icon, disabled, hint,
+}: { label: string; value: number; onChange: (v: number) => void; icon: any; disabled?: boolean; hint?: string }) {
+  return (
+    <div className={cx(disabled && 'opacity-50')}>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-2.5 text-[13px] text-sandstone">
+          <Icon size={15} className="text-gold" strokeWidth={1.6} /> {label}
+          {hint && <span className="text-[11px] text-mist-dim">· {hint}</span>}
+        </span>
+        <span className="font-mono text-[11px] text-mist-dim">{Math.round(value * 100)}%</span>
+      </div>
+      <input
+        type="range" min="0" max="1" step="0.01" value={value} disabled={disabled}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-label={`${label} volume`}
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full"
+        style={{ background: `linear-gradient(90deg, var(--accent) ${value * 100}%, rgba(255,255,255,.08) ${value * 100}%)` }}
+      />
+    </div>
+  );
+}
+
+function SoundTile({ active, onClick, icon: Icon, label }: { key?: string | number; active: boolean; onClick: () => void; icon: any; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cx(
+        'flex flex-col items-center gap-2 rounded-2xl border px-2 py-3.5 transition-all duration-300',
+        active
+          ? 'border-gold/40 bg-gold/[0.1] text-gold-100 shadow-[0_0_24px_-10px_var(--accent-glow)]'
+          : 'border-white/[0.06] bg-white/[0.02] text-mist-dim hover:border-white/15 hover:text-sandstone',
+      )}
+    >
+      <Icon size={19} strokeWidth={1.4} />
+      <span className="w-full truncate text-center text-[10px] font-medium tracking-wide">{label}</span>
+    </button>
   );
 }

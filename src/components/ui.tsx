@@ -133,6 +133,7 @@ export function ReciterAvatar({
   className,
   imgClassName,
 }: {
+  key?: string | number;
   reciter: Pick<Reciter, 'id' | 'name' | 'image'> | null | undefined;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   ring?: boolean;

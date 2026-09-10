@@ -17,34 +17,79 @@ import { InsightsView } from './views/InsightsView';
 import { SettingsView } from './views/SettingsView';
 import { getChapters } from './lib/api';
 import { CURATED_RECITERS, DEFAULT_RECITER_ID } from './lib/constants';
-import { Palette } from 'lucide-react';
+import { readStoredTheme, storeTheme } from './lib/theme';
+import { Khatam } from './components/ui';
 
-
-function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
+function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
   const { user, role, loading } = useAuth();
-  if (loading) return <div className="h-screen flex items-center justify-center text-teal-500">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-5 bg-obsidian">
+        <span className="text-gold spin-slow"><Khatam size={38} /></span>
+        <p className="eyebrow">Preparing your space</p>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/auth" />;
   if (adminOnly && role !== 'admin') return <Navigate to="/dashboard" />;
   return <>{children}</>;
 }
 
+/** Gilded theme picker used across the dashboard chrome. */
+function ThemeSwitcher({ currentTheme, setCurrentTheme }: { currentTheme: string; setCurrentTheme: (t: string) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="fixed right-5 top-5 z-[60] flex flex-col items-end gap-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Change ambience theme"
+        className="group grid h-11 w-11 place-items-center rounded-full border border-white/[0.08] bg-ink-950/70 text-gold backdrop-blur-xl transition-all duration-500 hover:border-gold/40 hover:bg-ink-900"
+        style={{ boxShadow: '0 14px 40px -18px rgba(0,0,0,.9)' }}
+      >
+        <Khatam size={19} className={open ? 'rotate-90 transition-transform duration-500' : 'transition-transform duration-500 group-hover:rotate-45'} />
+      </button>
+
+      {open && (
+        <div className="surface w-[248px] animate-in scale-in duration-200 rounded-3xl p-3">
+          <p className="eyebrow px-3 pb-2.5 pt-2">Ambience</p>
+          <div className="flex flex-col gap-1">
+            {Object.entries(THEME_LIBRARY).map(([key, theme]) => {
+              const active = currentTheme === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => { setCurrentTheme(key); setOpen(false); }}
+                  className={
+                    'flex items-center justify-between gap-3 rounded-2xl px-3.5 py-3 text-left text-[13px] transition-all duration-300 ' +
+                    (active ? 'bg-gold/[0.09] text-gold-100' : 'text-mist hover:bg-white/[0.04] hover:text-white')
+                  }
+                >
+                  <span className="flex items-center gap-3">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: theme.colors.primary, boxShadow: `0 0 12px ${theme.colors.primary}66` }} />
+                    {theme.name}
+                  </span>
+                  {active && <span className="h-1.5 w-1.5 rounded-full bg-gold shadow-[0_0_10px_var(--accent-glow)]" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardLayout() {
   const location = useLocation();
-  const currentTab = location.pathname.split('/').pop() || 'home';
   const navigate = useNavigate();
+  const currentTab = location.pathname.split('/')[2] || 'home';
   const setCurrentTab = (tab: string) => navigate(`/dashboard/${tab}`);
-  const [currentTheme, setCurrentTheme] = useState('midnight-scholar');
-  const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
-  
-  const { 
-    setChapters, 
-    setReciter, 
-    customReciters, 
-    ambientVolume,
-    isPlaying
-  } = usePlayer();
-  
-  const themes = Object.keys(THEME_LIBRARY);
+  const [currentTheme, setCurrentTheme] = useState<string>(() => readStoredTheme());
+
+  const { setChapters, setReciter, customReciters, ambientVolume, isPlaying } = usePlayer();
+
+  useEffect(() => { storeTheme(currentTheme); }, [currentTheme]);
 
   useEffect(() => {
     let isMounted = true;
@@ -53,90 +98,46 @@ function DashboardLayout() {
         const chaptersData = await getChapters();
         if (!isMounted) return;
         setChapters(chaptersData);
-        
+
         const allReciters = [...CURATED_RECITERS, ...customReciters];
-        const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
+        const defaultReciter = allReciters.find((r) => r.id === DEFAULT_RECITER_ID) || allReciters[0];
         setReciter(defaultReciter);
       } catch (error) {
         console.error('Error initializing app:', error);
       }
     }
-    
     initApp();
     return () => { isMounted = false; };
+    // Chapters only need hydrating once; reciter list follows custom reciters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customReciters, setChapters, setReciter]);
 
   return (
-    <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
-      <QuranicPremiumBackground 
-        themeName={currentTheme}
-        ambientVolume={ambientVolume}
-        isPlaying={isPlaying}
-      />
-      
+    <div className="flex min-h-screen bg-obsidian font-sans text-mist selection:bg-gold/25">
+      <QuranicPremiumBackground themeName={currentTheme} ambientVolume={ambientVolume} isPlaying={isPlaying} />
+
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
-      
-      <main className="flex-1 md:ml-72 pb-40 overflow-y-auto h-screen relative z-10 transition-all">
-        <div className="p-4 md:p-10 md:max-w-7xl mx-auto h-full">
+
+      <main className="relative z-10 h-screen flex-1 overflow-y-auto pb-44 md:ml-[276px]">
+        <div className="mx-auto h-full max-w-[1240px] px-4 pt-6 md:px-10">
           <Routes>
-            <Route path="/" element={<Navigate to="home" />} />
+            <Route path="/" element={<Navigate to="home" replace />} />
             <Route path="home" element={<HomeView />} />
             <Route path="hub" element={<HubView />} />
             <Route path="library" element={<SurahLibraryView />} />
             <Route path="reciters" element={<RecitersHubView />} />
+            <Route path="reciters/:id" element={<RecitersHubView />} />
             <Route path="insights" element={<InsightsView />} />
             <Route path="settings" element={<SettingsView />} />
           </Routes>
         </div>
       </main>
+
       <BottomPlayer />
-
-      {/* Theme Switcher Toggle */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-2">
-        <button 
-          onClick={() => setShowThemeSwitcher(!showThemeSwitcher)}
-          className="w-12 h-12 bg-[#0F172A]/80 hover:bg-[#1E293B] backdrop-blur-xl border border-teal-900/30 rounded-full flex items-center justify-center text-teal-400 shadow-lg transition-all"
-        >
-          <Palette size={20} />
-        </button>
-
-        {showThemeSwitcher && (
-          <div className="bg-[#0F172A]/90 backdrop-blur-xl p-4 rounded-2xl border border-teal-900/30 shadow-2xl animate-in fade-in slide-in-from-top-4">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Premium Themes</h3>
-            <div className="flex flex-col gap-2 min-w-[200px]">
-              {themes.map((themeName) => (
-                <button
-                  key={themeName}
-                  onClick={() => {
-                    setCurrentTheme(themeName);
-                    setShowThemeSwitcher(false);
-                  }}
-                  className={`px-4 py-3 text-xs font-medium rounded-xl transition-all text-left flex items-center justify-between ${
-                    currentTheme === themeName
-                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
-                      : 'hover:bg-slate-800 text-slate-300 border border-transparent'
-                  }`}
-                >
-                  <span className="flex items-center gap-3">
-                    <span 
-                      className="w-3 h-3 rounded-full shadow-sm"
-                      style={{ backgroundColor: THEME_LIBRARY[themeName].colors.primary }}
-                    />
-                    {THEME_LIBRARY[themeName].name}
-                  </span>
-                  {currentTheme === themeName && (
-                    <div className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,0.8)]" />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <ThemeSwitcher currentTheme={currentTheme} setCurrentTheme={setCurrentTheme} />
     </div>
   );
 }
-
 
 export default function App() {
   return (

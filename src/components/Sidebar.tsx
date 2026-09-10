@@ -1,118 +1,172 @@
 import React from 'react';
-import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon } from 'lucide-react';
+import {
+  BarChart2, BookOpen, Compass, Crown, Headphones, LogOut, Settings, Shield, Sparkles, User as UserIcon,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { usePlayer } from '../context/PlayerContext';
+import { CURATED_RECITERS } from '../lib/constants';
+import { cx, Equalizer, Khatam, ReciterAvatar } from './ui';
 
 interface SidebarProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
 }
 
+const TABS = [
+  { id: 'home', label: 'Explore', icon: Compass },
+  { id: 'hub', label: 'Focus Space', icon: Headphones },
+  { id: 'library', label: 'Surahs', icon: BookOpen },
+  { id: 'reciters', label: 'Reciters', icon: Sparkles },
+  { id: 'insights', label: 'Activity', icon: BarChart2 },
+];
+
 export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
   const { user, role, logOut } = useAuth();
   const navigate = useNavigate();
-  const tabs = [
-    { id: 'home', label: 'Explore', icon: Compass },
-    { id: 'hub', label: 'Focus Space', icon: Headphones },
-    { id: 'library', label: 'Surahs', icon: BookOpen },
-    { id: 'reciters', label: 'Reciters', icon: Disc3 },
-    { id: 'insights', label: 'Activity', icon: BarChart2 },
-  ];
+  const { currentReciter, customReciters, isPlaying, currentChapter } = usePlayer();
+
+  const allReciters = [...CURATED_RECITERS, ...customReciters];
+  const activeReciter = allReciters.find((r) => r.id === currentReciter?.id) ?? currentReciter;
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <div className="hidden md:flex flex-col w-72 bg-[#020617]/70 backdrop-blur-3xl border-r border-slate-800/60 h-screen fixed top-0 left-0 pt-10 pb-24 z-40">
-        <div className="px-8 mb-12">
-          <h1 className="text-2xl font-serif text-white tracking-wide flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-[0_0_20px_rgba(45,212,191,0.2)]">
-              <BookOpen size={20} className="text-[#020617]" />
-            </div>
-            Quran Audio
-          </h1>
-        </div>
-        
-        <nav className="flex-1 px-4 space-y-2">
-          <p className="px-5 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4 mt-2">Menu</p>
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setCurrentTab(tab.id)}
-              className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-medium ${
-                currentTab === tab.id 
-                  ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20' 
-                  : 'text-slate-400 hover:bg-white/5 hover:text-white border border-transparent'
-              }`}
+      {/* ---------- Desktop rail ---------- */}
+      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-[276px] flex-col border-r border-white/[0.06] bg-ink-950/70 pb-8 pt-9 backdrop-blur-3xl md:flex">
+        {/* Brand */}
+        <div className="px-8">
+          <button onClick={() => navigate('/')} className="group flex items-center gap-3.5 text-left">
+            <span
+              className="grid h-11 w-11 place-items-center rounded-2xl text-[#0A0C10] transition-transform duration-500 group-hover:rotate-[18deg]"
+              style={{ background: 'linear-gradient(140deg,#F3E4BE,var(--accent) 55%,#9E7B39)', boxShadow: '0 10px 28px -12px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.6)' }}
             >
-              <tab.icon size={22} strokeWidth={currentTab === tab.id ? 2 : 1.5} />
-              <span className="tracking-wide">{tab.label}</span>
-            </button>
-          ))}
+              <BookOpen size={19} strokeWidth={2.1} />
+            </span>
+            <span>
+              <span className="display block text-[19px] leading-none tracking-[0.16em] text-white uppercase">Nooraya</span>
+              <span className="mt-1.5 block text-[9px] uppercase tracking-[0.32em] text-mist-dim">Quran · Sound · Stillness</span>
+            </span>
+          </button>
+        </div>
+
+        <div className="mx-8 mt-8 hairline" />
+
+        {/* Nav */}
+        <nav className="mt-7 flex-1 space-y-1.5 overflow-y-auto px-4">
+          <p className="eyebrow px-4 pb-3">Menu</p>
+          {TABS.map((tab) => {
+            const active = currentTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setCurrentTab(tab.id)}
+                className={cx(
+                  'group relative flex w-full items-center gap-3.5 rounded-2xl px-4 py-3.5 text-[14px] transition-all duration-300',
+                  active ? 'bg-gradient-to-r from-gold/[0.14] to-transparent text-gold-100' : 'text-mist hover:bg-white/[0.035] hover:text-white',
+                )}
+              >
+                {active && <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-gold shadow-[0_0_14px_var(--accent-glow)]" />}
+                <tab.icon size={19} strokeWidth={active ? 1.9 : 1.4} className={active ? 'text-gold' : 'text-mist-dim group-hover:text-sandstone'} />
+                <span className="tracking-wide">{tab.label}</span>
+                {active && <Khatam size={12} className="ml-auto text-gold/60" />}
+              </button>
+            );
+          })}
         </nav>
-        
-        
-        <div className="px-4 mt-auto space-y-2">
-           {role === 'admin' && (
-             <button
-               onClick={() => navigate('/admin')}
-               className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-medium text-amber-500 hover:bg-amber-500/10 border border-transparent"
-             >
-               <Shield size={22} strokeWidth={1.5} />
-               <span className="tracking-wide">Admin Panel</span>
-             </button>
-           )}
-           <button
-             onClick={() => setCurrentTab('settings')}
-             className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-medium ${
-               currentTab === 'settings'
-                  ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
-                  : 'text-slate-400 hover:bg-white/5 hover:text-white border border-transparent'
-             }`}
-           >
-             <Settings size={22} strokeWidth={currentTab === 'settings' ? 2 : 1.5} />
-             <span className="tracking-wide">Settings</span>
-           </button>
-           <div className="relative group">
-             <div className="w-full flex items-center gap-3 px-5 py-3 rounded-2xl bg-[#030712] border border-slate-800 cursor-pointer">
-               {user?.photoURL ? (
-                 <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full" />
-               ) : (
-                 <div className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-500"><UserIcon size={16} /></div>
-               )}
-               <div className="flex flex-col flex-1 truncate">
-                 <span className="text-xs font-medium text-white truncate">{user?.displayName || user?.email?.split('@')[0]}</span>
-                 <span className="text-[10px] text-slate-500 truncate">{user?.email}</span>
-               </div>
-             </div>
-             
-             {/* Dropdown Menu */}
-             <div className="absolute bottom-full left-0 w-full mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-               <div className="bg-[#0A0F1C] border border-slate-800 rounded-xl p-2 shadow-2xl">
-                 <button onClick={logOut} className="w-full flex items-center gap-3 px-3 py-2 text-red-400 hover:bg-red-400/10 rounded-lg text-xs font-medium transition-colors">
-                   <LogOut size={16} /> Sign Out
-                 </button>
-               </div>
-             </div>
-           </div>
-        </div>
 
-      </div>
+        {/* Active reciter card */}
+        {activeReciter && (
+          <button
+            onClick={() => navigate(`/dashboard/reciters/${activeReciter.id}`)}
+            className="surface edge-lit mx-4 mt-5 flex items-center gap-3.5 rounded-[22px] p-3.5 text-left transition-all duration-500 hover:border-gold/25"
+          >
+            <ReciterAvatar reciter={activeReciter} size="sm" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[9px] font-semibold uppercase tracking-[0.2em] text-mist-dim">
+                {currentChapter ? (isPlaying ? <span className="inline-flex items-center gap-1.5"><Equalizer playing className="mr-1" />Now reciting</span> : 'Paused') : 'Active reciter'}
+              </span>
+              <span className="display mt-1 block truncate text-[13px] text-white">{activeReciter.name}</span>
+              <span className="block truncate text-[11px] text-mist-dim">{activeReciter.style} · {activeReciter.location || activeReciter.region}</span>
+            </span>
+          </button>
+        )}
 
-      {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-[90px] left-4 right-4 bg-[#0A0F1C]/95 backdrop-blur-2xl border border-slate-800/80 rounded-2xl z-40 p-2 shadow-2xl">
-        <div className="flex items-center justify-between">
-          {[...tabs, { id: 'settings', label: 'Admin', icon: Settings }].map(tab => (
+        {/* Account */}
+        <div className="mt-4 space-y-2 px-4">
+          {role === 'admin' && (
             <button
-              key={tab.id}
-              onClick={() => setCurrentTab(tab.id)}
-              className={`flex flex-col items-center gap-1.5 py-2 px-2 rounded-xl min-w-[50px] transition-all ${
-                currentTab === tab.id ? 'bg-teal-500/10 text-teal-400' : 'text-slate-500'
-              }`}
+              onClick={() => navigate('/admin')}
+              className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[13px] font-medium text-gold/90 transition-colors hover:bg-gold/[0.07] hover:text-gold-100"
             >
-              <tab.icon size={18} />
-              <span className="text-[9px] font-medium tracking-wide">{tab.label}</span>
+              <Shield size={18} strokeWidth={1.5} /> <span className="tracking-wide">Admin Panel</span>
             </button>
-          ))}
+          )}
+
+          <div className="group relative">
+            <div className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
+              {user?.photoURL ? (
+                <img src={user.photoURL} alt="" className="h-8 w-8 rounded-full object-cover ring-1 ring-gold/25" />
+              ) : (
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-gold/10 text-gold ring-1 ring-gold/20">
+                  {user ? <UserIcon size={15} /> : <Crown size={15} />}
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium text-white">{user?.displayName || user?.email?.split('@')[0] || 'Guest'}</span>
+                <span className="block truncate text-[10px] text-mist-dim">{user?.email || 'Not signed in'}</span>
+              </span>
+            </div>
+
+            <div className="pointer-events-none absolute bottom-full left-0 mb-2 w-full translate-y-1 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+              <div className="surface rounded-2xl p-1.5">
+                <button
+                  onClick={() => { logOut(); navigate('/'); }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12px] font-medium text-red-300 transition-colors hover:bg-red-400/10"
+                >
+                  <LogOut size={14} /> Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setCurrentTab('settings')}
+            className={cx(
+              'flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[13px] transition-all duration-300',
+              currentTab === 'settings' ? 'bg-gold/[0.1] text-gold-100' : 'text-mist-dim hover:bg-white/[0.035] hover:text-white',
+            )}
+          >
+            <Settings size={18} strokeWidth={currentTab === 'settings' ? 1.9 : 1.4} /> <span className="tracking-wide">Settings</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ---------- Mobile nav ---------- */}
+      <div className="fixed bottom-[96px] left-4 right-4 z-40 md:hidden">
+        <div className="surface flex items-center justify-between rounded-[26px] p-2">
+          {TABS.map((tab) => {
+            const active = currentTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setCurrentTab(tab.id)}
+                className={cx(
+                  'flex min-w-[54px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2.5 transition-all duration-300',
+                  active ? 'bg-gold/[0.12] text-gold' : 'text-mist-dim',
+                )}
+              >
+                <tab.icon size={17} strokeWidth={active ? 2 : 1.4} />
+                <span className="text-[9px] font-semibold tracking-wide">{tab.label}</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setCurrentTab('settings')}
+            className={cx('flex min-w-[54px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2.5 transition-all', currentTab === 'settings' ? 'bg-gold/[0.12] text-gold' : 'text-mist-dim')}
+          >
+            <Settings size={17} strokeWidth={currentTab === 'settings' ? 2 : 1.4} />
+            <span className="text-[9px] font-semibold tracking-wide">Settings</span>
+          </button>
         </div>
       </div>
     </>
