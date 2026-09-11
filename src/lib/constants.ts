@@ -18,6 +18,16 @@ export const AMBIENT_TRACKS: AmbientTrack[] = [
 
 const commons = (file: string) => `https://commons.wikimedia.org/wiki/File:${file}`;
 
+/**
+ * Surah file extensions tried, in order, when building a playback URL.
+ *
+ * MP4 is preferred first, but note that the mp3quran.net CDN mirrors this app streams from
+ * only publish MP3 — `<server>/001.mp4` answers 404 on every mirror. The player therefore
+ * probes MP4 once per reciter, remembers which extension actually served audio, and uses it
+ * from then on (see PlayerContext). Reciters whose mirror does carry MP4 play in MP4.
+ */
+export const AUDIO_FORMATS: string[] = ['mp4', 'mp3'];
+
 export const CURATED_RECITERS: Reciter[] = [
   {
     id: 'afs',
@@ -45,7 +55,7 @@ export const CURATED_RECITERS: Reciter[] = [
     style: 'Murattal',
     location: 'Mecca',
     region: 'Saudi Arabia',
-    serverUrl: 'https://server7.mp3quran.net/shrm/',
+    serverUrl: 'https://server7.mp3quran.net/shur/',
     imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Saud_Shuraim_doing_the_Khutbah.png/500px-Saud_Shuraim_doing_the_Khutbah.png',
     imageCredit: commons('Saud_Shuraim_doing_the_Khutbah.png'),
   },
@@ -75,7 +85,7 @@ export const CURATED_RECITERS: Reciter[] = [
     style: 'Murattal',
     location: 'Mecca',
     region: 'Saudi Arabia',
-    serverUrl: 'https://server6.mp3quran.net/balila/',
+    serverUrl: 'https://server6.mp3quran.net/balilah/',
     imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Bandar_Baleela.jpg/500px-Bandar_Baleela.jpg',
     imageCredit: commons('Bandar_Baleela.jpg'),
   },
@@ -108,6 +118,34 @@ export const CURATED_RECITERS: Reciter[] = [
     serverUrl: 'https://server7.mp3quran.net/basit/',
     imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/Abdul_Basit_Abdul_Samad_at_Centenary_Celebration_Of_Darul_Uloom_Deoband_1980.jpg/500px-Abdul_Basit_Abdul_Samad_at_Centenary_Celebration_Of_Darul_Uloom_Deoband_1980.jpg',
     imageCredit: commons('Abdul_Basit_Abdul_Samad_at_Centenary_Celebration_Of_Darul_Uloom_Deoband_1980.jpg'),
+  },
+  {
+    id: 'bader',
+    name: 'Badr Al-Turki',
+    style: 'Murattal',
+    location: 'Medina',
+    region: 'Saudi Arabia',
+    serverUrl: 'https://server10.mp3quran.net/bader/Rewayat-Hafs-A-n-Assem/',
+    imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Photo_of_badr_al-turki_in_2023.jpg/500px-Photo_of_badr_al-turki_in_2023.jpg',
+    imageCredit: commons('Photo_of_badr_al-turki_in_2023.jpg'),
+  },
+  {
+    id: 'mansor',
+    name: 'Mansoor Al-Salemi',
+    style: 'Murattal',
+    location: 'Muscat',
+    region: 'Oman',
+    serverUrl: 'https://server14.mp3quran.net/mansor/',
+  },
+  {
+    id: 'okasha',
+    name: 'Okasha Kameny',
+    // His complete 114-surah recording on the mp3quran CDN is in the riwaya of Ibn Kathir,
+    // not Hafs an Assem, so the label says so instead of pretending it matches the others.
+    style: 'Murattal (Ibn Kathir)',
+    location: 'Accra',
+    region: 'Ghana',
+    serverUrl: 'https://server16.mp3quran.net/okasha/Rewayat-Albizi-A-n-Ibn-Katheer/',
   },
 ];
 

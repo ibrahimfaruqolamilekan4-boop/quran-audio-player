@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX, Volume2 } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX, Volume2, AlertCircle } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { ReciterAvatar } from './ReciterAvatar';
 import { AMBIENT_TRACKS } from '../lib/constants';
@@ -18,6 +18,7 @@ export function BottomPlayer() {
     currentAmbient,
     isPlaying,
     isLoading,
+    playbackError,
     currentTime,
     duration,
     togglePlayPause,
@@ -86,14 +87,24 @@ export function BottomPlayer() {
             <span className="text-white font-serif text-xl truncate group-hover:text-teal-400 transition-colors">
               {currentChapter.name_simple}
             </span>
-            <span className="text-slate-400 text-sm truncate flex items-center gap-2 font-light tracking-wide">
-              {currentReciter?.name}
-              {currentAmbient && (
+            <span className={`text-sm truncate flex items-center gap-2 font-light tracking-wide ${playbackError ? 'text-red-400' : 'text-slate-400'}`}>
+              {playbackError ? (
                 <>
-                  <span className="w-1 h-1 rounded-full bg-slate-700" />
-                  <span className="text-blue-400 flex items-center gap-1.5 opacity-90">
-                    <currentAmbient.icon size={12} /> {currentAmbient.name}
-                  </span>
+                  <AlertCircle size={14} className="shrink-0" />
+                  {/* Without this the player just sits there and looks frozen. */}
+                  <span className="truncate">{playbackError}</span>
+                </>
+              ) : (
+                <>
+                  {currentReciter?.name}
+                  {currentAmbient && (
+                    <>
+                      <span className="w-1 h-1 rounded-full bg-slate-700" />
+                      <span className="text-blue-400 flex items-center gap-1.5 opacity-90">
+                        <currentAmbient.icon size={12} /> {currentAmbient.name}
+                      </span>
+                    </>
+                  )}
                 </>
               )}
             </span>

@@ -17,6 +17,7 @@ import adminReciters from './api/admin/reciters';
 import adminRole from './api/admin/role';
 import adminAmbient from './api/admin/ambient';
 import health from './api/health.mjs';
+import publicReciters from './api/reciters';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +40,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/role$/, adminRole],
   [/^\/api\/admin\/ambient$/, adminAmbient],
   [/^\/api\/health$/, health],
+  [/^\/api\/reciters$/, publicReciters],
 ];
 
 /** Serves the /api serverless functions inside `vite dev` so one command runs the whole app. */
@@ -73,7 +75,11 @@ function apiDevPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
-    base: './',
+    // Must stay absolute: vercel.json rewrites every unknown path to /index.html, so with a
+    // relative base the SPA would request /dashboard/assets/*.js on deep links and page
+    // refreshes. That hits the rewrite, returns HTML instead of JavaScript and the whole
+    // app silently fails to boot (blank dashboard, no surahs, nothing to play).
+    base: '/',
     plugins: [react(), tailwindcss(), apiDevPlugin()],
     resolve: {
       alias: {

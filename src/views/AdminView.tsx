@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { appApi } from '../lib/api';
-import { Shield, Users, Video, Settings as SettingsIcon, Save } from 'lucide-react';
-import { AMBIENT_TRACKS } from '../lib/constants';
+import { Shield, Users, Video, ImagePlus, Save } from 'lucide-react';
+import { AMBIENT_TRACKS, CURATED_RECITERS } from '../lib/constants';
 import { ReciterAvatar } from '../components/ReciterAvatar';
 
 export function AdminView() {
@@ -11,6 +11,10 @@ export function AdminView() {
   const [newReciterUrl, setNewReciterUrl] = useState('');
   const [newReciterImage, setNewReciterImage] = useState('');
   const [reciterError, setReciterError] = useState('');
+  /** Photo URL drafts keyed by reciter id, for the portrait editor below. */
+  const [photoDrafts, setPhotoDrafts] = useState<Record<string, string>>({});
+  const [photoSaving, setPhotoSaving] = useState<string | null>(null);
+  const [photoMessage, setPhotoMessage] = useState('');
   const [ambientSettings, setAmbientSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -56,6 +60,39 @@ export function AdminView() {
       console.error(e);
       setReciterError(e?.message || 'Could not save the global reciter.');
     }
+  };
+
+  /**
+   * Publish or replace the portrait of any sheikh in the built-in list. It is stored as a global
+   * reciter row keyed by the same id, which resolveReciters() then applies for every user.
+   * Sending an empty URL removes the override and falls back to the built-in picture.
+   */
+  const handleSavePhoto = async (
+    reciter: { id: string; name: string; serverUrl: string },
+    value: string
+  ) => {
+    const imageUrl = value.trim();
+    setPhotoSaving(reciter.id);
+    setPhotoMessage('');
+    try {
+      const { reciter: saved } = await appApi<{ reciter: any }>('/admin/reciters', {
+        method: 'POST',
+        body: { id: reciter.id, name: reciter.name, serverUrl: reciter.serverUrl, imageUrl },
+      });
+      setGlobalReciters(prev => [saved, ...prev.filter(r => r.id !== reciter.id)]);
+      if (imageUrl && !saved?.imageUrl) {
+        setPhotoMessage(
+          `${reciter.name}: details saved, but the photo was dropped — the image_url column does not exist yet. Run "node scripts/apply-schema.mjs" once, then save again.`
+        );
+      } else {
+        setPhotoMessage(
+          imageUrl ? `${reciter.name}'s portrait is live for everyone.` : `${reciter.name}'s portrait override was removed.`
+        );
+      }
+    } catch (e: any) {
+      setPhotoMessage(e?.message || 'Could not save the portrait.');
+    }
+    setPhotoSaving(null);
   };
 
   const handleRoleToggle = async (userId: string, currentRole: string) => {
@@ -132,6 +169,76 @@ export function AdminView() {
         </section>
 
         
+        {/* Sheikh Portraits */}
+        <section className="bg-[#131722]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl p-6 lg:p-8">
+          <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-3">
+            <ImagePlus className="w-5 h-5 text-teal-500" />
+            Sheikh Profile Pictures
+          </h2>
+          <p className="text-sm text-slate-500 mb-6">
+            Add or change the portrait of any reciter, including the built-in ones. Paste a direct
+            image link (it must end in .jpg, .png or similar). Save applies it for every user; clear
+            the box and save to fall back to the picture we ship with, or their initials.
+          </p>
+          {photoMessage && (
+            <p className={`text-sm mb-5 ${photoMessage.includes('dropped') || photoMessage.includes('Could not') ? 'text-red-400' : 'text-teal-400'}`}>
+              {photoMessage}
+            </p>
+          )}
+          <div className="grid gap-2">
+            {CURATED_RECITERS.map(r => {
+              const override = globalReciters.find(g => g.id === r.id)?.imageUrl || '';
+              const draft = photoDrafts[r.id] ?? override ?? r.imageUrl ?? '';
+              const dirty = draft.trim() !== (override || r.imageUrl || '').trim();
+              return (
+                <div key={r.id} className="flex flex-col md:flex-row md:items-center gap-3 bg-[#030712]/50 p-4 rounded-xl border border-slate-800">
+                  <div className="flex items-center gap-4 min-w-0 md:w-64 shrink-0">
+                    <div className="w-11 h-11 shrink-0">
+                      <ReciterAvatar
+                        reciter={{ name: r.name, imageUrl: draft.trim() || undefined }}
+                        contentClassName="text-xs"
+                        shape="circle"
+                        iconSize={16}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-white truncate">{r.name}</h3>
+                      <p className="text-xs text-slate-500 truncate">
+                        {r.region || '—'}
+                        {override ? <span className="text-teal-500"> · custom photo</span> : null}
+                      </p>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={draft}
+                    onChange={e => setPhotoDrafts({ ...photoDrafts, [r.id]: e.target.value })}
+                    placeholder="https://example.com/sheikh.jpg"
+                    className="flex-1 bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm placeholder-slate-600 focus:border-teal-500 outline-none"
+                  />
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleSavePhoto(r, draft)}
+                      disabled={photoSaving === r.id || !dirty}
+                      className="bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:hover:bg-teal-500 text-slate-900 px-5 py-2.5 rounded-xl font-bold text-sm whitespace-nowrap"
+                    >
+                      {photoSaving === r.id ? 'Saving…' : 'Save'}
+                    </button>
+                    {dirty && (
+                      <button
+                        onClick={() => setPhotoDrafts({ ...photoDrafts, [r.id]: override || r.imageUrl || '' })}
+                        className="text-slate-500 hover:text-white text-xs"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
         {/* Reciters & Content Control */}
         <section className="bg-[#131722]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl p-6 lg:p-8">
           <h2 className="text-xl font-bold text-white mb-2">Global Reciters Manager</h2>

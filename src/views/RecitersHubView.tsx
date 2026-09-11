@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { usePlayer } from '../context/PlayerContext';
-import { CURATED_RECITERS } from '../lib/constants';
 import { ReciterAvatar } from '../components/ReciterAvatar';
 import { Check, Search, MapPin, Play, Pause, X, Radio, ImageOff } from 'lucide-react';
 import type { Reciter } from '../types';
@@ -15,11 +14,10 @@ export function RecitersHubView() {
     playChapter,
     togglePlayPause,
     customReciters,
+    allReciters,
   } = usePlayer();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedReciter, setSelectedReciter] = useState<string | null>(null);
-
-  const allReciters = useMemo<Reciter[]>(() => [...CURATED_RECITERS, ...customReciters], [customReciters]);
 
   const query = searchQuery.trim().toLowerCase();
   const filteredReciters = allReciters.filter(

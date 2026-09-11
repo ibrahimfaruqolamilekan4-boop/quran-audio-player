@@ -2,13 +2,13 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
-import { AMBIENT_TRACKS, CURATED_RECITERS } from '../lib/constants';
+import { AMBIENT_TRACKS } from '../lib/constants';
 import { ReciterAvatar } from '../components/ReciterAvatar';
 import { getUserData, getListeningLogs } from '../lib/storage';
 import { Play, Heart, Clock, MoreVertical, Flame, Trophy, Check, ArrowRight } from 'lucide-react';
 
 export function HomeView() {
-  const { chapters, playChapter, currentChapter, currentReciter, setReciter, setAmbientTrack, currentAmbient } = usePlayer();
+  const { chapters, playChapter, currentChapter, currentReciter, setReciter, setAmbientTrack, currentAmbient, allReciters } = usePlayer();
   const { user } = useAuth();
   const navigate = useNavigate();
   const userData = getUserData();
@@ -120,7 +120,7 @@ export function HomeView() {
         </div>
 
         <div className="flex gap-5 overflow-x-auto pb-2 -mx-1 px-1 md:grid md:grid-cols-4 lg:grid-cols-6 md:overflow-visible md:mx-0 md:px-0">
-          {CURATED_RECITERS.slice(0, 6).map(reciter => {
+          {allReciters.slice(0, 12).map(reciter => {
             const active = currentReciter?.id === reciter.id;
             return (
               <button

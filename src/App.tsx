@@ -16,7 +16,7 @@ import { RecitersHubView } from './views/RecitersHubView';
 import { InsightsView } from './views/InsightsView';
 import { SettingsView } from './views/SettingsView';
 import { getChapters } from './lib/api';
-import { CURATED_RECITERS, DEFAULT_RECITER_ID } from './lib/constants';
+import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
 
 
@@ -40,7 +40,7 @@ function DashboardLayout() {
     setChapters, 
     setReciter, 
     currentReciter,
-    customReciters, 
+    allReciters, 
     ambientVolume,
     isPlaying
   } = usePlayer();
@@ -61,11 +61,10 @@ function DashboardLayout() {
         setChapters(chaptersData);
         
         // Only choose a default when nothing is selected yet, so the sheikh the
-        // user just picked is never reset when custom reciters finish loading.
+        // user just picked is never reset when the reciter list finishes loading.
         if (!currentReciter) {
-          const allReciters = [...CURATED_RECITERS, ...customReciters];
           const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
-          setReciter(defaultReciter);
+          if (defaultReciter) setReciter(defaultReciter);
         }
       } catch (error) {
         console.error('Error initializing app:', error);
@@ -74,7 +73,7 @@ function DashboardLayout() {
     
     initApp();
     return () => { isMounted = false; };
-  }, [customReciters, currentReciter, setChapters, setReciter]);
+  }, [allReciters, currentReciter, setChapters, setReciter]);
 
   return (
     <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
