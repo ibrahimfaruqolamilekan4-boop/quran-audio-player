@@ -422,7 +422,14 @@ export function QuranicPremiumBackground({
   }, [activeBackgroundVideoId]);
 
   return (
-    <div className="fixed inset-0 -z-50 w-full h-full overflow-hidden">
+    /*
+     * z-0, NOT a negative z-index. A negative-z child of position:static
+     * ancestors resolves against the root stacking context, where in-flow
+     * block backgrounds (App's opaque bg-[#030712]) paint AFTER it — so the
+     * whole layer, including any video, was buried under the app background.
+     * Content sits above this at z-10+, so it still never intercepts clicks.
+     */
+    <div className="fixed inset-0 z-0 w-full h-full overflow-hidden pointer-events-none">
       {/* Premium base gradient using theme colors */}
       <div 
         className="absolute inset-0"
@@ -451,24 +458,35 @@ export function QuranicPremiumBackground({
 
           {/* Quranic Verse Scroll - THEME AWARE */}
           <QuranicVerseScroll intensity={visualIntensity} theme={theme} />
-
-          {/* Custom Video Overlay */}
-          {videoUrl && (
-            <video
-              autoPlay
-              loop
-              muted
-              playsInline
-              aria-hidden="true"
-              className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover pointer-events-none mix-blend-screen transition-opacity duration-1000"
-              style={{
-                opacity: Math.max(0.4, visualIntensity * 0.8),
-                filter: `brightness(${0.5 + visualIntensity * 0.5})`,
-              }}
-              src={videoUrl}
-            />
-          )}
         </motion.div>
+      </AnimatePresence>
+
+      {/*
+       * Custom Video Overlay — a sibling of the theme layer, not a child.
+       * Inside the theme block it was keyed by themeName, so switching theme
+       * unmounted the <video> and restarted it behind a playing surah.
+       */}
+      <AnimatePresence>
+        {videoUrl && (
+          <motion.video
+            key={videoUrl}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.5 }}
+            autoPlay
+            loop
+            muted
+            playsInline
+            aria-hidden="true"
+            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover mix-blend-screen"
+            style={{
+              opacity: Math.max(0.4, visualIntensity * 0.8),
+              filter: `brightness(${0.5 + visualIntensity * 0.5})`,
+            }}
+            src={videoUrl}
+          />
+        )}
       </AnimatePresence>
 
       {/* Premium overlay with blur and vignette */}
