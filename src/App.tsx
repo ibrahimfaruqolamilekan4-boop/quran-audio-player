@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
@@ -39,6 +39,7 @@ function DashboardLayout() {
   const { 
     setChapters, 
     setReciter, 
+    currentReciter,
     customReciters, 
     ambientVolume,
     isPlaying
@@ -46,7 +47,12 @@ function DashboardLayout() {
   
   const themes = Object.keys(THEME_LIBRARY);
 
+  const didInit = useRef(false);
+
   useEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
+
     let isMounted = true;
     async function initApp() {
       try {
@@ -54,9 +60,13 @@ function DashboardLayout() {
         if (!isMounted) return;
         setChapters(chaptersData);
         
-        const allReciters = [...CURATED_RECITERS, ...customReciters];
-        const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
-        setReciter(defaultReciter);
+        // Only choose a default when nothing is selected yet, so the sheikh the
+        // user just picked is never reset when custom reciters finish loading.
+        if (!currentReciter) {
+          const allReciters = [...CURATED_RECITERS, ...customReciters];
+          const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
+          setReciter(defaultReciter);
+        }
       } catch (error) {
         console.error('Error initializing app:', error);
       }
@@ -64,7 +74,7 @@ function DashboardLayout() {
     
     initApp();
     return () => { isMounted = false; };
-  }, [customReciters, setChapters, setReciter]);
+  }, [customReciters, currentReciter, setChapters, setReciter]);
 
   return (
     <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">

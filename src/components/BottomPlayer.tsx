@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, VolumeX, Volume2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
+import { ReciterAvatar } from './ReciterAvatar';
 import { AMBIENT_TRACKS } from '../lib/constants';
 
 function formatTime(seconds: number) {
@@ -65,8 +66,20 @@ export function BottomPlayer() {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-5 flex-1 overflow-hidden">
-          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-lg ${isPlaying ? 'shadow-[0_0_20px_rgba(226,183,83,0.3)]' : ''} transition-all duration-500`}>
-            <span className="text-[#050608] font-bold text-xl font-serif">{currentChapter.id}</span>
+          <div
+            className={`relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border transition-all duration-500 ${
+              isPlaying ? 'border-teal-400/50 shadow-[0_0_24px_rgba(45,212,191,0.28)]' : 'border-white/10'
+            }`}
+          >
+            <ReciterAvatar
+              reciter={currentReciter ?? { name: '' }}
+              className="rounded-none border-0"
+              contentClassName="text-lg"
+              iconSize={20}
+            />
+            <span className="absolute bottom-0 right-0 px-1.5 py-0.5 rounded-tl-lg bg-black/70 backdrop-blur-sm text-teal-300 text-[10px] font-mono leading-none">
+              {currentChapter.id}
+            </span>
           </div>
           
           <div className="flex flex-col overflow-hidden whitespace-nowrap">

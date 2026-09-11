@@ -5,17 +5,20 @@ import { useAuth } from '../context/AuthContext';
 import { appApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
-import { Plus, Trash2, Upload, Settings as SettingsIcon, AlertCircle, Play, X, Video } from 'lucide-react';
+import { Plus, Trash2, Upload, Settings as SettingsIcon, AlertCircle, Play, X, Video, Check } from 'lucide-react';
+import { ReciterAvatar } from '../components/ReciterAvatar';
 import { AMBIENT_TRACKS } from '../lib/constants';
 
 export function SettingsView() {
-  const { customReciters, setCustomReciters, customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId, ambientVideoMapping, setAmbientVideoMapping } = usePlayer();
+  const { customReciters, setCustomReciters, customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId, ambientVideoMapping, setAmbientVideoMapping, currentReciter } = usePlayer();
   const { user, logOut } = useAuth();
   const navigate = useNavigate();
   
   const [newReciterName, setNewReciterName] = useState('');
   const [newReciterUrl, setNewReciterUrl] = useState('');
+  const [newReciterImage, setNewReciterImage] = useState('');
   const [reciterError, setReciterError] = useState('');
+  const [savingReciter, setSavingReciter] = useState(false);
   
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoError, setVideoError] = useState('');
@@ -113,11 +116,17 @@ export function SettingsView() {
       setReciterError('Please enter a valid server URL (e.g., https://server.net/).');
       return;
     }
+    const trimmedImage = newReciterImage.trim();
+    if (trimmedImage && !validateUrl(trimmedImage)) {
+      setReciterError('That photo link does not look valid. Use a full URL, e.g. https://site.net/sheikh.jpg');
+      return;
+    }
     const reciter = {
       id: 'custom_' + Date.now(),
       name: newReciterName.trim(),
       style: 'Custom',
       serverUrl: newReciterUrl.trim().endsWith('/') ? newReciterUrl.trim() : newReciterUrl.trim() + '/',
+      ...(trimmedImage ? { imageUrl: trimmedImage } : {}),
     };
     
     const updated = [...customReciters, reciter];
@@ -125,15 +134,21 @@ export function SettingsView() {
     await localforage.setItem('customReciters', updated);
     
     if (user) {
+      setSavingReciter(true);
       try {
         await appApi('/me/reciters', { method: 'POST', body: reciter });
-      } catch (e) {
+      } catch (e: any) {
+        // Saved on this device, but not synced — say so instead of failing silently.
         console.error("Failed to sync reciter", e);
+        setReciterError(`Added on this device, but not synced to your account: ${e?.message || 'unknown error'}`);
+      } finally {
+        setSavingReciter(false);
       }
     }
     
     setNewReciterName('');
     setNewReciterUrl('');
+    setNewReciterImage('');
   };
 
   const handleRemoveReciter = async (id: string) => {
@@ -249,27 +264,50 @@ export function SettingsView() {
 
         {/* Custom Reciters */}
         <section className="bg-[#131722]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl p-6 lg:p-8">
-          <h2 className="text-xl font-bold text-white mb-6">Custom Reciters</h2>
-          <div className="flex flex-col md:flex-row gap-4 mb-3">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-white">Custom Reciters</h2>
+              <p className="text-slate-500 text-sm mt-1">
+                Add any sheikh hosted on a full-surah mp3 server. The photo link is optional — without one we show their initials.
+              </p>
+            </div>
+            <div className="w-12 h-12 shrink-0">
+              <ReciterAvatar
+                reciter={{ name: newReciterName || 'New', imageUrl: newReciterImage.trim() || undefined }}
+                contentClassName="text-sm"
+                shape="circle"
+                iconSize={18}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
             <input 
                type="text" 
                placeholder="Sheikh Name (e.g. Mishary)" 
                value={newReciterName} 
                onChange={e => { setNewReciterName(e.target.value); setReciterError(''); }}
-              className={`flex-1 bg-[#030712] border ${reciterError && !newReciterName.trim() ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all`}
+              className={`bg-[#030712] border ${reciterError && !newReciterName.trim() ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all`}
             />
             <input 
                type="text" 
                placeholder="Server URL (e.g. https://server.net/)" 
                value={newReciterUrl} 
                onChange={e => { setNewReciterUrl(e.target.value); setReciterError(''); }}
-              className={`flex-1 bg-[#030712] border ${reciterError && (!newReciterUrl.trim() || !validateUrl(newReciterUrl)) ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all`}
+              className={`bg-[#030712] border ${reciterError && (!newReciterUrl.trim() || !validateUrl(newReciterUrl)) ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all`}
+            />
+            <input
+              type="text"
+              placeholder="Photo URL (optional — e.g. https://site.net/sheikh.jpg)"
+              value={newReciterImage}
+              onChange={e => { setNewReciterImage(e.target.value); setReciterError(''); }}
+              className={`bg-[#030712] border ${reciterError && newReciterImage.trim() && !validateUrl(newReciterImage) ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all md:col-span-2`}
             />
             <button 
                onClick={handleAddReciter}
-              className="bg-teal-500 hover:bg-teal-400 text-slate-900 font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition-all"
+               disabled={savingReciter}
+              className="bg-teal-500 hover:bg-teal-400 disabled:opacity-60 text-slate-900 font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition-all md:justify-self-end"
             >
-              <Plus className="w-5 h-5" /> Add
+              <Plus className="w-5 h-5" /> {savingReciter ? 'Saving…' : 'Add reciter'}
             </button>
           </div>
           <AnimatePresence>
@@ -286,12 +324,22 @@ export function SettingsView() {
               <p className="text-slate-500 text-center py-4">No custom reciters added yet.</p>
             ) : (
               customReciters.map(reciter => (
-                <div key={reciter.id} className="flex items-center justify-between bg-[#030712]/50 border border-slate-800 rounded-xl p-4">
-                  <div>
-                    <h3 className="text-white font-medium">{reciter.name}</h3>
-                    <p className="text-sm text-slate-500 truncate max-w-xs sm:max-w-md">{reciter.serverUrl}</p>
+                <div key={reciter.id} className="flex items-center justify-between gap-4 bg-[#030712]/50 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-12 h-12 shrink-0">
+                      <ReciterAvatar reciter={reciter} contentClassName="text-sm" shape="circle" iconSize={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-white font-medium truncate">{reciter.name}</h3>
+                      <p className="text-sm text-slate-500 truncate max-w-xs sm:max-w-md">{reciter.serverUrl}</p>
+                    </div>
+                    {currentReciter?.id === reciter.id && (
+                      <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[10px] uppercase tracking-wider shrink-0">
+                        <Check size={11} strokeWidth={3} /> Active
+                      </span>
+                    )}
                   </div>
-                  <button onClick={() => handleRemoveReciter(reciter.id)} className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors">
+                  <button onClick={() => handleRemoveReciter(reciter.id)} className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors shrink-0">
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>

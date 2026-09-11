@@ -1,13 +1,20 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
-import { AMBIENT_TRACKS } from '../lib/constants';
+import { useAuth } from '../context/AuthContext';
+import { AMBIENT_TRACKS, CURATED_RECITERS } from '../lib/constants';
+import { ReciterAvatar } from '../components/ReciterAvatar';
 import { getUserData, getListeningLogs } from '../lib/storage';
-import { Play, Heart, Clock, MoreVertical, Flame, Trophy } from 'lucide-react';
+import { Play, Heart, Clock, MoreVertical, Flame, Trophy, Check, ArrowRight } from 'lucide-react';
 
 export function HomeView() {
-  const { chapters, playChapter, currentChapter, setAmbientTrack, currentAmbient } = usePlayer();
+  const { chapters, playChapter, currentChapter, currentReciter, setReciter, setAmbientTrack, currentAmbient } = usePlayer();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const userData = getUserData();
   const logs = getListeningLogs();
+
+  const firstName = (user?.displayName || user?.email?.split('@')[0] || '').trim().split(/\s+/)[0];
 
   // Calculate today's listening time
   const today = new Date().toDateString();
@@ -21,8 +28,18 @@ export function HomeView() {
     <div className="space-y-12 animate-in fade-in duration-700 pb-20 relative z-10">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h2 className="text-5xl font-serif text-white tracking-wide">As-salamu alaykum</h2>
-          <p className="text-slate-400 mt-2 font-light text-lg">Continue your spiritual journey.</p>
+          <h2 className="text-5xl font-serif text-white tracking-wide">
+            As-salamu alaykum{firstName ? `, ${firstName}` : ''}
+          </h2>
+          <p className="text-slate-400 mt-2 font-light text-lg">
+            {currentReciter ? (
+              <>
+                Reciting by <span className="text-teal-400">{currentReciter.name}</span> — continue your spiritual journey.
+              </>
+            ) : (
+              'Continue your spiritual journey.'
+            )}
+          </p>
         </div>
         
         {/* Recitation Goals Widget */}
@@ -86,6 +103,57 @@ export function HomeView() {
             <h4 className="text-xl font-serif text-white">Recently Played</h4>
             <p className="text-sm text-slate-500 font-light mt-1">Al-Baqarah</p>
           </div>
+        </div>
+      </section>
+
+      {/* Featured Reciters */}
+      <section>
+        <div className="flex items-end justify-between mb-6 gap-4">
+          <h3 className="text-xl font-medium text-white tracking-wide">Featured Reciters</h3>
+          <button
+            onClick={() => navigate('/dashboard/reciters')}
+            className="group flex items-center gap-2 text-sm text-slate-400 hover:text-teal-400 transition-colors"
+          >
+            Browse all
+            <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
+          </button>
+        </div>
+
+        <div className="flex gap-5 overflow-x-auto pb-2 -mx-1 px-1 md:grid md:grid-cols-4 lg:grid-cols-6 md:overflow-visible md:mx-0 md:px-0">
+          {CURATED_RECITERS.slice(0, 6).map(reciter => {
+            const active = currentReciter?.id === reciter.id;
+            return (
+              <button
+                key={reciter.id}
+                onClick={() => setReciter(reciter)}
+                title={active ? `${reciter.name} is active` : `Listen to ${reciter.name}`}
+                className="group relative flex flex-col items-center text-center shrink-0 w-28 md:w-auto focus:outline-none"
+              >
+                <span
+                  className={`block w-24 h-24 rounded-full transition-all duration-500 ${
+                    active
+                      ? 'ring-2 ring-teal-500 shadow-[0_0_28px_rgba(20,184,166,0.25)]'
+                      : 'ring-1 ring-slate-800 group-hover:ring-slate-600 group-hover:scale-[1.03]'
+                  }`}
+                >
+                  <ReciterAvatar reciter={reciter} shape="circle" className="rounded-full border-0" contentClassName="text-2xl" iconSize={26} />
+                </span>
+                {active && (
+                  <span className="absolute top-0 right-3 bg-teal-500 text-black p-1.5 rounded-full shadow-lg">
+                    <Check size={13} strokeWidth={3} />
+                  </span>
+                )}
+                <span
+                  className={`mt-3 text-sm font-serif leading-snug line-clamp-2 transition-colors ${
+                    active ? 'text-teal-300' : 'text-slate-300 group-hover:text-white'
+                  }`}
+                >
+                  {reciter.name}
+                </span>
+                <span className="text-[11px] text-slate-500 mt-0.5">{reciter.region}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 

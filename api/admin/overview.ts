@@ -1,5 +1,5 @@
 // GET /api/admin/overview -> { users, globalReciters, ambientSounds }
-import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
+import { type Handler, q, qWithFallback, requireAdmin, sendJson } from '../_lib.mjs';
 
 const handler: Handler = async (req, res) => {
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
@@ -9,7 +9,11 @@ const handler: Handler = async (req, res) => {
 
     const [users, reciters, ambient] = await Promise.all([
       q('SELECT uid AS "userId", email, display_name AS "displayName", photo_url AS "photoURL", role, created_at AS "createdAt", last_login_at AS "lastLoginAt" FROM users ORDER BY created_at DESC'),
-      q('SELECT id, name, style, server_url AS "serverUrl" FROM global_reciters ORDER BY updated_at DESC'),
+      // Falls back to a query without image_url until `node scripts/apply-schema.mjs` runs.
+      qWithFallback([
+        { text: 'SELECT id, name, style, server_url AS "serverUrl", image_url AS "imageUrl" FROM global_reciters ORDER BY updated_at DESC' },
+        { text: 'SELECT id, name, style, server_url AS "serverUrl" FROM global_reciters ORDER BY updated_at DESC' },
+      ]),
       q('SELECT id, video_url AS "videoUrl" FROM ambient_sounds'),
     ]);
 

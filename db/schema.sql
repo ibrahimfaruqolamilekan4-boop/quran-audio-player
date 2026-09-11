@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS custom_reciters (
   name       TEXT NOT NULL,
   style      TEXT,
   server_url TEXT NOT NULL,
+  image_url  TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS global_reciters (
   name       TEXT NOT NULL,
   style      TEXT,
   server_url TEXT NOT NULL,
+  image_url  TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -50,3 +52,9 @@ CREATE TABLE IF NOT EXISTS ambient_sounds (
   video_url  TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------- idempotent migrations ----------
+-- CREATE TABLE IF NOT EXISTS never changes a table that already exists, so any
+-- column added later must also be ALTERed here. Safe to re-run.
+ALTER TABLE custom_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;

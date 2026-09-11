@@ -18,6 +18,7 @@ export interface QueryResult<T = any> {
 
 export function getPool(): Promise<{ query: (text: string, params?: unknown[]) => Promise<QueryResult> }>;
 export function q<T = any>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
+export function qWithFallback<T = any>(queries: Array<{ text: string; params?: unknown[] }>): Promise<QueryResult<T>>;
 export function mapUser(row: {
   uid: string;
   email: string;
@@ -44,3 +45,4 @@ export function requireAuth(req: IncomingMessage, res: ServerResponse): Promise<
 export function requireAdmin(req: IncomingMessage, res: ServerResponse): Promise<AppUser | null>;
 export function validEmail(email: unknown): email is string;
 export function adminEmail(): string;
+export function cleanImageUrl(value: unknown): string | null;

@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { appApi } from '../lib/api';
 import { Shield, Users, Video, Settings as SettingsIcon, Save } from 'lucide-react';
 import { AMBIENT_TRACKS } from '../lib/constants';
+import { ReciterAvatar } from '../components/ReciterAvatar';
 
 export function AdminView() {
   const [users, setUsers] = useState<any[]>([]);
   const [globalReciters, setGlobalReciters] = useState<any[]>([]);
   const [newReciterName, setNewReciterName] = useState('');
   const [newReciterUrl, setNewReciterUrl] = useState('');
+  const [newReciterImage, setNewReciterImage] = useState('');
+  const [reciterError, setReciterError] = useState('');
   const [ambientSettings, setAmbientSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,16 +38,23 @@ export function AdminView() {
 
   const handleAddGlobalReciter = async () => {
     if (!newReciterName || !newReciterUrl) return;
+    setReciterError('');
     try {
       const { reciter } = await appApi<{ reciter: any }>('/admin/reciters', {
         method: 'POST',
-        body: { name: newReciterName, serverUrl: newReciterUrl },
+        body: {
+          name: newReciterName,
+          serverUrl: newReciterUrl,
+          ...(newReciterImage.trim() ? { imageUrl: newReciterImage.trim() } : {}),
+        },
       });
-      setGlobalReciters([...globalReciters, reciter]);
+      setGlobalReciters([reciter, ...globalReciters]);
       setNewReciterName('');
       setNewReciterUrl('');
-    } catch(e) {
+      setNewReciterImage('');
+    } catch (e: any) {
       console.error(e);
+      setReciterError(e?.message || 'Could not save the global reciter.');
     }
   };
 
@@ -124,27 +134,57 @@ export function AdminView() {
         
         {/* Reciters & Content Control */}
         <section className="bg-[#131722]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl p-6 lg:p-8">
-          <h2 className="text-xl font-bold text-white mb-6">Global Reciters Manager</h2>
-          <div className="flex gap-4 mb-6">
+          <h2 className="text-xl font-bold text-white mb-2">Global Reciters Manager</h2>
+          <p className="text-sm text-slate-500 mb-6">
+            Global reciters are shared by every account. A photo link is optional — without one we show their initials.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr_auto] gap-4 mb-3">
             <input 
               type="text" placeholder="Reciter Name" value={newReciterName} onChange={e => setNewReciterName(e.target.value)}
-              className="flex-1 bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white text-sm"
+              className="bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:border-teal-500 outline-none"
             />
             <input 
-              type="text" placeholder="Server URL" value={newReciterUrl} onChange={e => setNewReciterUrl(e.target.value)}
-              className="flex-1 bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white text-sm"
+              type="text" placeholder="Server URL (https://server.mp3quran.net/name/)" value={newReciterUrl} onChange={e => setNewReciterUrl(e.target.value)}
+              className="bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:border-teal-500 outline-none"
             />
             <button onClick={handleAddGlobalReciter} className="bg-teal-500 hover:bg-teal-400 text-slate-900 px-6 py-3 rounded-xl font-bold">Add</button>
           </div>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 mb-6">
+            <input
+              type="text"
+              placeholder="Photo URL (optional — https://site.net/sheikh.jpg)"
+              value={newReciterImage}
+              onChange={e => setNewReciterImage(e.target.value)}
+              className="bg-[#0A0F1C] border border-slate-700 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-600 focus:border-teal-500 outline-none"
+            />
+            <div className="w-12 h-12 shrink-0">
+              <ReciterAvatar
+                reciter={{ name: newReciterName || 'New', imageUrl: newReciterImage.trim() || undefined }}
+                contentClassName="text-sm"
+                shape="circle"
+                iconSize={18}
+              />
+            </div>
+          </div>
+          {reciterError && <p className="text-red-400 text-sm mb-4">{reciterError}</p>}
           <div className="grid gap-2">
-            {globalReciters.map(r => (
-              <div key={r.id} className="flex justify-between items-center bg-[#030712]/50 p-4 rounded-xl border border-slate-800">
-                <div>
-                  <h3 className="font-medium text-white">{r.name}</h3>
-                  <p className="text-xs text-slate-500">{r.serverUrl}</p>
+            {globalReciters.length === 0 ? (
+              <p className="text-slate-500 text-center py-4 text-sm">No global reciters yet.</p>
+            ) : (
+              globalReciters.map(r => (
+                <div key={r.id} className="flex justify-between items-center gap-4 bg-[#030712]/50 p-4 rounded-xl border border-slate-800">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-10 h-10 shrink-0">
+                      <ReciterAvatar reciter={r} contentClassName="text-xs" shape="circle" iconSize={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-white truncate">{r.name}</h3>
+                      <p className="text-xs text-slate-500 truncate">{r.serverUrl}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
 

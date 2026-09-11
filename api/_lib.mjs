@@ -203,3 +203,42 @@ export function validEmail(email) {
 export function adminEmail() {
   return (process.env.ADMIN_EMAIL || 'ibrahimfaruqolamilekan4@gmail.com').toLowerCase();
 }
+
+/**
+ * Normalise an optional image link from the client. Only absolute http(s) URLs are
+ * accepted, since those are the only values that are safe to use as an <img> src;
+ * anything else is dropped rather than stored.
+ */
+export function cleanImageUrl(value) {
+  if (typeof value !== 'string') return null;
+  const url = value.trim();
+  if (!url || url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run each query in order until one succeeds. Used for columns that are added by a
+ * migration which may not have been applied to the database yet: Postgres reports
+ * 42703 (undefined_column) for those, and the next variant — which omits the column —
+ * is used instead. Without this, a pending migration would break reciter sync.
+ */
+export async function qWithFallback(queries) {
+  let lastError;
+  for (const { text, params } of queries) {
+    try {
+      return await q(text, params);
+    } catch (err) {
+      if (err && err.code === '42703') {
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}

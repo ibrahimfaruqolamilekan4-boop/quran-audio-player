@@ -19,7 +19,7 @@ interface PlayerContextType {
   setQuranVolume: (val: number) => void;
   setAmbientVolume: (val: number) => void;
   setPlaybackRate: (val: number) => void;
-  playChapter: (chapter: Chapter) => void;
+  playChapter: (chapter: Chapter, reciter?: Reciter) => void;
   togglePlayPause: () => void;
   setReciter: (reciter: Reciter) => void;
   setAmbientTrack: (track: AmbientTrack | null) => void;
@@ -115,11 +115,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         try {
           const { reciters: cloudReciters } = await appApi<{ reciters: Reciter[] }>('/me/reciters');
 
-          // Merge local and cloud reciters
+          // Merge local and cloud reciters. A locally stored photo is never erased
+          // by a sync response that carries none, and a newer server photo wins.
           const merged = [...localReciters];
           for (const cr of cloudReciters) {
-            if (!merged.find(r => r.id === cr.id)) {
+            const local = merged.find(r => r.id === cr.id);
+            if (!local) {
               merged.push(cr);
+            } else if (cr.imageUrl) {
+              local.imageUrl = cr.imageUrl;
             }
           }
           setCustomReciters(merged);
@@ -260,16 +264,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const playChapter = async (chapter: Chapter) => {
-    if (!currentReciter || !quranAudioRef.current) return;
+  const playChapter = async (chapter: Chapter, overrideReciter?: Reciter) => {
+    // Callers that select a reciter and play in the same action pass it explicitly:
+    // `currentReciter` state has not committed yet, so reading it here would
+    // stream from the previously active reciter.
+    const reciter = overrideReciter ?? currentReciter;
+    if (!reciter || !quranAudioRef.current) return;
     
     try {
       setIsLoading(true);
       setCurrentChapter(chapter);
       
       const chapterNumberString = String(chapter.id).padStart(3, '0');
-      const url = `${currentReciter.serverUrl}${chapterNumberString}.mp3`;
-      const cacheKey = `quran_audio_${currentReciter.id}_${chapter.id}`;
+      const url = `${reciter.serverUrl}${chapterNumberString}.mp3`;
+      const cacheKey = `quran_audio_${reciter.id}_${chapter.id}`;
       
       // Fetch Blob from IndexedDB or Network, then create object URL
       const finalUrl = await fetchAndCacheAudio(url, cacheKey);
