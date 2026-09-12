@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig, type Plugin } from 'vite';
 import dotenv from 'dotenv';
+import { execSync } from 'node:child_process';
 import signup from './api/auth/signup';
 import login from './api/auth/login';
 import logout from './api/auth/logout';
@@ -20,6 +21,38 @@ import health from './api/health.mjs';
 import publicReciters from './api/reciters';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// A unique, human-readable stamp baked into every production build's index.html so we can
+// curl the live site and know EXACTLY which commit/deploy is serving traffic. The recurring
+// "did my fix actually deploy?" question is impossible to answer without this, because a
+// failed promotion still returns HTTP 200 with a stale bundle.
+function buildId(): string {
+  const env = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || '';
+  let sha = env ? env.slice(0, 7) : '';
+  if (!sha) {
+    try {
+      sha = execSync('git rev-parse --short HEAD').toString().trim();
+    } catch {
+      sha = 'unknown';
+    }
+  }
+  const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+  return `${sha} @ ${stamp}`;
+}
+
+/** Injects the build id into index.html as a meta tag + HTML comment. */
+function buildIdPlugin(): Plugin {
+  const id = buildId();
+  return {
+    name: 'build-id',
+    transformIndexHtml(html) {
+      return html.replace(
+        '<meta charset="UTF-8" />',
+        `<meta charset="UTF-8" />\n    <!-- build: ${id} -->\n    <meta name="build-id" content="${id}" />`,
+      );
+    },
+  };
+}
 
 // The /api handlers read process.env directly (as they do on Vercel),
 // so load .env into process.env for local development.
@@ -80,7 +113,7 @@ export default defineConfig(() => {
     // refreshes. That hits the rewrite, returns HTML instead of JavaScript and the whole
     // app silently fails to boot (blank dashboard, no surahs, nothing to play).
     base: '/',
-    plugins: [react(), tailwindcss(), apiDevPlugin()],
+    plugins: [react(), tailwindcss(), buildIdPlugin(), apiDevPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
