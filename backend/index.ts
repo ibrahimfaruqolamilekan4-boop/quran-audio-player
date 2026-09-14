@@ -7,10 +7,12 @@
 // backend/ and are dispatched from this one function, so the count can never
 // silently exceed the plan limit again.
 //
-// scripts/build-function.mjs bundles this file (and everything it imports)
-// into api/[...slug].mjs as plain, self-contained ESM JavaScript. Vercel runs
-// that artifact directly on the Node runtime — no TS transpiling, no fragile
-// extension rewriting at boot.
+// scripts/build-function.mjs bundles this file (and everything it imports,
+// including pg) into api/[...slug].js as self-contained plain ESM JavaScript.
+// That artifact is committed on purpose: Vercel's zero-config discovery scans
+// the source tree for api/, and an artifact that only exists after the build
+// step may never be registered as a function. `npm run build` regenerates it
+// before every deploy, so it can never go stale.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import signup from './auth/signup';
