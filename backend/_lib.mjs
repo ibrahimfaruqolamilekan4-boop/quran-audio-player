@@ -1,10 +1,9 @@
-// Shared helpers for the /api serverless functions.
+// Shared helpers for the /api endpoints.
 //
-// This file is intentionally plain ESM JavaScript (not TypeScript): Vercel
-// transpiles each api/*.ts file individually without bundling, so an
-// extensionless import of a TypeScript helper resolves to a module that does
-// not exist at runtime (ERR_MODULE_NOT_FOUND for /var/task/api/_lib). Keeping
-// the shared code as a real .mjs file means the runtime path always exists.
+// Everything in backend/ is bundled by scripts/build-function.mjs (esbuild)
+// into the single catch-all function at api/[...slug].mjs, which is the only
+// file Vercel deploys. Plain ESM JavaScript here keeps the source readable and
+// the bundle self-contained regardless of which bundler version runs the build.
 // Types for this module live in _lib.d.mts.
 import crypto from 'node:crypto';
 
