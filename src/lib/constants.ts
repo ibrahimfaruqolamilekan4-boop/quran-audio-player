@@ -147,6 +147,16 @@ export const CURATED_RECITERS: Reciter[] = [
     region: 'Ghana',
     serverUrl: 'https://server16.mp3quran.net/okasha/Rewayat-Albizi-A-n-Ibn-Katheer/',
   },
+  {
+    id: 'lhdan',
+    name: 'Muhammad Al-Luhaidan',
+    // محمد اللحيدان — imam from Riyadh; complete 114-surah Hafs murattal on the
+    // mp3quran CDN (server8/lhdan, verified: 001.mp3 and 018.mp3 respond 200).
+    style: 'Murattal',
+    location: 'Riyadh',
+    region: 'Saudi Arabia',
+    serverUrl: 'https://server8.mp3quran.net/lhdan/',
+  },
 ];
 
 export const DEFAULT_RECITER_ID = 'afs';

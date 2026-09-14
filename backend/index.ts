@@ -1,18 +1,21 @@
-// Entry point for the single catch-all Serverless Function.
+// Entry point for the /api Serverless Functions.
 //
 // Vercel Hobby allows at most 12 Serverless Functions per deployment. This app
 // used to ship 13 (one file per endpoint under api/) and every production
 // deployment failed with `exceeded_serverless_functions_per_deployment`, which
 // blocked promotion to the production alias. All endpoint handlers now live in
-// backend/ and are dispatched from this one function, so the count can never
+// backend/ and are dispatched from this router, so the count can never
 // silently exceed the plan limit again.
 //
 // scripts/build-function.mjs bundles this file (and everything it imports,
-// including pg) into api/[...slug].js as self-contained plain ESM JavaScript.
-// That artifact is committed on purpose: Vercel's zero-config discovery scans
-// the source tree for api/, and an artifact that only exists after the build
-// step may never be registered as a function. `npm run build` regenerates it
-// before every deploy, so it can never go stale.
+// including pg) into self-contained plain-ESM functions emitted at three path
+// depths under api/ — [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
+// `[...slug].js` catch-all does NOT work on Vercel: it matched a single
+// segment only, so /api/auth/login 404'd at the edge. The router here
+// dispatches on the full req.url, so the depth variants are pure route
+// aliases. They are committed on purpose: Vercel discovers /api functions
+// from the source tree, and `npm run build` regenerates all copies before
+// every deploy so they can never go stale.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import signup from './auth/signup';
