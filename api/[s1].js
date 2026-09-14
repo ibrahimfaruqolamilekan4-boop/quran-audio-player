@@ -1,8 +1,9 @@
 // GENERATED FILE - DO NOT EDIT BY HAND.
 // Built from backend/ by scripts/build-function.mjs (run `npm run build`).
 // Committed because Vercel discovers /api functions from the source tree;
-// the build regenerates it, so it can never go stale on deploy.
-
+// the build regenerates every copy, so they can never go stale on deploy.
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
