@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
+import { NowPlayingOverlay } from './components/NowPlayingOverlay';
 import { Sidebar } from './components/Sidebar';
 import { QuranicPremiumBackground, THEME_LIBRARY } from './components/QuranicPremiumBackground';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -47,17 +48,20 @@ function DashboardLayout() {
   
   const themes = Object.keys(THEME_LIBRARY);
 
-  const didInit = useRef(false);
+  // The init-once flag flips only after the data actually lands. Combined with
+  // the cancelled flag (instead of an isMounted check that StrictMode trips over),
+  // this keeps the load from being silently discarded on remount/re-render.
+  const hasInitRef = useRef(false);
 
   useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
+    if (hasInitRef.current) return;
+    let cancelled = false;
 
-    let isMounted = true;
     async function initApp() {
       try {
         const chaptersData = await getChapters();
-        if (!isMounted) return;
+        if (cancelled) return;
+        hasInitRef.current = true;
         setChapters(chaptersData);
         
         // Only choose a default when nothing is selected yet, so the sheikh the
@@ -72,7 +76,7 @@ function DashboardLayout() {
     }
     
     initApp();
-    return () => { isMounted = false; };
+    return () => { cancelled = true; };
   }, [allReciters, currentReciter, setChapters, setReciter]);
 
   return (
@@ -99,6 +103,7 @@ function DashboardLayout() {
         </div>
       </main>
       <BottomPlayer />
+      <NowPlayingOverlay />
 
       {/* Theme Switcher Toggle */}
       <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-2">
