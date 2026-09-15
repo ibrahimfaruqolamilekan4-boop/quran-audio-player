@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { useBackgroundVideoSrc } from '../lib/backgrounds';
+import { ayahModeAvailable, versesInSurah } from '../lib/ayah';
 import { AMBIENT_TRACKS } from '../lib/constants';
 import { ReciterAvatar } from './ReciterAvatar';
 import type { Chapter, CustomVideo, Reciter } from '../types';
@@ -45,6 +46,9 @@ export function NowPlayingOverlay() {
   const {
     isNowPlayingOpen,
     setNowPlayingOpen,
+    playMode,
+    setPlayMode,
+    currentAyah,
     currentChapter,
     currentReciter,
     chapters,
@@ -219,11 +223,42 @@ export function NowPlayingOverlay() {
                   ? `${currentChapter.translated_name.name} · `
                   : ''}
                 {currentChapter.verses_count} verses
+                {playMode === 'ayah' && currentAyah && currentAyah.surah === currentChapter.id && (
+                  <span className="text-teal-300"> · Ayah {currentAyah.ayah} of {versesInSurah(currentAyah.surah)}</span>
+                )}
               </p>
               <p className="mt-3 text-[11px] uppercase tracking-[0.25em] text-slate-500">
                 {currentReciter?.name}
                 {currentReciter?.style ? ` · ${currentReciter.style}` : ''}
               </p>
+              <div
+                className="mt-4 inline-flex items-center gap-1 rounded-full border border-slate-700/60 bg-[#131722]/80 p-1 backdrop-blur"
+                role="group"
+                aria-label="Playback granularity"
+              >
+                <button
+                  type="button"
+                  onClick={() => setPlayMode('surah')}
+                  aria-pressed={playMode === 'surah'}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-widest transition ${
+                    playMode === 'surah' ? 'bg-teal-500/20 text-teal-200' : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  Full surah
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ayahModeAvailable(currentReciter) && setPlayMode('ayah')}
+                  aria-pressed={playMode === 'ayah'}
+                  disabled={!ayahModeAvailable(currentReciter)}
+                  title={ayahModeAvailable(currentReciter) ? 'Play ayah by ayah' : 'Ayah-by-ayah audio is not available for this reciter'}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-widest transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    playMode === 'ayah' ? 'bg-teal-500/20 text-teal-200' : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  Ayah
+                </button>
+              </div>
             </div>
 
             {playbackError && (
@@ -271,7 +306,7 @@ export function NowPlayingOverlay() {
               </button>
               <button
                 onClick={handlePreviousTap}
-                aria-label="Previous surah"
+                aria-label={currentAyah ? "Previous ayah" : "Previous surah"}
                 className="p-2 text-white transition-colors hover:text-teal-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-400"
               >
                 <SkipBack size={30} className="fill-current" />
@@ -292,7 +327,7 @@ export function NowPlayingOverlay() {
               </button>
               <button
                 onClick={playNextChapter}
-                aria-label="Next surah"
+                aria-label={currentAyah ? "Next ayah" : "Next surah"}
                 className="p-2 text-white transition-colors hover:text-teal-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-400"
               >
                 <SkipForward size={30} className="fill-current" />
