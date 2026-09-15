@@ -7,6 +7,7 @@ import { resolveReciters, type GlobalReciterRow } from '../lib/reciters';
 import localforage from 'localforage';
 import { useAuth } from './AuthContext';
 import { appApi, type AppPreferences } from '../lib/api';
+import { ayahStreamUrl, cdnVoiceFor, clampAyah, versesInSurah } from '../lib/ayah';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -48,6 +49,9 @@ interface PlayerContextType {
   /** Full-screen Now Playing overlay (opened by playing or tapping the mini bar). */
   isNowPlayingOpen: boolean;
   setNowPlayingOpen: (open: boolean) => void;
+  playMode: 'surah' | 'ayah';
+  setPlayMode: (mode: 'surah' | 'ayah') => void;
+  currentAyah: { surah: number; ayah: number } | null;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -103,6 +107,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => localStorage.getItem("activeBackgroundVideoId") || null);
   const [isNowPlayingOpen, setNowPlayingOpen] = useState(false);
+  const [playMode, setPlayModeState] = useState<'surah' | 'ayah'>(() => {
+    try { return localStorage.getItem('quran-garden:playMode') === 'ayah' ? 'ayah' : 'surah'; } catch { return 'surah'; }
+  });
+  const [currentAyah, setCurrentAyah] = useState<{ surah: number; ayah: number } | null>(null);
+  const playModeRef = useRef(playMode);
+  const currentAyahRef = useRef(currentAyah);
+  playModeRef.current = playMode;
+  currentAyahRef.current = currentAyah;
 
   useEffect(() => {
     if (activeBackgroundVideoId) localStorage.setItem("activeBackgroundVideoId", activeBackgroundVideoId);
@@ -410,18 +422,39 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const startChapter = useCallback(async (
     chapter: Chapter,
     reciter: Reciter,
-    options: { resumeAt?: number; autoplay?: boolean } = {}
+    options: { resumeAt?: number; autoplay?: boolean; ayah?: number | null } = {}
   ) => {
     const audio = quranAudioRef.current;
     if (!audio) return;
     const { resumeAt = 0, autoplay = true } = options;
+    // Ayah mode (design §4.1): only reciters with a verified CDN voice can stream single
+    // ayahs; anything else transparently falls back to the full-surah mirror files.
+    const voice = cdnVoiceFor(reciter);
+    let ayahNumber: number | null = null;
+    if (options.ayah === undefined) {
+      if (playModeRef.current === 'ayah' && voice) {
+        const prev = currentAyahRef.current;
+        ayahNumber = prev && prev.surah === chapter.id ? clampAyah(chapter.id, prev.ayah) : 1;
+      }
+    } else if (options.ayah !== null) {
+      ayahNumber = clampAyah(chapter.id, options.ayah);
+    }
+    if (ayahNumber !== null && !voice) ayahNumber = null;
+    const useAyahStream = ayahNumber !== null;
+    setCurrentAyah(ayahNumber !== null ? { surah: chapter.id, ayah: ayahNumber } : null);
 
     setIsLoading(true);
     setPlaybackError(null);
     setCurrentChapter(chapter);
 
-    const urls = candidateUrls(reciter, chapter.id);
-    const cacheKey = `quran_audio_${reciter.id}_${chapter.id}`;
+    const urls =
+      useAyahStream && voice
+        ? [ayahStreamUrl(voice, chapter.id, ayahNumber as number)]
+        : candidateUrls(reciter, chapter.id);
+    const cacheKey =
+      useAyahStream && voice
+        ? `quran_ayah_${voice.voice}_${chapter.id}_${ayahNumber}`
+        : `quran_audio_${reciter.id}_${chapter.id}`;
 
     let blobUrl: string | null = null;
     try {
@@ -436,7 +469,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       urls: blobUrl ? [blobUrl, ...urls] : urls,
       index: 0,
       cacheKey,
-      resumeAt,
+      resumeAt: useAyahStream ? 0 : resumeAt,
       autoplay,
       pendingFormat: null,
       playedUrl: null,
@@ -446,6 +479,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     currentReciterRef.current = reciter;
     attemptPlayback(0);
   }, [attemptPlayback]);
+
+  const setPlayMode = (mode: 'surah' | 'ayah') => {
+    if (mode === playModeRef.current) return;
+    setPlayModeState(mode);
+    playModeRef.current = mode;
+    try { localStorage.setItem('quran-garden:playMode', mode); } catch { /* private mode */ }
+    const chapter = currentChapterRef.current;
+    const reciter = currentReciterRef.current;
+    if (chapter && reciter) {
+      void startChapter(chapter, reciter, { ayah: mode === 'ayah' ? 1 : null });
+    }
+  };
 
   const playChapter = async (chapter: Chapter, overrideReciter?: Reciter) => {
     // Callers that select a reciter and play in the same action pass it explicitly:
@@ -525,6 +570,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const chapter = currentChapterRef.current;
     const reciter = currentReciterRef.current;
     if (!chapter || list.length === 0 || !reciter) return;
+    const ayah = currentAyahRef.current;
+    if (ayah && ayah.surah === chapter.id && cdnVoiceFor(reciter) && ayah.ayah < versesInSurah(ayah.surah)) {
+      void startChapter(chapter, reciter, { ayah: ayah.ayah + 1 });
+      return;
+    }
     const currentIndex = list.findIndex(c => c.id === chapter.id);
     if (currentIndex > -1 && currentIndex < list.length - 1) {
       void startChapter(list[currentIndex + 1], reciter);
@@ -536,6 +586,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const chapter = currentChapterRef.current;
     const reciter = currentReciterRef.current;
     if (!chapter || list.length === 0 || !reciter) return;
+    const ayah = currentAyahRef.current;
+    if (ayah && ayah.surah === chapter.id && cdnVoiceFor(reciter) && ayah.ayah > 1) {
+      void startChapter(chapter, reciter, { ayah: ayah.ayah - 1 });
+      return;
+    }
     const currentIndex = list.findIndex(c => c.id === chapter.id);
     if (currentIndex > 0) {
       void startChapter(list[currentIndex - 1], reciter);
@@ -597,7 +652,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       activeBackgroundVideoId,
       setActiveBackgroundVideoId,
       isNowPlayingOpen,
-      setNowPlayingOpen
+      setNowPlayingOpen,
+      playMode,
+      setPlayMode,
+      currentAyah,
     }}>
       {children}
     </PlayerContext.Provider>
