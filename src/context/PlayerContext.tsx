@@ -45,6 +45,9 @@ interface PlayerContextType {
   setAmbientVideoMapping: (m: Record<string, string>) => void;
   activeBackgroundVideoId: string | null;
   setActiveBackgroundVideoId: (id: string | null) => void;
+  /** Full-screen Now Playing overlay (opened by playing or tapping the mini bar). */
+  isNowPlayingOpen: boolean;
+  setNowPlayingOpen: (open: boolean) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -99,6 +102,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [currentAmbient, ambientVideoMapping]);
 
   const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => localStorage.getItem("activeBackgroundVideoId") || null);
+  const [isNowPlayingOpen, setNowPlayingOpen] = useState(false);
 
   useEffect(() => {
     if (activeBackgroundVideoId) localStorage.setItem("activeBackgroundVideoId", activeBackgroundVideoId);
@@ -453,6 +457,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setPlaybackError('No reciter is available yet. Please wait for the list to load.');
       return;
     }
+    // Any view-level play opens the full-screen player; auto-advance and prev/next
+    // navigate through startChapter directly and leave the surface as it is.
+    setNowPlayingOpen(true);
     await startChapter(chapter, reciter);
   };
 
@@ -588,7 +595,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setAmbientVideoMapping,
       setCustomVideos,
       activeBackgroundVideoId,
-      setActiveBackgroundVideoId
+      setActiveBackgroundVideoId,
+      isNowPlayingOpen,
+      setNowPlayingOpen
     }}>
       {children}
     </PlayerContext.Provider>
