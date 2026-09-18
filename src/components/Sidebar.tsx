@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon } from 'lucide-react';
+import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon, Clock, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -12,7 +12,9 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
   const { user, role, logOut } = useAuth();
   const navigate = useNavigate();
   const tabs = [
-    { id: 'home', label: 'Explore', icon: Compass },
+    { id: 'home', label: 'Explore', icon: Sparkles },
+    { id: 'prayer-times', label: 'Prayer Times', icon: Clock },
+    { id: 'qibla', label: 'Qibla', icon: Compass },
     { id: 'hub', label: 'Focus Space', icon: Headphones },
     { id: 'library', label: 'Surahs', icon: BookOpen },
     { id: 'reciters', label: 'Reciters', icon: Disc3 },
@@ -99,18 +101,18 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
       </div>
 
       {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-[90px] left-4 right-4 bg-[#0A0F1C]/95 backdrop-blur-2xl border border-slate-800/80 rounded-2xl z-40 p-2 shadow-2xl">
-        <div className="flex items-center justify-between">
-          {[...tabs, { id: 'settings', label: 'Admin', icon: Settings }].map(tab => (
+      <div className="md:hidden fixed bottom-[90px] left-3 right-3 bg-[#0A0F1C]/95 backdrop-blur-2xl border border-slate-800/80 rounded-2xl z-40 p-2 shadow-2xl overflow-x-auto">
+        <div className="flex items-center justify-between min-w-max gap-1">
+          {[...tabs, { id: 'settings', label: 'Settings', icon: Settings }].map(tab => (
             <button
               key={tab.id}
               onClick={() => setCurrentTab(tab.id)}
-              className={`flex flex-col items-center gap-1.5 py-2 px-2 rounded-xl min-w-[50px] transition-all ${
-                currentTab === tab.id ? 'bg-teal-500/10 text-teal-400' : 'text-slate-500'
+              className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl min-w-[56px] transition-all ${
+                currentTab === tab.id ? 'bg-teal-500/15 text-teal-400 font-bold' : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               <tab.icon size={18} />
-              <span className="text-[9px] font-medium tracking-wide">{tab.label}</span>
+              <span className="text-[10px] tracking-tight whitespace-nowrap">{tab.label}</span>
             </button>
           ))}
         </div>
