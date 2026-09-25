@@ -8,6 +8,11 @@ import localforage from 'localforage';
 import { useAuth } from './AuthContext';
 import { appApi, type AppPreferences } from '../lib/api';
 import { ayahStreamUrl, cdnVoiceFor, clampAyah, versesInSurah } from '../lib/ayah';
+import {
+  loadRecitations,
+  recitationObjectUrl,
+  type StoredRecitation,
+} from '../lib/recitations';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -52,6 +57,12 @@ interface PlayerContextType {
   playMode: 'surah' | 'ayah';
   setPlayMode: (mode: 'surah' | 'ayah') => void;
   currentAyah: { surah: number; ayah: number } | null;
+  /** Admin-uploaded recitations, newest first. Played ahead of the CDN mirrors. */
+  recitations: StoredRecitation[];
+  setRecitations: (list: StoredRecitation[]) => void;
+  /** Device-local reciter edits (portrait/bio), merged over every reciter source. */
+  reciterOverrides: Record<string, Partial<Reciter>>;
+  updateReciterOverride: (id: string, patch: Partial<Reciter>) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -83,10 +94,41 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [globalReciters, setGlobalReciters] = useState<GlobalReciterRow[]>([]);
   const [customVideos, setCustomVideos] = useState<CustomVideo[]>([]);
 
-  const allReciters = useMemo<Reciter[]>(
-    () => resolveReciters([...CURATED_RECITERS, ...customReciters], globalReciters),
-    [customReciters, globalReciters]
-  );
+  // Admin-uploaded recitations live on the device; loaded once, mutated by the admin panel.
+  const [recitations, setRecitations] = useState<StoredRecitation[]>([]);
+  const recitationsRef = useRef<StoredRecitation[]>([]);
+  useEffect(() => {
+    loadRecitations().then(list => {
+      recitationsRef.current = list;
+      setRecitations(list);
+    }).catch(() => { /* storage unavailable — streaming still works */ });
+  }, []);
+  useEffect(() => { recitationsRef.current = recitations; }, [recitations]);
+
+  // Device-local reciter edits (portrait/bio, incl. curated sheikhs) — design.md D6.
+  const [reciterOverrides, setReciterOverrides] = useState<Record<string, Partial<Reciter>>>({});
+  useEffect(() => {
+    localforage.getItem<Record<string, Partial<Reciter>>>('reciterOverrides').then(saved => {
+      if (saved && typeof saved === 'object') setReciterOverrides(saved);
+    }).catch(() => { /* storage unavailable — curated defaults still show */ });
+  }, []);
+
+  const updateReciterOverride = useCallback((id: string, patch: Partial<Reciter>) => {
+    setReciterOverrides(prev => {
+      const next = { ...prev, [id]: { ...prev[id], ...patch } };
+      localforage.setItem('reciterOverrides', next).catch(() => { /* best effort */ });
+      return next;
+    });
+  }, []);
+
+  const allReciters = useMemo<Reciter[]>(() => {
+    const merged = resolveReciters([...CURATED_RECITERS, ...customReciters], globalReciters);
+    if (Object.keys(reciterOverrides).length === 0) return merged;
+    return merged.map(reciter => {
+      const override = reciterOverrides[reciter.id];
+      return override ? { ...reciter, ...override, imageCredit: undefined } : reciter;
+    });
+  }, [customReciters, globalReciters, reciterOverrides]);
 
   const [ambientVideoMapping, setAmbientVideoMapping] = useState<Record<string, string>>({});
 
@@ -427,17 +469,27 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const audio = quranAudioRef.current;
     if (!audio) return;
     const { resumeAt = 0, autoplay = true } = options;
+
+    // An admin-uploaded recitation for this exact sheikh + surah outranks every
+    // streamed source: it is what the app owner deliberately put there.
+    const uploadedEntry = recitationsRef.current.find(
+      r => r.reciterId === reciter.id && r.surah === chapter.id
+    ) ?? null;
+    const uploadedUrl = uploadedEntry ? await recitationObjectUrl(uploadedEntry) : null;
+
     // Ayah mode (design §4.1): only reciters with a verified CDN voice can stream single
     // ayahs; anything else transparently falls back to the full-surah mirror files.
     const voice = cdnVoiceFor(reciter);
     let ayahNumber: number | null = null;
-    if (options.ayah === undefined) {
-      if (playModeRef.current === 'ayah' && voice) {
-        const prev = currentAyahRef.current;
-        ayahNumber = prev && prev.surah === chapter.id ? clampAyah(chapter.id, prev.ayah) : 1;
+    if (!uploadedUrl) {
+      if (options.ayah === undefined) {
+        if (playModeRef.current === 'ayah' && voice) {
+          const prev = currentAyahRef.current;
+          ayahNumber = prev && prev.surah === chapter.id ? clampAyah(chapter.id, prev.ayah) : 1;
+        }
+      } else if (options.ayah !== null) {
+        ayahNumber = clampAyah(chapter.id, options.ayah);
       }
-    } else if (options.ayah !== null) {
-      ayahNumber = clampAyah(chapter.id, options.ayah);
     }
     if (ayahNumber !== null && !voice) ayahNumber = null;
     const useAyahStream = ayahNumber !== null;
@@ -447,10 +499,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setPlaybackError(null);
     setCurrentChapter(chapter);
 
-    const urls =
+    const streamUrls =
       useAyahStream && voice
         ? [ayahStreamUrl(voice, chapter.id, ayahNumber as number)]
         : candidateUrls(reciter, chapter.id);
+    const urls = uploadedUrl ? [uploadedUrl, ...streamUrls] : streamUrls;
     const cacheKey =
       useAyahStream && voice
         ? `quran_ayah_${voice.voice}_${chapter.id}_${ayahNumber}`
@@ -458,8 +511,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     let blobUrl: string | null = null;
     try {
-      const cached = await localforage.getItem<Blob>(cacheKey);
-      if (cached) blobUrl = URL.createObjectURL(cached);
+      // A locally uploaded file is the source of truth, so the mirror cache is skipped.
+      if (!uploadedUrl) {
+        const cached = await localforage.getItem<Blob>(cacheKey);
+        if (cached) blobUrl = URL.createObjectURL(cached);
+      }
     } catch {
       /* IndexedDB unavailable — streaming still works */
     }
@@ -656,6 +712,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playMode,
       setPlayMode,
       currentAyah,
+      recitations,
+      setRecitations,
+      reciterOverrides,
+      updateReciterOverride,
     }}>
       {children}
     </PlayerContext.Provider>
