@@ -35,7 +35,7 @@ export interface StoredMediaItem {
 }
 
 // Media storage store using localforage
-const mediaStore = localforage.createInstance({
+export const mediaStore = localforage.createInstance({
   name: 'NoorayaMediaStorage',
   storeName: 'media_files',
 });
@@ -156,4 +156,39 @@ export async function getStoredMediaList(): Promise<StoredMediaItem[]> {
 
 export async function deleteStoredMedia(id: string): Promise<void> {
   await mediaStore.removeItem(id);
+}
+
+/**
+ * Read an image picked from the device and shrink it to a portable data URL.
+ *
+ * Phone portraits run to multiple megabytes, which do not belong in IndexedDB
+ * or an <img> src. This downscales to `maxEdge` on the long side and re-encodes
+ * as JPEG, which is what the admin panel stores as a reciter photo. Returns
+ * null when the file cannot be decoded — callers treat that as "no photo".
+ */
+export async function resizeImageToDataUrl(
+  file: File,
+  maxEdge = 512,
+  quality = 0.85
+): Promise<string | null> {
+  if (typeof document === 'undefined' || !file.type.startsWith('image/')) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if (typeof bitmap.close === 'function') bitmap.close();
+      return null;
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    if (typeof bitmap.close === 'function') bitmap.close();
+    return canvas.toDataURL('image/jpeg', quality);
+  } catch {
+    return null;
+  }
 }

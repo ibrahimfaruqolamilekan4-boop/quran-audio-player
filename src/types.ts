@@ -22,6 +22,8 @@ export interface Reciter {
   imageUrl?: string;
   /** Attribution link for the photo (e.g. the Wikimedia Commons file page). */
   imageCredit?: string;
+  /** Short biography managed in the admin panel. Optional. */
+  bio?: string;
 }
 
 export interface AmbientTrack {
@@ -34,4 +36,8 @@ export interface AmbientTrack {
 export interface CustomVideo {
   id: string;
   name: string;
+  /** Optional longer label for the admin background library. */
+  description?: string;
+  sizeBytes?: number;
+  createdAt?: number;
 }
