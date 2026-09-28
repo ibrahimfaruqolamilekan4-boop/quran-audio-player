@@ -21,6 +21,8 @@ import { QiblaView } from './views/QiblaView';
 import { getChapters } from './lib/api';
 import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
+import { PWAInstallHeader } from './components/PWAInstallHeader';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
@@ -161,13 +163,19 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <PlayerProvider>
-          <Routes>
-            <Route path="/" element={<LandingView />} />
-            <Route path="/auth" element={<AuthView />} />
-            <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
-            <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
+          <div className="flex flex-col min-h-screen">
+            <PWAInstallHeader />
+            <div className="flex-1 flex flex-col">
+              <Routes>
+                <Route path="/" element={<LandingView />} />
+                <Route path="/auth" element={<AuthView />} />
+                <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
+                <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
+                <Route path="*" element={<Navigate to="/" />} />
+              </Routes>
+            </div>
+            <OfflineIndicator />
+          </div>
         </PlayerProvider>
       </AuthProvider>
     </BrowserRouter>

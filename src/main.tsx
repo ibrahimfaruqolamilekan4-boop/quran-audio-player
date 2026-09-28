@@ -2,6 +2,10 @@ import React, {StrictMode, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { registerSW } from 'virtual:pwa-register';
+
+// Register PWA Service Worker immediately with auto-update
+registerSW({ immediate: true });
 
 interface ErrorBoundaryProps {
   children: ReactNode;
