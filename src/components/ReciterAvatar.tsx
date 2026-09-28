@@ -67,7 +67,7 @@ export function ReciterAvatar({
           alt={reciter.name}
           loading="lazy"
           decoding="async"
-          referrerPolicy="no-referrer"
+          crossOrigin="anonymous"
           onError={() => setFailed(true)}
           className="absolute inset-0 block h-full w-full object-cover object-center"
         />
