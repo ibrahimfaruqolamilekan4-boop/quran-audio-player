@@ -23,7 +23,7 @@ const handler: Handler = async (req, res) => {
 
     const existing = await q<UserRow>('SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1', [email]);
 
-    // Account migrated from Firebase: it has no password yet, so signup claims it.
+    // Account with no password hash set yet: claim it and set password.
     if (existing.rows[0] && !existing.rows[0].password_hash) {
       const row = existing.rows[0];
       const displayName = name || row.display_name;

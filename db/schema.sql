@@ -9,7 +9,7 @@
 CREATE TABLE IF NOT EXISTS users (
   uid           TEXT PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
-  password_hash TEXT,                       -- NULL for accounts migrated from Firebase (they set a password on first login)
+  password_hash TEXT,                       -- NULL if password has not been set yet
   display_name  TEXT,
   photo_url     TEXT,
   role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),

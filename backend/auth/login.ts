@@ -27,7 +27,7 @@ const handler: Handler = async (req, res) => {
     }
     if (!row.password_hash) {
       return sendJson(res, 401, {
-        error: 'This account was migrated from Firebase. Use the Sign up tab with this email to set a password.',
+        error: 'Please set your password using the Sign up tab.',
       });
     }
 
