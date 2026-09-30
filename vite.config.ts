@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig, type Plugin } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import dotenv from 'dotenv';
 import { execSync } from 'node:child_process';
 import signup from './backend/auth/signup';
@@ -23,9 +24,7 @@ import publicReciters from './backend/reciters';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // A unique, human-readable stamp baked into every production build's index.html so we can
-// curl the live site and know EXACTLY which commit/deploy is serving traffic. The recurring
-// "did my fix actually deploy?" question is impossible to answer without this, because a
-// failed promotion still returns HTTP 200 with a stale bundle.
+// curl the live site and know EXACTLY which commit/deploy is serving traffic.
 function buildId(): string {
   const env = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || '';
   let sha = env ? env.slice(0, 7) : '';
@@ -108,12 +107,107 @@ function apiDevPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
-    // Must stay absolute: vercel.json rewrites every unknown path to /index.html, so with a
-    // relative base the SPA would request /dashboard/assets/*.js on deep links and page
-    // refreshes. That hits the rewrite, returns HTML instead of JavaScript and the whole
-    // app silently fails to boot (blank dashboard, no surahs, nothing to play).
     base: '/',
-    plugins: [react(), tailwindcss(), buildIdPlugin(), apiDevPlugin()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      buildIdPlugin(),
+      apiDevPlugin(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['favicon.ico', 'favicon-64.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'manifest.json'],
+        manifest: {
+          id: '/',
+          name: 'Nooraya - Quran Audio Player',
+          short_name: 'Nooraya',
+          description: 'Immersive Quran audio player, ambient soundscapes, Qibla compass, and prayer times.',
+          theme_color: '#0d9488',
+          background_color: '#030712',
+          display: 'standalone',
+          orientation: 'portrait-primary',
+          start_url: '/',
+          scope: '/',
+          categories: ['lifestyle', 'music', 'education', 'books'],
+          icons: [
+            {
+              src: '/pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/pwa-maskable-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+            {
+              src: '/icon.svg',
+              sizes: 'any',
+              type: 'image/svg+xml',
+            },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          navigateFallbackDenylist: [/^\/api\/.*/],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'gstatic-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/api\.quran\.com\/api\/v4\/.*/i,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'quran-api-cache',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 60 * 24 * 7,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
+        },
+        devOptions: {
+          enabled: true,
+          type: 'module',
+        },
+      }),
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
