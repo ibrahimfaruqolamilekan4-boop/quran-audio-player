@@ -21,7 +21,8 @@ import { QiblaView } from './views/QiblaView';
 import { getChapters } from './lib/api';
 import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
-
+import { PWAInstallHeader } from './components/PWAInstallHeader';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
   const { user, role, loading } = useAuth();
@@ -42,7 +43,7 @@ function DashboardLayout() {
   const { 
     setChapters, 
     setReciter, 
-    currentReciter,
+    currentReciter, 
     allReciters, 
     ambientVolume,
     isPlaying
@@ -50,11 +51,7 @@ function DashboardLayout() {
   
   const themes = Object.keys(THEME_LIBRARY);
 
-  // The init-once flag flips only after the data actually lands. Combined with
-  // the cancelled flag (instead of an isMounted check that StrictMode trips over),
-  // this keeps the load from being silently discarded on remount/re-render.
   const hasInitRef = useRef(false);
-
   useEffect(() => {
     if (hasInitRef.current) return;
     let cancelled = false;
@@ -66,8 +63,6 @@ function DashboardLayout() {
         hasInitRef.current = true;
         setChapters(chaptersData);
         
-        // Only choose a default when nothing is selected yet, so the sheikh the
-        // user just picked is never reset when the reciter list finishes loading.
         if (!currentReciter) {
           const defaultReciter = allReciters.find(r => r.id === DEFAULT_RECITER_ID) || allReciters[0];
           if (defaultReciter) setReciter(defaultReciter);
@@ -106,6 +101,7 @@ function DashboardLayout() {
           </Routes>
         </div>
       </main>
+
       <BottomPlayer />
       <NowPlayingOverlay />
 
@@ -130,8 +126,8 @@ function DashboardLayout() {
                     setShowThemeSwitcher(false);
                   }}
                   className={`px-4 py-3 text-xs font-medium rounded-xl transition-all text-left flex items-center justify-between ${
-                    currentTheme === themeName
-                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                    currentTheme === themeName 
+                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' 
                       : 'hover:bg-slate-800 text-slate-300 border border-transparent'
                   }`}
                 >
@@ -155,19 +151,24 @@ function DashboardLayout() {
   );
 }
 
-
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <PlayerProvider>
-          <Routes>
-            <Route path="/" element={<LandingView />} />
-            <Route path="/auth" element={<AuthView />} />
-            <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
-            <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
+          <div className="flex flex-col min-h-screen">
+            <PWAInstallHeader />
+            <div className="flex-1 flex flex-col">
+              <Routes>
+                <Route path="/" element={<LandingView />} />
+                <Route path="/auth" element={<AuthView />} />
+                <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
+                <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
+                <Route path="*" element={<Navigate to="/" />} />
+              </Routes>
+            </div>
+            <OfflineIndicator />
+          </div>
         </PlayerProvider>
       </AuthProvider>
     </BrowserRouter>

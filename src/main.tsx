@@ -2,19 +2,11 @@ import React, {StrictMode, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { registerSW } from 'virtual:pwa-register';
 
-// Purge any legacy Service Worker registrations or offline CacheStorage
-if (typeof window !== 'undefined') {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(regs => {
-      regs.forEach(reg => reg.unregister());
-    });
-  }
-  if ('caches' in window) {
-    caches.keys().then(keys => {
-      keys.forEach(key => caches.delete(key));
-    });
-  }
+// Register PWA service worker with auto-update
+if ('serviceWorker' in navigator) {
+  registerSW({ immediate: true });
 }
 
 interface ErrorBoundaryProps {
