@@ -100,23 +100,35 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
 
       </div>
 
-      {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-[90px] left-3 right-3 bg-[#0A0F1C]/95 backdrop-blur-2xl border border-slate-800/80 rounded-2xl z-40 p-2 shadow-2xl overflow-x-auto">
-        <div className="flex items-center justify-between min-w-max gap-1">
-          {[...tabs, { id: 'settings', label: 'Settings', icon: Settings }].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setCurrentTab(tab.id)}
-              className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl min-w-[56px] transition-all ${
-                currentTab === tab.id ? 'bg-teal-500/15 text-teal-400 font-bold' : 'text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              <tab.icon size={18} />
-              <span className="text-[10px] tracking-tight whitespace-nowrap">{tab.label}</span>
-            </button>
-          ))}
+      {/* Mobile Permanent Bottom Navigation Bar */}
+      <nav 
+        aria-label="Mobile Navigation"
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#070B14]/95 backdrop-blur-2xl border-t border-slate-800/90 z-50 px-1 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.6)]"
+      >
+        <div className="flex items-center justify-between overflow-x-auto no-scrollbar gap-1 px-1">
+          {[...tabs, { id: 'settings', label: 'Settings', icon: Settings }].map(tab => {
+            const active = currentTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setCurrentTab(tab.id)}
+                className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2 rounded-xl min-w-[50px] transition-all flex-1 ${
+                  active 
+                    ? 'text-teal-400 font-semibold' 
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <div className={`p-1 rounded-lg transition-colors ${active ? 'bg-teal-500/15' : ''}`}>
+                  <tab.icon size={19} strokeWidth={active ? 2.3 : 1.7} />
+                </div>
+                <span className={`text-[10px] tracking-tight whitespace-nowrap ${active ? 'text-teal-300 font-medium' : 'text-slate-400'}`}>
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      </nav>
     </>
   );
 }

@@ -35,7 +35,7 @@ export function BottomPlayer() {
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 md:ml-72 h-28 bg-[#0A0C10]/90 backdrop-blur-3xl border-t border-white/5 z-50">
+    <div className="fixed bottom-[58px] md:bottom-0 left-0 right-0 md:ml-72 h-20 md:h-28 bg-[#0A0C10]/95 backdrop-blur-3xl border-t border-white/10 z-40">
 
       {/* Always Visible Progress Bar */}
       <div className="absolute top-0 left-0 w-full -mt-2 group">
@@ -60,7 +60,7 @@ export function BottomPlayer() {
 
       {/* Compact Mini Player */}
       <div
-        className="h-28 px-6 md:px-10 flex items-center justify-between cursor-pointer group pt-1"
+        className="h-20 md:h-28 px-4 md:px-10 flex items-center justify-between cursor-pointer group pt-1"
         onClick={() => setNowPlayingOpen(true)}
       >
         <div className="flex items-center gap-5 flex-1 overflow-hidden">

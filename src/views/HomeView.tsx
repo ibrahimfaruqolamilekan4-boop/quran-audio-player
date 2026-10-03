@@ -24,6 +24,12 @@ export function HomeView() {
 
   const goalPercent = Math.min((todaysMinutes / userData.goalMinutes) * 100, 100);
 
+  const featuredReciters = React.useMemo(() => {
+    const feat = allReciters.filter(r => r.featured);
+    const rest = allReciters.filter(r => !r.featured);
+    return [...feat, ...rest];
+  }, [allReciters]);
+
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20 relative z-10">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -120,7 +126,7 @@ export function HomeView() {
         </div>
 
         <div className="flex gap-5 overflow-x-auto pb-2 -mx-1 px-1 md:grid md:grid-cols-4 lg:grid-cols-6 md:overflow-visible md:mx-0 md:px-0">
-          {allReciters.slice(0, 12).map(reciter => {
+          {featuredReciters.slice(0, 12).map(reciter => {
             const active = currentReciter?.id === reciter.id;
             return (
               <button
@@ -150,6 +156,11 @@ export function HomeView() {
                 >
                   {reciter.name}
                 </span>
+                {reciter.nameArabic && (
+                  <span className="text-[11px] font-amiri text-teal-400/90 mt-0.5" dir="rtl">
+                    {reciter.nameArabic}
+                  </span>
+                )}
                 <span className="text-[11px] text-slate-500 mt-0.5">{reciter.region}</span>
               </button>
             );
