@@ -41,6 +41,7 @@ export function extensionOf(url: string): string | null {
  * publish MP3 answer 404 and the player falls through to the next candidate on its own.
  */
 export function candidateUrls(reciter: Pick<Reciter, 'id' | 'serverUrl' | 'formats'>, chapterId: number): string[] {
+  if (!reciter.serverUrl) return [];
   const base = reciter.serverUrl.endsWith('/') ? reciter.serverUrl : `${reciter.serverUrl}/`;
   const preferred = reciter.formats?.length ? reciter.formats : AUDIO_FORMATS;
   const remembered = rememberedFormat(reciter.id);

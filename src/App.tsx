@@ -86,7 +86,7 @@ function DashboardLayout() {
       
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
       
-      <main className="flex-1 md:ml-72 pb-40 overflow-y-auto h-screen relative z-10 transition-all">
+      <main className="flex-1 md:ml-72 pb-48 md:pb-40 overflow-y-auto h-screen relative z-10 transition-all">
         <div className="p-4 md:p-10 md:max-w-7xl mx-auto h-full">
           <Routes>
             <Route path="/" element={<Navigate to="home" />} />

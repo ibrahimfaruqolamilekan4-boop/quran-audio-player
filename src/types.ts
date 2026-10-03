@@ -9,10 +9,12 @@ export interface Chapter {
 export interface Reciter {
   id: string;
   name: string;
+  nameArabic?: string;
   style: string;
   location?: string;
   region?: string;
-  serverUrl: string;
+  category?: string;
+  serverUrl?: string;
   /**
    * File extensions to try when building a surah URL, in order of preference.
    * Defaults to AUDIO_FORMATS (mp4 first, then mp3) — see lib/constants.ts.
@@ -22,8 +24,12 @@ export interface Reciter {
   imageUrl?: string;
   /** Attribution link for the photo (e.g. the Wikimedia Commons file page). */
   imageCredit?: string;
+  /** License of the photo (e.g. CC BY-SA 4.0, Public domain). */
+  imageLicense?: string;
   /** Short biography managed in the admin panel. Optional. */
   bio?: string;
+  /** Whether this reciter is featured on the home screen. */
+  featured?: boolean;
 }
 
 export interface AmbientTrack {
