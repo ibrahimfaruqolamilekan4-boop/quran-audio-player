@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import { usePlayer } from '../context/PlayerContext';
+import { resolveBackgroundVideo } from '../lib/backgrounds';
 
 /**
  * THEME CONFIGURATION INTERFACE
@@ -375,34 +376,31 @@ export function QuranicPremiumBackground({
   ambientVolume = 0.6,
 }: QuranicPremiumBackgroundProps) {
   const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['midnight-scholar'];
-  const { activeBackgroundVideoId } = usePlayer();
+  const { activeBackgroundVideoId, customVideos } = usePlayer();
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const visualIntensity = Math.max(0.2, ambientVolume);
 
   useEffect(() => {
-    let objectUrl: string | null = null;
     let isMounted = true;
+    let createdUrl: string | null = null;
 
     async function loadCustomVideo() {
       if (!activeBackgroundVideoId) {
         if (isMounted) setVideoUrl(null);
         return;
       }
-      if (activeBackgroundVideoId.startsWith('http') || activeBackgroundVideoId.startsWith('blob:')) {
-        if (isMounted) setVideoUrl(activeBackgroundVideoId);
-        return;
-      }
       try {
-        let blob = await localforage.getItem<Blob>(activeBackgroundVideoId);
-        if (!blob) {
-          blob = await localforage.getItem<Blob>('customVideo_blob_' + activeBackgroundVideoId);
+        const resolved = await resolveBackgroundVideo(activeBackgroundVideoId, customVideos);
+        if (!isMounted) {
+          if (resolved?.revoke) URL.revokeObjectURL(resolved.url);
+          return;
         }
-        
-        if (blob && isMounted) {
-          objectUrl = URL.createObjectURL(blob);
-          setVideoUrl(objectUrl);
-        } else if (isMounted) {
+        if (resolved) {
+          if (resolved.revoke) createdUrl = resolved.url;
+          setVideoUrl(resolved.url);
+        } else {
           setVideoUrl(null);
         }
       } catch (e) {
@@ -415,11 +413,45 @@ export function QuranicPremiumBackground({
 
     return () => {
       isMounted = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
       }
     };
-  }, [activeBackgroundVideoId]);
+  }, [activeBackgroundVideoId, customVideos]);
+
+  // Mobile & PWA autoplay handler: ensure muted properties and touch unblock
+  useEffect(() => {
+    if (!videoUrl) return;
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    vid.muted = true;
+    vid.defaultMuted = true;
+    vid.playsInline = true;
+    vid.setAttribute('webkit-playsinline', 'true');
+    vid.setAttribute('playsinline', 'true');
+
+    const tryPlay = () => {
+      if (!vid) return;
+      vid.muted = true;
+      const prom = vid.play();
+      if (prom !== undefined) {
+        prom.catch(() => {
+          // If browser policy paused it, unpause on first touch
+          const onTouch = () => {
+            vid.muted = true;
+            vid.play().catch(() => {});
+            window.removeEventListener('touchstart', onTouch);
+            window.removeEventListener('pointerdown', onTouch);
+          };
+          window.addEventListener('touchstart', onTouch, { once: true, passive: true });
+          window.addEventListener('pointerdown', onTouch, { once: true, passive: true });
+        });
+      }
+    };
+
+    tryPlay();
+  }, [videoUrl]);
 
   return (
     /*
@@ -469,20 +501,23 @@ export function QuranicPremiumBackground({
       <AnimatePresence>
         {videoUrl && (
           <motion.video
+            ref={videoRef}
             key={videoUrl}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 1.5 }}
+            transition={{ duration: 1.2 }}
             autoPlay
             loop
             muted
             playsInline
+            preload="auto"
+            disablePictureInPicture
             aria-hidden="true"
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover mix-blend-screen"
+            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover mix-blend-screen pointer-events-none"
             style={{
-              opacity: Math.max(0.4, visualIntensity * 0.8),
-              filter: `brightness(${0.5 + visualIntensity * 0.5})`,
+              opacity: Math.max(0.65, visualIntensity * 0.85),
+              filter: `brightness(${0.75 + visualIntensity * 0.4}) contrast(1.1)`,
             }}
             src={videoUrl}
           />

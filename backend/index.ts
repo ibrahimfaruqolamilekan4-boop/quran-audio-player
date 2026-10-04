@@ -31,6 +31,7 @@ import adminRole from './admin/role';
 import adminAmbient from './admin/ambient';
 import health from './health.mjs';
 import publicReciters from './reciters';
+import publicAmbient from './ambient';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -50,6 +51,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/ambient$/, adminAmbient],
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
+  [/^\/api\/ambient$/, publicAmbient],
 ];
 
 const handler: Handler = async (req, res) => {

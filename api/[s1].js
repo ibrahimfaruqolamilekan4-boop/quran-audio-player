@@ -1049,7 +1049,14 @@ var require_utils = __commonJS({
   "node_modules/pg/lib/utils.js"(exports, module) {
     "use strict";
     var defaults2 = require_defaults();
+    var nodeUtils = __require("util");
     var { isDate } = __require("util/types");
+    var invalidDateDeprecationNotice = nodeUtils.deprecate(
+      () => {
+      },
+      "Sending an invalid date to Postgres is deprecated and will throw an error in the next major version of pg. Ensure any Date object passed as a query parameter is valid.",
+      "PG_INVALID_DATE"
+    );
     function escapeElement(elementRepresentation) {
       const escaped = elementRepresentation.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
       return '"' + escaped + '"';
@@ -1089,6 +1096,9 @@ var require_utils = __commonJS({
           return Buffer.from(val.buffer, val.byteOffset, val.byteLength);
         }
         if (isDate(val)) {
+          if (isNaN(val.getTime())) {
+            invalidDateDeprecationNotice();
+          }
           if (defaults2.parseInputDatesAsUTC) {
             return dateToStringUTC(val);
           } else {
@@ -1139,7 +1149,7 @@ var require_utils = __commonJS({
       return ret;
     }
     function normalizeQueryConfig(config, values, callback) {
-      config = typeof config === "string" ? { text: config } : config;
+      config = typeof config === "string" ? { text: config } : cloneQueryConfig(config);
       if (values) {
         if (typeof values === "function") {
           config.callback = values;
@@ -1151,6 +1161,12 @@ var require_utils = __commonJS({
         config.callback = callback;
       }
       return config;
+    }
+    function cloneQueryConfig(config) {
+      if (config == null) {
+        return config;
+      }
+      return Object.defineProperties(Object.create(Object.getPrototypeOf(config)), Object.getOwnPropertyDescriptors(config));
     }
     var escapeIdentifier2 = function(str) {
       return '"' + str.replace(/"/g, '""') + '"';
@@ -1341,7 +1357,7 @@ var require_cert_signatures = __commonJS({
           }
           throw x509Error("unknown hash OID " + hashOID, data);
         }
-        // Ed25519 -- see https: return//github.com/openssl/openssl/issues/15477
+        // Ed25519 -- see https://github.com/openssl/openssl/issues/15477
         case "1.3.101.110":
         case "1.3.101.112":
           return "SHA-512";
@@ -1613,7 +1629,7 @@ var require_pg_connection_string = __commonJS({
         config.client_encoding = result.searchParams.get("encoding");
         return config;
       }
-      const hostname = dummyHost ? "" : result.hostname;
+      const hostname = (dummyHost ? "" : result.hostname).replace(/^\[(.+)\]$/, "$1");
       if (!config.host) {
         config.host = decodeURIComponent(hostname);
       } else if (hostname && /^%2f/i.test(hostname)) {
@@ -2150,7 +2166,7 @@ var require_query = __commonJS({
         return null;
       }
       hasBeenParsed(connection) {
-        return this.name && (connection.parsedStatements[this.name] || connection.submittedNamedStatements[this.name]);
+        return this.name && (connection.parsedStatements[this.name] !== void 0 || connection.submittedNamedStatements[this.name] !== void 0);
       }
       handlePortalSuspended(connection) {
         this._getRows(connection, this.rows);
@@ -2392,7 +2408,7 @@ var require_buffer_writer = __commonJS({
           const oldBuffer = this.buffer;
           const newSize = oldBuffer.length + (oldBuffer.length >> 1) + size;
           this.buffer = Buffer.allocUnsafe(newSize);
-          oldBuffer.copy(this.buffer);
+          oldBuffer.copy(this.buffer, 0, 0, this.offset);
         }
       }
       addInt32(num) {
@@ -2452,6 +2468,15 @@ var require_buffer_writer = __commonJS({
         otherBuffer.copy(this.buffer, this.offset);
         this.offset += otherBuffer.length;
         return this;
+      }
+      /**
+       * Appends an uninitialized block of {@link size} bytes to the buffer and returns its offset.
+       */
+      reserveUnsafe(size) {
+        const offset = this.offset;
+        this.ensure(size);
+        this.offset += size;
+        return offset;
       }
       join(code) {
         if (code) {
@@ -2545,30 +2570,23 @@ var require_serializer = __commonJS({
         /* code.parse */
       );
     };
-    var paramWriter = new buffer_writer_1.Writer();
-    var writeValues = function(values, valueMapper) {
-      for (let i = 0; i < values.length; i++) {
+    var writeValues = function(values, valueMapper, formatsOffset) {
+      const len = values.length;
+      for (let i = 0; i < len; i++) {
         const mappedVal = valueMapper ? valueMapper(values[i], i) : values[i];
+        let formatByte = 0;
         if (mappedVal == null) {
-          writer.addInt16(
-            0
-            /* ParamType.STRING */
-          );
-          paramWriter.addInt32(-1);
+          writer.addInt32(-1);
         } else if (mappedVal instanceof Buffer) {
-          writer.addInt16(
-            1
-            /* ParamType.BINARY */
-          );
-          paramWriter.addInt32(mappedVal.length);
-          paramWriter.add(mappedVal);
+          formatByte = 1;
+          writer.addInt32(mappedVal.length);
+          writer.add(mappedVal);
         } else {
-          writer.addInt16(
-            0
-            /* ParamType.STRING */
-          );
-          paramWriter.addInt32PrefixedString(mappedVal);
+          writer.addInt32PrefixedString(mappedVal);
         }
+        const buf = writer.buffer;
+        buf[formatsOffset++] = 0;
+        buf[formatsOffset++] = formatByte;
       }
     };
     var bind = (config = {}) => {
@@ -2579,15 +2597,14 @@ var require_serializer = __commonJS({
       const len = values.length;
       writer.addCString(portal).addCString(statement);
       writer.addInt16(len);
+      const formatsOffset = writer.reserveUnsafe(len * 2);
+      writer.addInt16(len);
       try {
-        writeValues(values, config.valueMapper);
+        writeValues(values, config.valueMapper, formatsOffset);
       } catch (err) {
         writer.clear();
-        paramWriter.clear();
         throw err;
       }
-      writer.addInt16(len);
-      writer.add(paramWriter.flush());
       writer.addInt16(1);
       writer.addInt16(
         binary ? 1 : 0
@@ -3245,7 +3262,12 @@ var require_connection = __commonJS({
       upgradeToSSL(host, reportStreamError) {
         const self = this;
         const options = {
-          socket: self.stream
+          socket: self.stream,
+          // tls.connect checks the server identity against `servername`, falling
+          // back to `host` and then to 'localhost'. `servername` must stay unset
+          // for IP addresses (see below), so `host` is needed to keep certificate
+          // validation working when connecting to an IP address.
+          host
         };
         if (self.ssl !== true) {
           Object.assign(options, self.ssl);
@@ -3323,7 +3345,6 @@ var require_connection = __commonJS({
         }
       }
       sync() {
-        this._ending = true;
         this._send(syncBuffer);
       }
       ref() {
@@ -4278,6 +4299,15 @@ var require_client = __commonJS({
         if (query._result && !query._result._types) {
           query._result._types = this._types;
         }
+        if (this.pipeline) {
+          const portalQuery = typeof config.submit === "function" && !(query instanceof Query2) ? "Custom query classes such as pg-cursor and pg-query-stream are" : query.rows ? "The `rows` option is" : null;
+          if (portalQuery) {
+            process.nextTick(() => {
+              query.handleError(new Error(`${portalQuery} not supported in pipeline mode`), this.connection);
+            });
+            return result;
+          }
+        }
         if (!this._queryable) {
           process.nextTick(() => {
             query.handleError(new Error("Client has encountered a connection error and is not queryable"), this.connection);
@@ -4799,6 +4829,8 @@ var require_query2 = __commonJS({
       sqlState: "code",
       statementPosition: "position",
       messagePrimary: "message",
+      messageDetail: "detail",
+      messageHint: "hint",
       context: "where",
       schemaName: "schema",
       tableName: "table",
@@ -4882,7 +4914,7 @@ var require_query2 = __commonJS({
           console.error("This can cause conflicts and silent errors executing queries");
         }
         const values = (this.values || []).map(utils.prepareValue);
-        if (client.namedQueries[this.name]) {
+        if (client.namedQueries[this.name] !== void 0) {
           if (this.text && client.namedQueries[this.name] !== this.text) {
             const err = new Error(`Prepared statements must be unique - '${this.name}' was used for a different statement`);
             return after(err);
@@ -5174,7 +5206,7 @@ var require_client2 = __commonJS({
         this.hasExecuted = true;
         nativeQueries.push(query);
         const values = query.values ? query.values.map(utils.prepareValue) : null;
-        const pipelineEntry = { text: query.text, name: query.name };
+        const pipelineEntry = { text: query.text, name: query.name, arrayMode: query._arrayMode };
         if (values) {
           pipelineEntry.values = values;
         }
@@ -5186,12 +5218,16 @@ var require_client2 = __commonJS({
       this.native.pipeline(queries, function(err, results) {
         self._pipelineInFlight = false;
         if (err) {
+          self._connected = false;
+          self._queryable = false;
           for (let i = 0; i < nativeQueries.length; i++) {
             const q2 = nativeQueries[i];
             q2.native = self.native;
             q2.handleError(err);
           }
-          self._pulsePipelinedQueryQueue();
+          self._errorAllQueries(err);
+          self.emit("error", err);
+          self.emit("end");
           return;
         }
         for (let i = 0; i < nativeQueries.length; i++) {
@@ -5882,27 +5918,97 @@ var role_default = handler10;
 
 // backend/admin/ambient.ts
 init_lib();
+async function ensureTable() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS global_background_videos (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      video_url   TEXT NOT NULL,
+      description TEXT,
+      is_default  BOOLEAN DEFAULT false,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+}
 var handler11 = async (req, res) => {
-  if (req.method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" });
+  if (req.method !== "PUT" && req.method !== "POST") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     const body = await readJson(req);
-    const sounds = body.sounds && typeof body.sounds === "object" ? body.sounds : {};
-    for (const [id, url] of Object.entries(sounds)) {
-      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) continue;
-      const videoUrl = typeof url === "string" && url.trim() ? url.trim() : null;
-      await q(
-        `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
-         VALUES ($1, $1, $2, now())
-         ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
-        [id, videoUrl]
-      );
+    if (req.method === "PUT") {
+      const sounds = body.sounds && typeof body.sounds === "object" ? body.sounds : {};
+      for (const [id, url] of Object.entries(sounds)) {
+        if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) continue;
+        const videoUrl = typeof url === "string" && url.trim() ? url.trim() : null;
+        await q(
+          `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+           VALUES ($1, $1, $2, now())
+           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+          [id, videoUrl]
+        );
+      }
+      return sendJson(res, 200, { ok: true });
     }
-    return sendJson(res, 200, { ok: true });
+    if (req.method === "POST") {
+      await ensureTable().catch(() => {
+      });
+      const action = body.action;
+      if (action === "add_video") {
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        const videoUrl = typeof body.videoUrl === "string" ? body.videoUrl.trim() : "";
+        const description = typeof body.description === "string" ? body.description.trim() : null;
+        const isDefault = Boolean(body.isDefault);
+        if (!name || !videoUrl) {
+          return sendJson(res, 400, { error: "Name and video URL are required." });
+        }
+        const id = `bg_vid_${Date.now()}`;
+        if (isDefault) {
+          await q("UPDATE global_background_videos SET is_default = false");
+          await q(
+            `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+             VALUES ('default', 'Default Video', $1, now())
+             ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+            [videoUrl]
+          );
+        }
+        await q(
+          `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
+           VALUES ($1, $2, $3, $4, $5, now())`,
+          [id, name, videoUrl, description, isDefault]
+        );
+        return sendJson(res, 201, { video: { id, name, videoUrl, description, isDefault } });
+      }
+      if (action === "delete_video") {
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) return sendJson(res, 400, { error: "Video ID required" });
+        await q("DELETE FROM global_background_videos WHERE id = $1", [id]);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (action === "set_default") {
+        const id = typeof body.id === "string" ? body.id : "";
+        const videoUrl = typeof body.videoUrl === "string" ? body.videoUrl.trim() : "";
+        if (!id && !videoUrl) return sendJson(res, 400, { error: "Video ID or URL required" });
+        if (id) {
+          await q("UPDATE global_background_videos SET is_default = (id = $1)", [id]);
+        }
+        if (videoUrl) {
+          await q(
+            `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+             VALUES ('default', 'Default Video', $1, now())
+             ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+            [videoUrl]
+          );
+        }
+        return sendJson(res, 200, { ok: true });
+      }
+      return sendJson(res, 400, { error: "Unknown action" });
+    }
   } catch (err) {
     console.error("admin ambient failed:", err);
-    return sendJson(res, 500, { error: "Could not save ambient settings." });
+    return sendJson(res, 500, { error: err?.message || "Could not save ambient settings." });
   }
 };
 var ambient_default = handler11;
@@ -5958,6 +6064,82 @@ var handler13 = async (_req, res) => {
 };
 var reciters_default3 = handler13;
 
+// backend/ambient.ts
+init_lib();
+var CURATED_DEFAULT_VIDEOS = [
+  {
+    id: "curated_stars",
+    name: "Night Sky & Cosmos",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-starry-night-sky-with-a-milky-way-loop-42864-large.mp4",
+    description: "Serene star-filled night sky loop for peaceful contemplation",
+    isDefault: true
+  },
+  {
+    id: "curated_rain",
+    name: "Rain on Water",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-rain-falling-on-the-water-of-a-lake-loop-41019-large.mp4",
+    description: "Gentle raindrops rippling on water surface",
+    isDefault: false
+  },
+  {
+    id: "curated_clouds",
+    name: "Daylight Horizon",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4",
+    description: "Gentle morning clouds moving across the sky",
+    isDefault: false
+  }
+];
+var handler14 = async (req, res) => {
+  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const ambient = await q(
+      "SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL"
+    );
+    const ambientSounds = {};
+    let activeDefaultVideoUrl = null;
+    for (const row of ambient.rows) {
+      if (row.video_url) {
+        ambientSounds[row.id] = row.video_url;
+        if (row.id === "default" || row.id === "active" || row.id === "global") {
+          activeDefaultVideoUrl = row.video_url;
+        }
+      }
+    }
+    let videos = [];
+    try {
+      const vidRes = await q(
+        "SELECT id, name, video_url, description, is_default FROM global_background_videos ORDER BY is_default DESC, created_at DESC"
+      );
+      videos = vidRes.rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        videoUrl: r.video_url,
+        description: r.description || void 0,
+        isDefault: Boolean(r.is_default)
+      }));
+      const defVid = videos.find((v) => v.isDefault);
+      if (defVid && !activeDefaultVideoUrl) {
+        activeDefaultVideoUrl = defVid.videoUrl;
+      }
+    } catch {
+    }
+    if (videos.length === 0) {
+      videos = CURATED_DEFAULT_VIDEOS;
+      if (!activeDefaultVideoUrl) {
+        activeDefaultVideoUrl = CURATED_DEFAULT_VIDEOS[0].videoUrl;
+      }
+    }
+    return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
+  } catch (err) {
+    return sendJson(res, 200, {
+      ambientSounds: {},
+      videos: CURATED_DEFAULT_VIDEOS,
+      activeDefaultVideoUrl: CURATED_DEFAULT_VIDEOS[0].videoUrl
+    });
+  }
+};
+var ambient_default2 = handler14;
+
 // backend/index.ts
 init_lib();
 var routes = [
@@ -5973,9 +6155,10 @@ var routes = [
   [/^\/api\/admin\/role$/, role_default],
   [/^\/api\/admin\/ambient$/, ambient_default],
   [/^\/api\/health$/, handler12],
-  [/^\/api\/reciters$/, reciters_default3]
+  [/^\/api\/reciters$/, reciters_default3],
+  [/^\/api\/ambient$/, ambient_default2]
 ];
-var handler14 = async (req, res) => {
+var handler15 = async (req, res) => {
   const url = (req.url || "").split("?")[0];
   const match = routes.find(([pattern]) => pattern.test(url));
   if (!match) {
@@ -5990,7 +6173,7 @@ var handler14 = async (req, res) => {
     }
   }
 };
-var index_default = handler14;
+var index_default = handler15;
 export {
   index_default as default
 };

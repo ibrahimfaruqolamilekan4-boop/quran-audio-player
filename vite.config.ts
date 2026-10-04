@@ -20,6 +20,7 @@ import adminRole from './backend/admin/role';
 import adminAmbient from './backend/admin/ambient';
 import health from './backend/health.mjs';
 import publicReciters from './backend/reciters';
+import publicAmbient from './backend/ambient';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -73,6 +74,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/ambient$/, adminAmbient],
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
+  [/^\/api\/ambient$/, publicAmbient],
 ];
 
 /** Serves the /api serverless functions inside `vite dev` so one command runs the whole app. */

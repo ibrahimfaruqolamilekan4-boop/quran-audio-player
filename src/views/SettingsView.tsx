@@ -472,8 +472,9 @@ export function SettingsView() {
     setCustomVideos(updated);
     await localforage.setItem('customVideos_list', updated);
     await localforage.setItem('customVideo_blob_' + id, blob);
+    setActiveBackgroundVideoId(id);
     setVideoFile(null);
-    showToast('Background video uploaded successfully!', 'success');
+    showToast('Background video uploaded and activated!', 'success');
   };
 
   const handleRemoveVideo = async (id: string) => {
@@ -1213,23 +1214,45 @@ export function SettingsView() {
           {/* List of Uploaded Videos */}
           {customVideos.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-              {customVideos.map(vid => (
-                <div key={vid.id} className="relative group bg-[#050811] border border-slate-800 rounded-2xl p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center shrink-0">
-                      <Video size={18} className="text-teal-400" />
+              {customVideos.map(vid => {
+                const isActive = activeBackgroundVideoId === vid.id || (vid.videoUrl && activeBackgroundVideoId === vid.videoUrl);
+                return (
+                  <div key={vid.id} className="relative group bg-[#050811] border border-slate-800 rounded-2xl p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between overflow-hidden">
+                      <div className="flex items-center gap-2.5 overflow-hidden">
+                        <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center shrink-0">
+                          <Video size={16} className="text-teal-400" />
+                        </div>
+                        <span className="text-xs font-medium text-white truncate">{vid.name}</span>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveVideo(vid.id)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors shrink-0"
+                        title="Remove video"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                    <span className="text-sm font-medium text-white truncate">{vid.name}</span>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setActiveBackgroundVideoId(isActive ? null : (vid.videoUrl || vid.id))}
+                        className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                          isActive
+                            ? 'bg-teal-500 text-slate-900 border-teal-400 font-bold'
+                            : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:border-teal-500/50'
+                        }`}
+                      >
+                        {isActive ? '✓ Active Background' : 'Set as Active'}
+                      </button>
+                      {vid.isDefault && (
+                        <span className="text-[9px] text-amber-400 uppercase font-semibold">Global Default</span>
+                      )}
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handleRemoveVideo(vid.id)}
-                    className="p-2 rounded-xl text-slate-500 hover:text-red-400 transition-colors"
-                    title="Remove video"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
