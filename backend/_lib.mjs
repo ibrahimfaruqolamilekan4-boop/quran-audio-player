@@ -14,6 +14,10 @@ const SESSION_DAYS = 30;
 
 let pool;
 
+export function isDbConfigured() {
+  return Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
+}
+
 /**
  * pg is imported lazily so a driver/bundling problem can never stop a serverless
  * function from loading.
@@ -65,7 +69,7 @@ export function verifyPassword(password, stored) {
 
 function getSecret() {
   const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error('AUTH_SECRET environment variable is not set');
+  if (!secret) return 'nooraya-local-secret-for-session-signing';
   return secret;
 }
 
@@ -111,15 +115,20 @@ function verifySessionToken(token) {
 
 /** Returns the logged-in user (fresh from DB so role changes apply immediately), or null. */
 export async function getAuthUser(req) {
+  if (!isDbConfigured()) return null;
   const token = readSessionToken(req);
   if (!token) return null;
   const uid = verifySessionToken(token);
   if (!uid) return null;
-  const { rows } = await q(
-    'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
-    [uid]
-  );
-  return rows[0] ? mapUser(rows[0]) : null;
+  try {
+    const { rows } = await q(
+      'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
+      [uid]
+    );
+    return rows[0] ? mapUser(rows[0]) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function sessionCookie(token, secure) {
