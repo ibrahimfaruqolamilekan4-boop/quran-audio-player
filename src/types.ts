@@ -42,6 +42,8 @@ export interface AmbientTrack {
 export interface CustomVideo {
   id: string;
   name: string;
+  videoUrl?: string;
+  isDefault?: boolean;
   /** Optional longer label for the admin background library. */
   description?: string;
   sizeBytes?: number;

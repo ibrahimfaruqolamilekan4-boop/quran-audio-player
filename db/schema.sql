@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS ambient_sounds (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS global_background_videos (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  video_url   TEXT NOT NULL,
+  description TEXT,
+  is_default  BOOLEAN DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------- idempotent migrations ----------
 -- CREATE TABLE IF NOT EXISTS never changes a table that already exists, so any
 -- column added later must also be ALTERed here. Safe to re-run.

@@ -13,6 +13,7 @@ import {
   recitationObjectUrl,
   type StoredRecitation,
 } from '../lib/recitations';
+import { ALL_SURAHS } from '../lib/surahs';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -200,11 +201,34 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
   useEffect(() => { currentReciterRef.current = currentReciter; }, [currentReciter]);
 
-  /** Reciters and portraits published in the admin panel are public, so load them signed out too. */
+  /** Reciters, portraits, and ambient background videos published in the admin panel are public, so load them signed out too. */
   useEffect(() => {
     appApi<{ reciters: GlobalReciterRow[] }>('/reciters')
       .then(data => setGlobalReciters(Array.isArray(data.reciters) ? data.reciters : []))
       .catch(err => console.warn('Global reciters unavailable:', err?.message || String(err)));
+
+    // Load global ambient videos & mapping so all devices (including phones) get the video loops!
+    appApi<{ ambientSounds: Record<string, string>; videos?: CustomVideo[]; activeDefaultVideoUrl?: string | null }>('/ambient')
+      .then(data => {
+        if (data?.ambientSounds && Object.keys(data.ambientSounds).length > 0) {
+          setAmbientVideoMapping(prev => ({ ...data.ambientSounds, ...prev }));
+        }
+        if (data?.videos && data.videos.length > 0) {
+          setCustomVideos(prev => {
+            const merged = [...prev];
+            for (const v of data.videos!) {
+              if (!merged.some(m => m.id === v.id)) {
+                merged.push(v);
+              }
+            }
+            return merged;
+          });
+        }
+        if (data?.activeDefaultVideoUrl) {
+          setActiveBackgroundVideoId(prev => prev || data.activeDefaultVideoUrl || null);
+        }
+      })
+      .catch(err => console.warn('Global ambient unavailable:', err?.message || String(err)));
   }, []);
 
   // Initialize DB and Load Custom Assets
@@ -239,11 +263,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           setCustomReciters(localReciters);
         }
 
-        // Sync active video from Neon
+        // Sync active video & ambient video mapping from Neon
         try {
           const { preferences } = await appApi<{ preferences: AppPreferences }>('/me/preferences');
           if (preferences.activeBackgroundVideoId) {
             setActiveBackgroundVideoId(preferences.activeBackgroundVideoId);
+          }
+          if (preferences.ambientVideoMapping && typeof preferences.ambientVideoMapping === 'object') {
+            setAmbientVideoMapping(prev => ({ ...prev, ...preferences.ambientVideoMapping }));
           }
         } catch (e) {
           console.error('Failed to sync preferences from cloud', e);
@@ -621,37 +648,68 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const playNextChapter = () => {
-    const list = chaptersRef.current;
+  const playNextChapter = useCallback(() => {
+    const list = chaptersRef.current && chaptersRef.current.length > 0 ? chaptersRef.current : ALL_SURAHS;
     const chapter = currentChapterRef.current;
     const reciter = currentReciterRef.current;
-    if (!chapter || list.length === 0 || !reciter) return;
+    if (!reciter) return;
+
+    if (!chapter) {
+      if (list.length > 0) void startChapter(list[0], reciter);
+      return;
+    }
+
     const ayah = currentAyahRef.current;
-    if (ayah && ayah.surah === chapter.id && cdnVoiceFor(reciter) && ayah.ayah < versesInSurah(ayah.surah)) {
+    const voice = cdnVoiceFor(reciter);
+
+    // Ayah mode: If an ayah is playing and hasn't reached the end of the surah, go to next ayah
+    if (ayah && ayah.surah === chapter.id && voice && ayah.ayah < versesInSurah(ayah.surah)) {
       void startChapter(chapter, reciter, { ayah: ayah.ayah + 1 });
       return;
     }
-    const currentIndex = list.findIndex(c => c.id === chapter.id);
-    if (currentIndex > -1 && currentIndex < list.length - 1) {
-      void startChapter(list[currentIndex + 1], reciter);
-    }
-  };
 
-  const playPreviousChapter = () => {
-    const list = chaptersRef.current;
+    // Ayah mode at the end of surah OR Surah mode: advance to the next Surah!
+    const currentIndex = list.findIndex(c => Number(c.id) === Number(chapter.id));
+    const nextIndex = currentIndex > -1 && currentIndex < list.length - 1 ? currentIndex + 1 : 0;
+    const nextChapter = list[nextIndex];
+
+    if (nextChapter) {
+      // If in ayah mode, start next surah at ayah 1 immediately
+      const nextAyahOption = (playModeRef.current === 'ayah' && voice) ? { ayah: 1 } : {};
+      void startChapter(nextChapter, reciter, nextAyahOption);
+    }
+  }, [startChapter]);
+
+  const playPreviousChapter = useCallback(() => {
+    const list = chaptersRef.current && chaptersRef.current.length > 0 ? chaptersRef.current : ALL_SURAHS;
     const chapter = currentChapterRef.current;
     const reciter = currentReciterRef.current;
-    if (!chapter || list.length === 0 || !reciter) return;
+    if (!reciter) return;
+
+    if (!chapter) {
+      if (list.length > 0) void startChapter(list[0], reciter);
+      return;
+    }
+
     const ayah = currentAyahRef.current;
-    if (ayah && ayah.surah === chapter.id && cdnVoiceFor(reciter) && ayah.ayah > 1) {
+    const voice = cdnVoiceFor(reciter);
+
+    // Ayah mode: If beyond ayah 1, move to previous ayah
+    if (ayah && ayah.surah === chapter.id && voice && ayah.ayah > 1) {
       void startChapter(chapter, reciter, { ayah: ayah.ayah - 1 });
       return;
     }
-    const currentIndex = list.findIndex(c => c.id === chapter.id);
-    if (currentIndex > 0) {
-      void startChapter(list[currentIndex - 1], reciter);
+
+    // Move to previous surah (or wrap around to 114)
+    const currentIndex = list.findIndex(c => Number(c.id) === Number(chapter.id));
+    const prevIndex = currentIndex > 0 ? currentIndex - 1 : list.length - 1;
+    const prevChapter = list[prevIndex];
+
+    if (prevChapter) {
+      const prevAyahOption = (playModeRef.current === 'ayah' && voice) ? { ayah: 1 } : {};
+      void startChapter(prevChapter, reciter, prevAyahOption);
     }
-  };
+  }, [startChapter]);
 
   nextChapterRef.current = playNextChapter;
 
@@ -670,6 +728,133 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const wasPlaying = isPlaying;
     void startChapter(chapter, currentReciter, { resumeAt, autoplay: wasPlaying });
   }, [currentReciter, isPlaying, startChapter]);
+
+  // MediaSession API: Shows surah, reciter profile photo, and controls on phone lock screen / background
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    if (!currentChapter || !currentReciter) {
+      navigator.mediaSession.playbackState = 'none';
+      return;
+    }
+
+    const ayahText = currentAyah ? ` • Ayah ${currentAyah.ayah}` : '';
+    const chapterTitle = `${currentChapter.name_simple} (${currentChapter.name_arabic})${ayahText}`;
+    const reciterName = currentReciter.name + (currentReciter.nameArabic ? ` (${currentReciter.nameArabic})` : '');
+
+    const artwork: MediaImage[] = [];
+    if (currentReciter.imageUrl) {
+      const fullImageUrl = currentReciter.imageUrl.startsWith('http')
+        ? currentReciter.imageUrl
+        : `${window.location.origin}${currentReciter.imageUrl}`;
+      artwork.push({
+        src: fullImageUrl,
+        sizes: '512x512',
+        type: 'image/jpeg',
+      });
+    }
+    artwork.push({
+      src: `${window.location.origin}/pwa-512x512.png`,
+      sizes: '512x512',
+      type: 'image/png',
+    });
+    artwork.push({
+      src: `${window.location.origin}/pwa-192x192.png`,
+      sizes: '192x192',
+      type: 'image/png',
+    });
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: chapterTitle,
+        artist: reciterName,
+        album: 'The Noble Quran • القرآن الكريم',
+        artwork,
+      });
+    } catch (e) {
+      console.warn('Failed to set MediaSession metadata:', e);
+    }
+
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }, [currentChapter, currentReciter, currentAyah, isPlaying]);
+
+  // Position state for phone lock screen scrubber
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!currentChapter || !duration || isNaN(duration) || duration <= 0) return;
+
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: Math.max(0, duration),
+        playbackRate: playbackRate || 1.0,
+        position: Math.min(Math.max(0, currentTime), duration),
+      });
+    } catch {
+      // Incase duration is out of range during track transitions
+    }
+  }, [currentTime, duration, playbackRate, currentChapter]);
+
+  // MediaSession action handlers (next, prev, play, pause, seek)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
+      ['play', () => {
+        if (quranAudioRef.current) {
+          quranAudioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+        }
+      }],
+      ['pause', () => {
+        if (quranAudioRef.current) {
+          quranAudioRef.current.pause();
+          setIsPlaying(false);
+        }
+      }],
+      ['previoustrack', () => {
+        playPreviousChapter();
+      }],
+      ['nexttrack', () => {
+        playNextChapter();
+      }],
+      ['seekbackward', (details) => {
+        const skip = details.seekOffset || 10;
+        seekTo(Math.max(currentTime - skip, 0));
+      }],
+      ['seekforward', (details) => {
+        const skip = details.seekOffset || 10;
+        seekTo(Math.min(currentTime + skip, duration || 0));
+      }],
+      ['seekto', (details) => {
+        if (details.seekTime !== undefined && details.seekTime !== null) {
+          seekTo(details.seekTime);
+        }
+      }],
+      ['stop', () => {
+        if (quranAudioRef.current) {
+          quranAudioRef.current.pause();
+          setIsPlaying(false);
+        }
+      }],
+    ];
+
+    for (const [action, handler] of actionHandlers) {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        /* Some actions not supported on all devices */
+      }
+    }
+
+    return () => {
+      for (const [action] of actionHandlers) {
+        try {
+          navigator.mediaSession.setActionHandler(action, null);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [currentTime, duration, playNextChapter, playPreviousChapter, seekTo]);
 
   return (
     <PlayerContext.Provider value={{

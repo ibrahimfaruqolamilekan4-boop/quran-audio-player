@@ -78,9 +78,21 @@ export function NowPlayingOverlay() {
 
   const reduceMotion = useReducedMotion();
   const close = useCallback(() => setNowPlayingOpen(false), [setNowPlayingOpen]);
-  const videoSrc = useBackgroundVideoSrc(activeBackgroundVideoId);
+  const videoSrc = useBackgroundVideoSrc(activeBackgroundVideoId, customVideos);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const overlayVideoRef = useRef<HTMLVideoElement>(null);
   const lastPrevTapRef = useRef(0);
+
+  useEffect(() => {
+    if (!videoSrc || !overlayVideoRef.current) return;
+    const vid = overlayVideoRef.current;
+    vid.muted = true;
+    vid.defaultMuted = true;
+    vid.playsInline = true;
+    vid.setAttribute('webkit-playsinline', 'true');
+    vid.setAttribute('playsinline', 'true');
+    vid.play().catch(() => {});
+  }, [videoSrc]);
 
   const isOpen = isNowPlayingOpen && Boolean(currentChapter);
 
@@ -152,6 +164,7 @@ export function NowPlayingOverlay() {
           <AnimatePresence>
             {videoSrc && (
               <motion.video
+                ref={overlayVideoRef}
                 key={videoSrc}
                 src={videoSrc}
                 className="pointer-events-none absolute inset-0 h-full w-full object-cover"
@@ -159,8 +172,10 @@ export function NowPlayingOverlay() {
                 loop
                 autoPlay
                 playsInline
+                preload="auto"
+                disablePictureInPicture
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 0.45 }}
+                animate={{ opacity: 0.55 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.8 }}
               />
