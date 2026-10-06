@@ -2,7 +2,7 @@
 //
 // Public (no session required): these are the admin-managed global reciters and portraits,
 // identical for every visitor, and the landing page shows some of them.
-import { type Handler, qWithFallback, sendJson } from './_lib.mjs';
+import { type Handler, isDbConfigured, qWithFallback, sendJson } from './_lib.mjs';
 
 interface GlobalRow {
   id: string;
@@ -13,6 +13,10 @@ interface GlobalRow {
 }
 
 const handler: Handler = async (_req, res) => {
+  if (!isDbConfigured()) {
+    return sendJson(res, 200, { reciters: [] });
+  }
+
   try {
     const { rows } = await qWithFallback<GlobalRow>([
       { text: 'SELECT id, name, style, server_url, image_url FROM global_reciters' },
@@ -30,9 +34,9 @@ const handler: Handler = async (_req, res) => {
         ...(r.image_url ? { imageUrl: r.image_url } : {}),
       })),
     });
-  } catch (err) {
-    console.error('public reciters failed:', err);
-    return sendJson(res, 500, { error: 'Could not load reciters.' });
+  } catch (err: any) {
+    console.warn('public reciters unavailable, using fallback:', err?.message || String(err));
+    return sendJson(res, 200, { reciters: [] });
   }
 };
 

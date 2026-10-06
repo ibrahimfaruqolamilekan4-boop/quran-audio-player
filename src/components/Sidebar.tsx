@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon, Clock, Sparkles } from 'lucide-react';
+import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon, Clock, Sparkles, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,6 +13,7 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
   const navigate = useNavigate();
   const tabs = [
     { id: 'home', label: 'Explore', icon: Sparkles },
+    { id: 'azkar', label: 'Daily Azkar', icon: Sun },
     { id: 'prayer-times', label: 'Prayer Times', icon: Clock },
     { id: 'qibla', label: 'Qibla', icon: Compass },
     { id: 'hub', label: 'Focus Space', icon: Headphones },

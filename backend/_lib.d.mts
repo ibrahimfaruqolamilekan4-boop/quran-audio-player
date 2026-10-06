@@ -16,6 +16,7 @@ export interface QueryResult<T = any> {
   rows: T[];
 }
 
+export function isDbConfigured(): boolean;
 export function getPool(): Promise<{ query: (text: string, params?: unknown[]) => Promise<QueryResult> }>;
 export function q<T = any>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
 export function qWithFallback<T = any>(queries: Array<{ text: string; params?: unknown[] }>): Promise<QueryResult<T>>;

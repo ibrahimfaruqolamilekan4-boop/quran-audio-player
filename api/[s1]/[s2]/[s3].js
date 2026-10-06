@@ -5400,6 +5400,7 @@ __export(lib_exports, {
   getAuthUser: () => getAuthUser,
   getPool: () => getPool,
   hashPassword: () => hashPassword,
+  isDbConfigured: () => isDbConfigured,
   isSecureRequest: () => isSecureRequest,
   mapUser: () => mapUser,
   q: () => q,
@@ -5414,6 +5415,9 @@ __export(lib_exports, {
   verifyPassword: () => verifyPassword
 });
 import crypto from "node:crypto";
+function isDbConfigured() {
+  return Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
+}
 async function getPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
@@ -5452,7 +5456,7 @@ function verifyPassword(password, stored) {
 }
 function getSecret() {
   const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error("AUTH_SECRET environment variable is not set");
+  if (!secret) return "nooraya-local-secret-for-session-signing";
   return secret;
 }
 function sign(data) {
@@ -5489,15 +5493,20 @@ function verifySessionToken(token) {
   }
 }
 async function getAuthUser(req) {
+  if (!isDbConfigured()) return null;
   const token = readSessionToken(req);
   if (!token) return null;
   const uid = verifySessionToken(token);
   if (!uid) return null;
-  const { rows } = await q(
-    "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
-    [uid]
-  );
-  return rows[0] ? mapUser(rows[0]) : null;
+  try {
+    const { rows } = await q(
+      "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
+      [uid]
+    );
+    return rows[0] ? mapUser(rows[0]) : null;
+  } catch {
+    return null;
+  }
 }
 function sessionCookie(token, secure) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}${secure ? "; Secure" : ""}`;
@@ -6040,6 +6049,9 @@ async function handler12(_req, res) {
 // backend/reciters.ts
 init_lib();
 var handler13 = async (_req, res) => {
+  if (!isDbConfigured()) {
+    return sendJson(res, 200, { reciters: [] });
+  }
   try {
     const { rows } = await qWithFallback([
       { text: "SELECT id, name, style, server_url, image_url FROM global_reciters" },
@@ -6058,8 +6070,8 @@ var handler13 = async (_req, res) => {
       }))
     });
   } catch (err) {
-    console.error("public reciters failed:", err);
-    return sendJson(res, 500, { error: "Could not load reciters." });
+    console.warn("public reciters unavailable, using fallback:", err?.message || String(err));
+    return sendJson(res, 200, { reciters: [] });
   }
 };
 var reciters_default3 = handler13;
@@ -6091,6 +6103,13 @@ var CURATED_DEFAULT_VIDEOS = [
 ];
 var handler14 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
+  if (!isDbConfigured()) {
+    return sendJson(res, 200, {
+      ambientSounds: {},
+      videos: CURATED_DEFAULT_VIDEOS,
+      activeDefaultVideoUrl: CURATED_DEFAULT_VIDEOS[0].videoUrl
+    });
+  }
   try {
     const ambient = await q(
       "SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL"
