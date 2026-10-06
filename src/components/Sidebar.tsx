@@ -26,13 +26,18 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
     <>
       {/* Desktop Sidebar */}
       <div className="hidden md:flex flex-col w-72 bg-[#020617]/70 backdrop-blur-3xl border-r border-slate-800/60 h-screen fixed top-0 left-0 pt-10 pb-24 z-40">
-        <div className="px-8 mb-12">
-          <h1 className="text-2xl font-serif text-white tracking-wide flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-[0_0_20px_rgba(45,212,191,0.2)]">
-              <BookOpen size={20} className="text-[#020617]" />
+        <div className="px-8 mb-12 cursor-pointer" onClick={() => navigate('/')}>
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-400 via-teal-500 to-emerald-600 flex items-center justify-center shadow-[0_0_20px_rgba(45,212,191,0.25)] shrink-0">
+              <BookOpen size={20} className="text-[#020612]" />
             </div>
-            Quran Audio
-          </h1>
+            <div>
+              <h1 className="text-xl font-serif text-white tracking-widest font-semibold flex items-center gap-1.5">
+                <span>NOORAYA</span>
+              </h1>
+              <p className="text-[10px] text-teal-400/90 font-arabic">نُورَايَا • Quran Sanctuary</p>
+            </div>
+          </div>
         </div>
         
         <nav className="flex-1 px-4 space-y-2">

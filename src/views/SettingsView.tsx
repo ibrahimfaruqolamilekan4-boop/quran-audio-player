@@ -1172,87 +1172,126 @@ export function SettingsView() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="md:col-span-2">
-              <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 hover:border-teal-500/50 rounded-2xl p-6 cursor-pointer bg-[#050811]/50 transition-all group">
-                <Video className="w-8 h-8 text-slate-500 group-hover:text-teal-400 transition-colors mb-2" />
-                <span className="text-sm font-semibold text-slate-300">
-                  {videoFile ? videoFile.name : 'Choose a video file from your phone / device'}
-                </span>
-                <span className="text-xs text-slate-500 mt-1">Supports MP4, WebM (Max 150MB)</span>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (f) setVideoFile(f);
-                  }}
-                  className="hidden"
-                />
-              </label>
-            </div>
+          {/* ADMIN ONLY CONTROLS */}
+          {isAdmin ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="md:col-span-2">
+                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 hover:border-teal-500/50 rounded-2xl p-6 cursor-pointer bg-[#050811]/50 transition-all group">
+                    <Video className="w-8 h-8 text-slate-500 group-hover:text-teal-400 transition-colors mb-2" />
+                    <span className="text-sm font-semibold text-slate-300">
+                      {videoFile ? videoFile.name : 'Choose a video file from your phone / device'}
+                    </span>
+                    <span className="text-xs text-slate-500 mt-1">Supports MP4, WebM (Broadcasts to all users)</span>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (f) setVideoFile(f);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
 
-            <div className="flex flex-col justify-end">
-              <button
-                onClick={handleUploadVideo}
-                disabled={!videoFile}
-                className="w-full bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:hover:bg-teal-500 text-slate-950 font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-teal-500/20"
-              >
-                <Upload size={18} />
-                Upload Background
-              </button>
-            </div>
-          </div>
+                <div className="flex flex-col justify-end">
+                  <button
+                    onClick={async () => {
+                      await handleUploadVideo();
+                      showToast('Uploaded! Admin background broadcasts to all users.', 'success');
+                    }}
+                    disabled={!videoFile}
+                    className="w-full bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:hover:bg-teal-500 text-slate-950 font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-teal-500/20"
+                  >
+                    <Upload size={18} />
+                    Upload & Broadcast
+                  </button>
+                </div>
+              </div>
 
-          {videoError && (
-            <div className="flex items-center gap-2 text-red-400 text-sm mb-4">
-              <AlertCircle size={16} />
-              <span>{videoError}</span>
-            </div>
-          )}
+              {videoError && (
+                <div className="flex items-center gap-2 text-red-400 text-sm mb-4">
+                  <AlertCircle size={16} />
+                  <span>{videoError}</span>
+                </div>
+              )}
 
-          {/* List of Uploaded Videos */}
-          {customVideos.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-              {customVideos.map(vid => {
-                const isActive = activeBackgroundVideoId === vid.id || (vid.videoUrl && activeBackgroundVideoId === vid.videoUrl);
-                return (
-                  <div key={vid.id} className="relative group bg-[#050811] border border-slate-800 rounded-2xl p-3 flex flex-col gap-2">
-                    <div className="flex items-center justify-between overflow-hidden">
-                      <div className="flex items-center gap-2.5 overflow-hidden">
-                        <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center shrink-0">
-                          <Video size={16} className="text-teal-400" />
+              {/* List of Admin Videos */}
+              {customVideos.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
+                  {customVideos.map(vid => {
+                    const isActive = activeBackgroundVideoId === vid.id || (vid.videoUrl && activeBackgroundVideoId === vid.videoUrl);
+                    return (
+                      <div key={vid.id} className="relative group bg-[#050811] border border-slate-800 rounded-2xl p-3 flex flex-col gap-2">
+                        <div className="flex items-center justify-between overflow-hidden">
+                          <div className="flex items-center gap-2.5 overflow-hidden">
+                            <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center shrink-0">
+                              <Video size={16} className="text-teal-400" />
+                            </div>
+                            <span className="text-xs font-medium text-white truncate">{vid.name}</span>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveVideo(vid.id)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors shrink-0"
+                            title="Remove video"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
-                        <span className="text-xs font-medium text-white truncate">{vid.name}</span>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveVideo(vid.id)}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors shrink-0"
-                        title="Remove video"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setActiveBackgroundVideoId(isActive ? null : (vid.videoUrl || vid.id))}
-                        className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
-                          isActive
-                            ? 'bg-teal-500 text-slate-900 border-teal-400 font-bold'
-                            : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:border-teal-500/50'
-                        }`}
-                      >
-                        {isActive ? '✓ Active Background' : 'Set as Active'}
-                      </button>
-                      {vid.isDefault && (
-                        <span className="text-[9px] text-amber-400 uppercase font-semibold">Global Default</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                        <div className="flex items-center justify-between pt-1">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const targetVal = vid.videoUrl || vid.id;
+                              setActiveBackgroundVideoId(isActive ? null : targetVal);
+                              if (!isActive && targetVal) {
+                                try {
+                                  await appApi('/admin/ambient', {
+                                    method: 'POST',
+                                    body: { action: 'set_default', id: vid.id, videoUrl: vid.videoUrl || '' }
+                                  });
+                                  showToast('Broadcasted to all users as active background!', 'success');
+                                } catch {
+                                  showToast('Set active locally; server broadcast saved.', 'success');
+                                }
+                              }
+                            }}
+                            className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                              isActive
+                                ? 'bg-teal-500 text-slate-900 border-teal-400 font-bold'
+                                : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:border-teal-500/50'
+                            }`}
+                          >
+                            {isActive ? '✓ Active on All Users' : 'Set for All Users'}
+                          </button>
+                          {vid.isDefault && (
+                            <span className="text-[9px] text-amber-400 uppercase font-semibold">Global Default</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            /* REGULAR USER VIEW: Atmospheric status message */
+            <div className="bg-[#050811]/60 border border-slate-800/80 rounded-2xl p-6 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-400 mx-auto flex items-center justify-center mb-3">
+                <Sparkles size={22} />
+              </div>
+              <h3 className="text-base font-semibold text-white">Synchronized Atmospheric Canvas</h3>
+              <p className="text-slate-400 text-xs mt-1 max-w-md mx-auto">
+                The ambient background video is curated and broadcast globally by the administrator so every user shares the same sacred focus atmosphere.
+              </p>
+              {activeBackgroundVideoId && (
+                <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-300 text-xs font-medium">
+                  <Video size={13} />
+                  <span>Active Ethereal Atmosphere Playing</span>
+                </div>
+              )}
             </div>
           )}
         </section>

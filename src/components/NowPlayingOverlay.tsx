@@ -160,28 +160,9 @@ export function NowPlayingOverlay() {
             if (info.offset.y > 140) close();
           }}
         >
-          {/* Ambient video layer */}
-          <AnimatePresence>
-            {videoSrc && (
-              <motion.video
-                ref={overlayVideoRef}
-                key={videoSrc}
-                src={videoSrc}
-                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                muted
-                loop
-                autoPlay
-                playsInline
-                preload="auto"
-                disablePictureInPicture
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.55 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.8 }}
-              />
-            )}
-          </AnimatePresence>
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#05070B]/95 via-[#05070B]/55 to-[#05070B]/95" />
+          {/* Ethereal frosted glass atmosphere allowing master ambient background to shine through */}
+          <div className="pointer-events-none absolute inset-0 bg-[#05070B]/70 backdrop-blur-3xl" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#05070B]/90 via-transparent to-[#05070B]/95" />
 
           {/* Top bar */}
           <div className="relative z-10 flex shrink-0 items-center justify-between px-5 pt-[max(1rem,env(safe-area-inset-top))]">
