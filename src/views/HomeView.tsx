@@ -34,7 +34,10 @@ export function HomeView() {
     <div className="space-y-12 animate-in fade-in duration-700 pb-20 relative z-10">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h2 className="text-5xl font-serif text-white tracking-wide">
+          <span className="text-sm font-arabic text-teal-400/90 tracking-wider mb-2 block font-normal">
+            بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+          </span>
+          <h2 className="text-4xl md:text-5xl font-serif text-white tracking-wide">
             As-salamu alaykum{firstName ? `, ${firstName}` : ''}
           </h2>
           <p className="text-slate-400 mt-2 font-light text-lg">

@@ -428,8 +428,16 @@ export function QuranicPremiumBackground({
     vid.muted = true;
     vid.defaultMuted = true;
     vid.playsInline = true;
+    vid.loop = true;
     vid.setAttribute('webkit-playsinline', 'true');
     vid.setAttribute('playsinline', 'true');
+    vid.setAttribute('x5-playsinline', 'true');
+
+    // Only set src if it actually changed to prevent playback reset / skips
+    if (vid.src !== videoUrl && vid.currentSrc !== videoUrl) {
+      vid.src = videoUrl;
+      vid.load();
+    }
 
     const tryPlay = () => {
       if (!vid) return;
@@ -437,7 +445,7 @@ export function QuranicPremiumBackground({
       const prom = vid.play();
       if (prom !== undefined) {
         prom.catch(() => {
-          // If browser policy paused it, unpause on first touch
+          // If browser policy paused it, unpause on first touch / interaction
           const onTouch = () => {
             vid.muted = true;
             vid.play().catch(() => {});
@@ -457,9 +465,7 @@ export function QuranicPremiumBackground({
     /*
      * z-0, NOT a negative z-index. A negative-z child of position:static
      * ancestors resolves against the root stacking context, where in-flow
-     * block backgrounds (App's opaque bg-[#030712]) paint AFTER it — so the
-     * whole layer, including any video, was buried under the app background.
-     * Content sits above this at z-10+, so it still never intercepts clicks.
+     * block backgrounds paint AFTER it. Content sits above this at z-10+.
      */
     <div className="fixed inset-0 z-0 w-full h-full overflow-hidden pointer-events-none">
       {/* Premium base gradient using theme colors */}
@@ -476,7 +482,7 @@ export function QuranicPremiumBackground({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 2 }}
+          transition={{ duration: 1.5 }}
           className="absolute inset-0"
         >
           {/* Islamic Geometric Patterns - THEME AWARE */}
@@ -494,35 +500,42 @@ export function QuranicPremiumBackground({
       </AnimatePresence>
 
       {/*
-       * Custom Video Overlay — a sibling of the theme layer, not a child.
-       * Inside the theme block it was keyed by themeName, so switching theme
-       * unmounted the <video> and restarted it behind a playing surah.
+       * Persistent Video Canvas:
+       * Kept mounted to prevent DOM tearing, GPU context resets, or audio/video skipping.
+       * Uses CSS opacity transitions and explicit onEnded continuous playback loop.
        */}
-      <AnimatePresence>
-        {videoUrl && (
-          <motion.video
-            ref={videoRef}
-            key={videoUrl}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1.2 }}
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="auto"
-            disablePictureInPicture
-            aria-hidden="true"
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover mix-blend-screen pointer-events-none"
-            style={{
-              opacity: Math.max(0.65, visualIntensity * 0.85),
-              filter: `brightness(${0.75 + visualIntensity * 0.4}) contrast(1.1)`,
-            }}
-            src={videoUrl}
-          />
-        )}
-      </AnimatePresence>
+      <video
+        ref={videoRef}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        disablePictureInPicture
+        aria-hidden="true"
+        onEnded={(e) => {
+          // Explicit loop recovery for mobile WebKit & Blink gapless playback
+          const v = e.currentTarget;
+          v.currentTime = 0;
+          v.play().catch(() => {});
+        }}
+        onError={() => {
+          // If video errored, retry safely after a brief pause
+          const v = videoRef.current;
+          if (v && videoUrl) {
+            setTimeout(() => {
+              if (v.src === videoUrl) v.play().catch(() => {});
+            }, 1000);
+          }
+        }}
+        className={`absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover pointer-events-none transition-opacity duration-1000 ease-in-out mix-blend-screen will-change-transform ${
+          videoUrl ? 'opacity-80' : 'opacity-0'
+        }`}
+        style={{
+          filter: `brightness(${0.8 + visualIntensity * 0.3}) contrast(1.15)`,
+          transform: 'translate3d(-50%, -50%, 0)',
+        }}
+      />
 
       {/* Premium overlay with blur and vignette */}
       <div 

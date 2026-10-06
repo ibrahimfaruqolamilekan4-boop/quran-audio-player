@@ -225,7 +225,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           });
         }
         if (data?.activeDefaultVideoUrl) {
-          setActiveBackgroundVideoId(prev => prev || data.activeDefaultVideoUrl || null);
+          // Admin's global default video is displayed for all users
+          setActiveBackgroundVideoId(data.activeDefaultVideoUrl);
+          localStorage.setItem("activeBackgroundVideoId", data.activeDefaultVideoUrl);
         }
       })
       .catch(err => console.warn('Global ambient unavailable:', err?.message || String(err)));
@@ -238,7 +240,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const localReciters = await localforage.getItem<Reciter[]>('customReciters') || [];
       const videos = await localforage.getItem<CustomVideo[]>('customVideos_list') || [];
 
-      setCustomVideos(videos);
+      if (videos.length > 0) {
+        setCustomVideos(prev => {
+          const map = new Map<string, CustomVideo>();
+          prev.forEach(v => map.set(v.id, v));
+          videos.forEach(v => map.set(v.id, v));
+          return Array.from(map.values());
+        });
+      }
 
       if (user) {
         // Sync reciters from Neon
