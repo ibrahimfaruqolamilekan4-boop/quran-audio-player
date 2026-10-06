@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { AMBIENT_TRACKS } from '../lib/constants';
 import { ReciterAvatar } from '../components/ReciterAvatar';
 import { getUserData, getListeningLogs } from '../lib/storage';
-import { Play, Heart, Clock, MoreVertical, Flame, Trophy, Check, ArrowRight } from 'lucide-react';
+import { Play, Heart, Clock, MoreVertical, Flame, Trophy, Check, ArrowRight, Sun } from 'lucide-react';
 
 export function HomeView() {
   const { chapters, playChapter, currentChapter, currentReciter, setReciter, setAmbientTrack, currentAmbient, allReciters } = usePlayer();
@@ -46,6 +46,18 @@ export function HomeView() {
               'Continue your spiritual journey.'
             )}
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => navigate('/dashboard/azkar')}
+              className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-teal-500/15 to-emerald-500/15 hover:from-amber-500/25 hover:via-teal-500/25 hover:to-emerald-500/25 text-amber-200 hover:text-white border border-amber-500/30 text-sm font-medium transition-all shadow-[0_0_20px_rgba(245,158,11,0.1)] group"
+            >
+              <div className="p-1 rounded-lg bg-amber-500/20 text-amber-300 group-hover:scale-110 transition-transform">
+                <Sun size={16} />
+              </div>
+              <span className="tracking-wide">Daily Azkar & Adhkar</span>
+              <ArrowRight size={14} className="text-amber-400/80 group-hover:translate-x-1 transition-transform ml-0.5" />
+            </button>
+          </div>
         </div>
         
         {/* Recitation Goals Widget */}

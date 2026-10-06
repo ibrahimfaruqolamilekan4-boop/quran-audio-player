@@ -18,6 +18,7 @@ import { InsightsView } from './views/InsightsView';
 import { SettingsView } from './views/SettingsView';
 import { PrayerTimesView } from './views/PrayerTimesView';
 import { QiblaView } from './views/QiblaView';
+import { AzkarView } from './views/AzkarView';
 import { getChapters } from './lib/api';
 import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
@@ -91,6 +92,7 @@ function DashboardLayout() {
           <Routes>
             <Route path="/" element={<Navigate to="home" />} />
             <Route path="home" element={<HomeView />} />
+            <Route path="azkar" element={<AzkarView />} />
             <Route path="prayer-times" element={<PrayerTimesView />} />
             <Route path="qibla" element={<QiblaView />} />
             <Route path="hub" element={<HubView />} />
