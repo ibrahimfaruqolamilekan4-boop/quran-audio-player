@@ -51,7 +51,7 @@ export function AuthView() {
   };
 
   return (
-    <div className="min-h-screen bg-[#020612] text-slate-100 flex flex-col justify-between selection:bg-teal-500/30 selection:text-teal-200 relative overflow-hidden">
+    <div className="min-h-screen bg-[#020612]/70 backdrop-blur-[2px] text-slate-100 flex flex-col justify-between selection:bg-teal-500/30 selection:text-teal-200 relative overflow-hidden">
       {/* Background celestial glows */}
       <div className="absolute top-[-10%] right-[-5%] w-[800px] h-[800px] bg-teal-500/10 blur-[150px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] left-[-10%] w-[700px] h-[700px] bg-emerald-950/20 blur-[160px] rounded-full pointer-events-none" />

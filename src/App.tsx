@@ -78,13 +78,7 @@ function DashboardLayout() {
   }, [allReciters, currentReciter, setChapters, setReciter]);
 
   return (
-    <div className="min-h-screen flex bg-[#030712] text-slate-200 font-sans selection:bg-teal-500/30">
-      <QuranicPremiumBackground 
-        themeName={currentTheme}
-        ambientVolume={ambientVolume}
-        isPlaying={isPlaying}
-      />
-      
+    <div className="min-h-screen flex bg-transparent text-slate-200 font-sans selection:bg-teal-500/30">
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
       
       <main className="flex-1 md:ml-72 pb-48 md:pb-40 overflow-y-auto h-screen relative z-10 transition-all">
@@ -158,9 +152,10 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <PlayerProvider>
-          <div className="flex flex-col min-h-screen">
+          <div className="flex flex-col min-h-screen relative selection:bg-teal-500/30 selection:text-teal-200">
+            <QuranicPremiumBackground />
             <PWAInstallHeader />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col relative z-10">
               <Routes>
                 <Route path="/" element={<LandingView />} />
                 <Route path="/auth" element={<AuthView />} />

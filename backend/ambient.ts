@@ -5,22 +5,22 @@ const CURATED_DEFAULT_VIDEOS = [
   {
     id: 'curated_stars',
     name: 'Night Sky & Cosmos',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-starry-night-sky-with-a-milky-way-loop-42864-large.mp4',
+    videoUrl: '/videos/cosmos.mp4',
     description: 'Serene star-filled night sky loop for peaceful contemplation',
     isDefault: true,
   },
   {
     id: 'curated_rain',
     name: 'Rain on Water',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-rain-falling-on-the-water-of-a-lake-loop-41019-large.mp4',
+    videoUrl: '/videos/rain.mp4',
     description: 'Gentle raindrops rippling on water surface',
     isDefault: false,
   },
   {
-    id: 'curated_clouds',
-    name: 'Daylight Horizon',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
-    description: 'Gentle morning clouds moving across the sky',
+    id: 'curated_ocean',
+    name: 'Ocean Waves',
+    videoUrl: '/videos/ocean.mp4',
+    description: 'Gentle rolling ocean waves for tranquil reflection',
     isDefault: false,
   },
 ];

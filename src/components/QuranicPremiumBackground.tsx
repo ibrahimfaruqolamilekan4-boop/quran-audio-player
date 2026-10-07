@@ -378,30 +378,39 @@ export function QuranicPremiumBackground({
   const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['midnight-scholar'];
   const { activeBackgroundVideoId, customVideos } = usePlayer();
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // Dual-buffered persistent video slots for stutter-free, gapless transitions
+  const [activeSlot, setActiveSlot] = useState<'A' | 'B'>('A');
+  const [slotAUrl, setSlotAUrl] = useState<string | null>(null);
+  const [slotBUrl, setSlotBUrl] = useState<string | null>(null);
+  const [slotAOpacity, setSlotAOpacity] = useState(0);
+  const [slotBOpacity, setSlotBOpacity] = useState(0);
+
+  const videoRefA = useRef<HTMLVideoElement>(null);
+  const videoRefB = useRef<HTMLVideoElement>(null);
 
   const visualIntensity = Math.max(0.2, ambientVolume);
 
   useEffect(() => {
     let isMounted = true;
-    let createdUrl: string | null = null;
 
     async function loadCustomVideo() {
       if (!activeBackgroundVideoId) {
-        if (isMounted) setVideoUrl(null);
+        if (isMounted) {
+          setVideoUrl(null);
+          setSlotAOpacity(0);
+          setSlotBOpacity(0);
+        }
         return;
       }
       try {
         const resolved = await resolveBackgroundVideo(activeBackgroundVideoId, customVideos);
-        if (!isMounted) {
-          if (resolved?.revoke) URL.revokeObjectURL(resolved.url);
-          return;
-        }
-        if (resolved) {
-          if (resolved.revoke) createdUrl = resolved.url;
+        if (!isMounted) return;
+        if (resolved?.url) {
           setVideoUrl(resolved.url);
         } else {
           setVideoUrl(null);
+          setSlotAOpacity(0);
+          setSlotBOpacity(0);
         }
       } catch (e) {
         console.error("Failed to load background video:", e);
@@ -413,62 +422,91 @@ export function QuranicPremiumBackground({
 
     return () => {
       isMounted = false;
-      if (createdUrl) {
-        URL.revokeObjectURL(createdUrl);
-      }
     };
   }, [activeBackgroundVideoId, customVideos]);
 
-  // Mobile & PWA autoplay handler: ensure muted properties and touch unblock
+  // Dual-buffer crossfade manager: smoothly transitions to new video without black frames or reload glitches
   useEffect(() => {
-    if (!videoUrl) return;
-    const vid = videoRef.current;
-    if (!vid) return;
-
-    vid.muted = true;
-    vid.defaultMuted = true;
-    vid.playsInline = true;
-    vid.loop = true;
-    vid.setAttribute('webkit-playsinline', 'true');
-    vid.setAttribute('playsinline', 'true');
-    vid.setAttribute('x5-playsinline', 'true');
-
-    // Only set src if it actually changed to prevent playback reset / skips
-    if (vid.src !== videoUrl && vid.currentSrc !== videoUrl) {
-      vid.src = videoUrl;
-      vid.load();
+    if (!videoUrl) {
+      setSlotAOpacity(0);
+      setSlotBOpacity(0);
+      return;
     }
 
-    const tryPlay = () => {
-      if (!vid) return;
-      vid.muted = true;
-      const prom = vid.play();
-      if (prom !== undefined) {
-        prom.catch(() => {
-          // If browser policy paused it, unpause on first touch / interaction
-          const onTouch = () => {
-            vid.muted = true;
-            vid.play().catch(() => {});
-            window.removeEventListener('touchstart', onTouch);
-            window.removeEventListener('pointerdown', onTouch);
-          };
-          window.addEventListener('touchstart', onTouch, { once: true, passive: true });
-          window.addEventListener('pointerdown', onTouch, { once: true, passive: true });
-        });
-      }
-    };
+    // Initial load: neither slot is playing yet
+    if (!slotAUrl && !slotBUrl) {
+      setSlotAUrl(videoUrl);
+      setSlotAOpacity(1);
+      setActiveSlot('A');
+      return;
+    }
 
-    tryPlay();
+    // If current slot already has this video, ensure it's visible
+    if (activeSlot === 'A') {
+      if (slotAUrl === videoUrl) {
+        setSlotAOpacity(1);
+        setSlotBOpacity(0);
+        return;
+      }
+      // Load onto Slot B
+      setSlotBUrl(videoUrl);
+      setSlotBOpacity(1);
+      setSlotAOpacity(0);
+      setActiveSlot('B');
+    } else {
+      if (slotBUrl === videoUrl) {
+        setSlotBOpacity(1);
+        setSlotAOpacity(0);
+        return;
+      }
+      // Load onto Slot A
+      setSlotAUrl(videoUrl);
+      setSlotAOpacity(1);
+      setSlotBOpacity(0);
+      setActiveSlot('A');
+    }
   }, [videoUrl]);
 
+  // Ensure video playback starts whenever a slot gets a URL
+  useEffect(() => {
+    if (slotAUrl && videoRefA.current) {
+      videoRefA.current.muted = true;
+      videoRefA.current.defaultMuted = true;
+      videoRefA.current.play().catch(() => {});
+    }
+  }, [slotAUrl]);
+
+  useEffect(() => {
+    if (slotBUrl && videoRefB.current) {
+      videoRefB.current.muted = true;
+      videoRefB.current.defaultMuted = true;
+      videoRefB.current.play().catch(() => {});
+    }
+  }, [slotBUrl]);
+
+  // Global user interaction unblocker for mobile browser autoplay policy
+  useEffect(() => {
+    const unblock = () => {
+      if (videoRefA.current && slotAUrl) {
+        videoRefA.current.muted = true;
+        videoRefA.current.play().catch(() => {});
+      }
+      if (videoRefB.current && slotBUrl) {
+        videoRefB.current.muted = true;
+        videoRefB.current.play().catch(() => {});
+      }
+    };
+    window.addEventListener('touchstart', unblock, { once: true, passive: true });
+    window.addEventListener('pointerdown', unblock, { once: true, passive: true });
+    return () => {
+      window.removeEventListener('touchstart', unblock);
+      window.removeEventListener('pointerdown', unblock);
+    };
+  }, [slotAUrl, slotBUrl]);
+
   return (
-    /*
-     * z-0, NOT a negative z-index. A negative-z child of position:static
-     * ancestors resolves against the root stacking context, where in-flow
-     * block backgrounds paint AFTER it. Content sits above this at z-10+.
-     */
     <div className="fixed inset-0 z-0 w-full h-full overflow-hidden pointer-events-none">
-      {/* Premium base gradient using theme colors */}
+      {/* Base gradient using theme colors */}
       <div 
         className="absolute inset-0"
         style={{
@@ -500,12 +538,12 @@ export function QuranicPremiumBackground({
       </AnimatePresence>
 
       {/*
-       * Persistent Video Canvas:
-       * Kept mounted to prevent DOM tearing, GPU context resets, or audio/video skipping.
-       * Uses CSS opacity transitions and explicit onEnded continuous playback loop.
+       * Dual-Buffer Persistent Video Elements:
+       * Full-screen 100vw x 100vh canvas with object-cover - NO half-screen translations or crop offsets.
        */}
       <video
-        ref={videoRef}
+        ref={videoRefA}
+        src={slotAUrl || undefined}
         autoPlay
         loop
         muted
@@ -513,43 +551,35 @@ export function QuranicPremiumBackground({
         preload="auto"
         disablePictureInPicture
         aria-hidden="true"
-        onEnded={(e) => {
-          // Explicit loop recovery for mobile WebKit & Blink gapless playback
-          const v = e.currentTarget;
-          v.currentTime = 0;
-          v.play().catch(() => {});
-        }}
-        onError={() => {
-          // If video errored, retry safely after a brief pause
-          const v = videoRef.current;
-          if (v && videoUrl) {
-            setTimeout(() => {
-              if (v.src === videoUrl) v.play().catch(() => {});
-            }, 1000);
-          }
-        }}
-        className={`absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover pointer-events-none transition-opacity duration-1000 ease-in-out mix-blend-screen will-change-transform ${
-          videoUrl ? 'opacity-80' : 'opacity-0'
-        }`}
+        className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
         style={{
-          filter: `brightness(${0.8 + visualIntensity * 0.3}) contrast(1.15)`,
-          transform: 'translate3d(-50%, -50%, 0)',
+          opacity: slotAOpacity,
+          filter: `brightness(${0.85 + visualIntensity * 0.25}) contrast(1.1)`,
         }}
       />
 
-      {/* Premium overlay with blur and vignette */}
-      <div 
-        className="absolute inset-0 backdrop-blur-[2px]"
+      <video
+        ref={videoRefB}
+        src={slotBUrl || undefined}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        disablePictureInPicture
+        aria-hidden="true"
+        className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
         style={{
-          background: `linear-gradient(to bottom right, transparent, ${theme.colors.background}0d)`,
+          opacity: slotBOpacity,
+          filter: `brightness(${0.85 + visualIntensity * 0.25}) contrast(1.1)`,
         }}
       />
-      
-      {/* Vignette effect for premium feel */}
-      <div
+
+      {/* Subtle protective vignette overlay so text and UI remain crystal clear */}
+      <div 
         className="absolute inset-0 pointer-events-none"
         style={{
-          background: `radial-gradient(ellipse at center, transparent 0%, ${theme.colors.background}66 100%)`,
+          background: `radial-gradient(ellipse at center, rgba(2,6,18,0.2) 0%, rgba(2,6,18,0.7) 100%)`,
         }}
       />
     </div>

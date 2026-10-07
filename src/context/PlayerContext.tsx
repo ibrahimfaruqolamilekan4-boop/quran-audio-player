@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
-import { CURATED_RECITERS } from '../lib/constants';
+import { CURATED_RECITERS, SOUNDSCAPE_VIDEOS } from '../lib/constants';
 import { candidateUrls, extensionOf, isObjectUrl, rememberFormat } from '../lib/audio';
 import { resolveReciters, type GlobalReciterRow } from '../lib/reciters';
 import localforage from 'localforage';
@@ -133,22 +133,45 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const [ambientVideoMapping, setAmbientVideoMapping] = useState<Record<string, string>>({});
 
-  // Sync ambient mapping from local storage initially
+  // Sync ambient mapping from local storage and backend admin broadcast
   useEffect(() => {
     localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
       if (mapping) setAmbientVideoMapping(mapping);
     });
+
+    // Fetch admin broadcast background so every user account displays the admin background
+    fetch('/api/ambient')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.activeDefaultVideoUrl) {
+          const current = localStorage.getItem('activeBackgroundVideoId');
+          // If user has not explicitly locked an override or is using default, adopt admin broadcast
+          if (!current || current === 'default' || current.startsWith('/videos/') || current.startsWith('curated_')) {
+            setActiveBackgroundVideoId(data.activeDefaultVideoUrl);
+          }
+        }
+        if (data?.ambientSounds && typeof data.ambientSounds === 'object') {
+          setAmbientVideoMapping(prev => ({ ...prev, ...data.ambientSounds }));
+        }
+      })
+      .catch(err => {
+        console.warn('Could not sync admin ambient broadcast:', err);
+      });
   }, []);
+
+  const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(
+    () => localStorage.getItem("activeBackgroundVideoId") || '/videos/cosmos.mp4'
+  );
 
   // Update active background video when ambient track changes
   useEffect(() => {
     if (currentAmbient) {
-      const mappedId = ambientVideoMapping[currentAmbient.id];
-      setActiveBackgroundVideoId(mappedId || null);
+      const mappedId = ambientVideoMapping[currentAmbient.id] || SOUNDSCAPE_VIDEOS[currentAmbient.id];
+      if (mappedId) {
+        setActiveBackgroundVideoId(mappedId);
+      }
     }
   }, [currentAmbient, ambientVideoMapping]);
-
-  const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => localStorage.getItem("activeBackgroundVideoId") || null);
   const [isNowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [playMode, setPlayModeState] = useState<'surah' | 'ayah'>(() => {
     try { return localStorage.getItem('quran-garden:playMode') === 'ayah' ? 'ayah' : 'surah'; } catch { return 'surah'; }

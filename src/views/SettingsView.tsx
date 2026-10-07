@@ -468,13 +468,38 @@ export function SettingsView() {
     }
     const blob = new Blob([videoFile], { type: videoFile.type });
     const id = 'custom_vid_' + Date.now();
-    const updated = [...customVideos, { id, name: videoFile.name }];
+    const updated = [...customVideos, { id, name: videoFile.name, isDefault: true }];
     setCustomVideos(updated);
     await localforage.setItem('customVideos_list', updated);
     await localforage.setItem('customVideo_blob_' + id, blob);
     setActiveBackgroundVideoId(id);
     setVideoFile(null);
-    showToast('Background video uploaded and activated!', 'success');
+
+    if (isAdmin) {
+      try {
+        await appApi('/admin/ambient', {
+          method: 'POST',
+          body: { action: 'add_video', name: videoFile.name, videoUrl: id, isDefault: true }
+        });
+      } catch {}
+    }
+
+    showToast('Background video uploaded and broadcast to all users!', 'success');
+  };
+
+  const handleBroadcastPreset = async (url: string, name: string) => {
+    setActiveBackgroundVideoId(url);
+    if (isAdmin) {
+      try {
+        await appApi('/admin/ambient', {
+          method: 'POST',
+          body: { action: 'set_default', videoUrl: url }
+        });
+        showToast(`Broadcasted "${name}" to all user accounts!`, 'success');
+        return;
+      } catch {}
+    }
+    showToast(`Active background set to "${name}".`, 'success');
   };
 
   const handleRemoveVideo = async (id: string) => {
@@ -1275,6 +1300,47 @@ export function SettingsView() {
                   })}
                 </div>
               )}
+
+              {/* Admin Broadcast Presets */}
+              <div className="mt-6 pt-6 border-t border-slate-800/80">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+                  Fast Broadcast Presets (Broadcast to All User Accounts)
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { name: 'Night Cosmos', url: '/videos/cosmos.mp4', icon: '🌌' },
+                    { name: 'Ocean Waves', url: '/videos/ocean.mp4', icon: '🌊' },
+                    { name: 'Gentle Rain', url: '/videos/rain.mp4', icon: '🌧️' },
+                    { name: 'Sacred Nature', url: '/videos/nature.mp4', icon: '🌿' },
+                  ].map(p => {
+                    const isCurActive = activeBackgroundVideoId === p.url;
+                    return (
+                      <div 
+                        key={p.url} 
+                        className={`p-3 rounded-2xl border flex flex-col justify-between gap-2.5 transition-all ${
+                          isCurActive ? 'bg-teal-500/15 border-teal-500/50 shadow-[0_0_15px_rgba(45,212,191,0.15)]' : 'bg-[#050811] border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">{p.icon}</span>
+                          <span className="text-xs font-medium text-white truncate">{p.name}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleBroadcastPreset(p.url, p.name)}
+                          className={`text-[10px] font-bold py-1.5 px-2 rounded-xl border transition-all ${
+                            isCurActive 
+                              ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-sm' 
+                              : 'bg-slate-900 text-teal-300 border-teal-500/30 hover:bg-teal-500/20'
+                          }`}
+                        >
+                          {isCurActive ? '✓ Broadcasting' : 'Broadcast to All'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </>
           ) : (
             /* REGULAR USER VIEW: Atmospheric status message */
