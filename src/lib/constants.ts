@@ -1,20 +1,37 @@
-import { CloudRain, Flame, Waves, Bird, Wind, CloudLightning, Trees, Droplets, AudioWaveform, Zap, Train } from 'lucide-react';
+import { CloudRain, Flame, Waves, Bird, Wind, CloudLightning, Trees, Droplets, AudioWaveform, Zap, Train, Cat, VolumeX } from 'lucide-react';
 import { AmbientTrack, Reciter } from '../types';
 
 export const AMBIENT_TRACKS: AmbientTrack[] = [
-  { id: 'rain', name: 'Light Rain', url: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg', icon: CloudRain },
-  { id: 'thunder', name: 'Thunder', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: CloudLightning },
-  { id: 'birds', name: 'Forest Birds', url: 'https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg', icon: Bird },
-  { id: 'fire', name: 'Fireplace', url: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg', icon: Flame },
-  { id: 'waves', name: 'Ocean Waves', url: 'https://actions.google.com/sounds/v1/water/waves_crashing_on_rock_beach.ogg', icon: Waves },
-  { id: 'wind', name: 'Desert Wind', url: 'https://actions.google.com/sounds/v1/weather/strong_wind.ogg', icon: Wind },
-  { id: 'owl', name: 'Night Owl', url: 'https://actions.google.com/sounds/v1/animals/owl_hoot.ogg', icon: Trees },
-  { id: 'river', name: 'Flowing River', url: 'https://actions.google.com/sounds/v1/water/river_stream.ogg', icon: Droplets },
-  { id: 'whale', name: 'Whale Song', url: 'https://actions.google.com/sounds/v1/animals/whale_song.ogg', icon: AudioWaveform },
+  { id: 'rain', name: 'Rain', url: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg', icon: CloudRain },
+  { id: 'birds', name: 'Birds', url: 'https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg', icon: Bird },
+  { id: 'fire', name: 'Fire', url: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg', icon: Flame },
+  { id: 'waves', name: 'Wave', url: 'https://actions.google.com/sounds/v1/water/waves_crashing_on_rock_beach.ogg', icon: Waves },
+  { id: 'wind', name: 'Wind', url: 'https://actions.google.com/sounds/v1/weather/strong_wind.ogg', icon: Wind },
+  { id: 'cat', name: 'Cat', url: 'https://actions.google.com/sounds/v1/animals/cat_purr.ogg', icon: Cat },
+  { id: 'owl', name: 'Owl', url: 'https://actions.google.com/sounds/v1/animals/owl_hoot.ogg', icon: Trees },
+  { id: 'river', name: 'River', url: 'https://actions.google.com/sounds/v1/water/river_stream.ogg', icon: Droplets },
+  { id: 'whale', name: 'Whale', url: 'https://actions.google.com/sounds/v1/animals/whale_song.ogg', icon: AudioWaveform },
   { id: 'crickets', name: 'Crickets', url: 'https://actions.google.com/sounds/v1/animals/crickets_and_night_insects.ogg', icon: Trees },
-  { id: 'storm', name: 'Thunderstorm', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: Zap },
-  { id: 'train', name: 'Train Ride', url: 'https://actions.google.com/sounds/v1/transportation/train_pass_by.ogg', icon: Train },
+  { id: 'storm', name: 'Thunder Storm', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: Zap },
+  { id: 'thunder', name: 'Thunder', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: CloudLightning },
+  { id: 'train', name: 'Train', url: 'https://actions.google.com/sounds/v1/transportation/train_pass_by.ogg', icon: Train },
 ];
+
+export const SOUNDSCAPE_VIDEOS: Record<string, string> = {
+  rain: '/videos/rain.mp4',
+  thunder: '/videos/rain.mp4',
+  storm: '/videos/rain.mp4',
+  waves: '/videos/ocean.mp4',
+  fire: '/videos/cosmos.mp4',
+  wind: '/videos/nature.mp4',
+  crickets: '/videos/cosmos.mp4',
+  birds: '/videos/nature.mp4',
+  river: '/videos/ocean.mp4',
+  whale: '/videos/ocean.mp4',
+  owl: '/videos/cosmos.mp4',
+  train: '/videos/cosmos.mp4',
+  cat: '/videos/cosmos.mp4',
+};
 
 const commons = (file: string) => `https://commons.wikimedia.org/wiki/File:${file}`;
 

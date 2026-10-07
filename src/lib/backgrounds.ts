@@ -10,12 +10,15 @@ import type { CustomVideo } from '../types';
  * - An entry in localforage or global background video library.
  * - A localforage key holding a Blob (optionally prefixed with 'customVideo_blob_').
  */
+// In-memory cache for resolved blob URLs so videos do not reload/skip on re-renders
+const blobUrlCache = new Map<string, string>();
+
 export async function resolveBackgroundVideo(
   id: string,
   videoLibrary?: CustomVideo[]
 ): Promise<{ url: string; revoke: boolean } | null> {
   if (!id) return null;
-  if (id.startsWith('http://') || id.startsWith('https://') || id.startsWith('blob:') || id.startsWith('data:')) {
+  if (id.startsWith('http://') || id.startsWith('https://') || id.startsWith('blob:') || id.startsWith('data:') || id.startsWith('/')) {
     return { url: id, revoke: false };
   }
 
@@ -27,6 +30,11 @@ export async function resolveBackgroundVideo(
     }
   }
 
+  // Check cache first
+  if (blobUrlCache.has(id)) {
+    return { url: blobUrlCache.get(id)!, revoke: false };
+  }
+
   // Check localforage for Blob
   try {
     let blob = await localforage.getItem<Blob>(id);
@@ -34,7 +42,9 @@ export async function resolveBackgroundVideo(
       blob = await localforage.getItem<Blob>(`customVideo_blob_${id}`);
     }
     if (blob) {
-      return { url: URL.createObjectURL(blob), revoke: true };
+      const url = URL.createObjectURL(blob);
+      blobUrlCache.set(id, url);
+      return { url, revoke: false };
     }
   } catch (err) {
     console.warn('Could not read localforage video blob:', err);

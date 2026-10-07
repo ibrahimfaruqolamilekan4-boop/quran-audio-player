@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: 'Cinzel', Georgia, Cambria, "Times New Roman", Times, serif;
-  --font-arabic: 'Amiri', serif;
+  --font-sans: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: 'Cinzel', 'Cinzel Decorative', Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-arabic: 'Amiri Quran', 'Amiri', serif;
 }
 
 @layer base {

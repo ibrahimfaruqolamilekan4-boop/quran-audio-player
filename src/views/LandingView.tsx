@@ -80,7 +80,7 @@ export function LandingView() {
   );
 
   return (
-    <div className="min-h-screen bg-[#020612] text-slate-100 font-sans selection:bg-teal-500/30 selection:text-teal-200 overflow-x-hidden relative">
+    <div className="min-h-screen bg-[#020612]/75 backdrop-blur-[2px] text-slate-100 font-sans selection:bg-teal-500/30 selection:text-teal-200 overflow-x-hidden relative">
       {/* Sacred Ambient Background Glows */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-teal-500/10 via-emerald-600/5 to-transparent blur-[140px] rounded-full" />
