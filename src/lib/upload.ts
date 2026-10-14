@@ -1,4 +1,5 @@
 import localforage from 'localforage';
+import { appApi } from './api';
 
 export interface UploadValidationOptions {
   allowedTypes: string[];
@@ -159,12 +160,18 @@ export async function deleteStoredMedia(id: string): Promise<void> {
 }
 
 /**
- * Read an image picked from the device and shrink it to a portable data URL.
+ * Read an image picked from the device and shrink it to a portable form.
  *
  * Phone portraits run to multiple megabytes, which do not belong in IndexedDB
- * or an <img> src. This downscales to `maxEdge` on the long side and re-encodes
- * as JPEG, which is what the admin panel stores as a reciter photo. Returns
- * null when the file cannot be decoded — callers treat that as "no photo".
+ * or an <img> src. This downsizes to `maxEdge` on the long side and re-encodes
+ * as JPEG.
+ *
+ * The result is then pushed to /api/admin/media so the portrait becomes a real
+ * URL that every device can load (the admin's own device used to be the only
+ * place an uploaded photo appeared). When that upload is not possible - offline,
+ * or the caller is not an admin - the inline data URL is returned instead, so
+ * the photo still works locally. Returns null when the file cannot be decoded -
+ * callers treat that as "no photo".
  */
 export async function resizeImageToDataUrl(
   file: File,
@@ -187,7 +194,22 @@ export async function resizeImageToDataUrl(
     }
     ctx.drawImage(bitmap, 0, 0, width, height);
     if (typeof bitmap.close === 'function') bitmap.close();
-    return canvas.toDataURL('image/jpeg', quality);
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+    // Prefer a hosted URL; fall back to the inline copy when that is not possible.
+    try {
+      const stored = await appApi<{ url?: string }>('/admin/media', {
+        method: 'POST',
+        body: { dataUrl, kind: 'image' },
+      });
+      if (stored?.url) {
+        return stored.url.startsWith('http') ? stored.url : `${window.location.origin}${stored.url}`;
+      }
+    } catch {
+      /* offline or not an admin - keep the device-local copy */
+    }
+
+    return dataUrl;
   } catch {
     return null;
   }

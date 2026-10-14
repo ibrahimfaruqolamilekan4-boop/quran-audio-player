@@ -1,16 +1,17 @@
 // PUT /api/admin/ambient  { sounds: Record<trackId, videoUrl> }
 // POST /api/admin/ambient { action: 'add_video' | 'delete_video' | 'set_default', ... }
-import { type Handler, q, requireAdmin, sendJson, readJson } from '../_lib.mjs';
+import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
+import { cleanPortableVideoUrl, readJsonLarge } from '../media-lib.mjs';
 
 async function ensureTable() {
   await q(`
     CREATE TABLE IF NOT EXISTS global_background_videos (
-      id          TEXT PRIMARY KEY,
-      name        TEXT NOT NULL,
-      video_url   TEXT NOT NULL,
-      description TEXT,
-      is_default  BOOLEAN DEFAULT false,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      video_url    TEXT NOT NULL,
+      description  TEXT,
+      is_default   BOOLEAN DEFAULT false,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
 }
@@ -24,7 +25,14 @@ const handler: Handler = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const body = await readJson(req);
+    // Uploaded clips arrive as (bounded) inline payloads, which are larger than
+    // the default body ceiling in _lib.mjs.
+    let body: any;
+    try {
+      body = await readJsonLarge(req);
+    } catch (err: any) {
+      return sendJson(res, 413, { error: err?.message || 'Upload too large' });
+    }
 
     if (req.method === 'PUT') {
       const sounds = (body.sounds && typeof body.sounds === 'object') ? body.sounds as Record<string, unknown> : {};
@@ -48,12 +56,16 @@ const handler: Handler = async (req, res) => {
 
       if (action === 'add_video') {
         const name = typeof body.name === 'string' ? body.name.trim() : '';
-        const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : '';
+        // Only values other devices can actually load are stored: a hosted URL,
+        // a bundled /videos path, or a bounded inline upload.
+        const videoUrl = cleanPortableVideoUrl(body.videoUrl) || '';
         const description = typeof body.description === 'string' ? body.description.trim() : null;
         const isDefault = Boolean(body.isDefault);
 
         if (!name || !videoUrl) {
-          return sendJson(res, 400, { error: 'Name and video URL are required.' });
+          return sendJson(res, 400, {
+            error: 'A name and a playable video source are required (hosted MP4/WebM link, bundled /videos path, or an upload under ~3 MB).',
+          });
         }
 
         const id = `bg_vid_${Date.now()}`;
@@ -85,7 +97,7 @@ const handler: Handler = async (req, res) => {
 
       if (action === 'set_default') {
         const id = typeof body.id === 'string' ? body.id : '';
-        const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : '';
+        const videoUrl = cleanPortableVideoUrl(body.videoUrl) || '';
         if (!id && !videoUrl) return sendJson(res, 400, { error: 'Video ID or URL required' });
 
         if (id) {
