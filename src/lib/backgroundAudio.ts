@@ -54,17 +54,20 @@ if (typeof window !== 'undefined' && !(window as any).__noorayaAudioGuard) {
 
   const resumeSuspended = () => {
     if (document.visibilityState !== 'visible') return;
-    let shouldBePlaying = false;
+
+    const toResume: HTMLAudioElement[] = [];
     tracked.forEach((entry, el) => {
-      if (!entry.wasPlaying) return;
-      shouldBePlaying = true;
-      if (el.paused && (el.src || el.currentSrc)) {
-        // Best effort: succeeds when the media session is still valid, and is
-        // harmlessly rejected (caught below) when a fresh gesture is required.
-        el.play().catch(() => { /* needs a user gesture */ });
+      if (entry.wasPlaying && el.paused && (el.src || el.currentSrc)) {
+        toResume.push(el);
       }
     });
-    if (shouldBePlaying && 'mediaSession' in navigator) {
+    if (toResume.length === 0) return;
+
+    // Best effort: succeeds while the media session is still valid and is
+    // harmlessly rejected (caught below) when a fresh gesture is required.
+    toResume.forEach(el => { el.play().catch(() => { /* needs a user gesture */ }); });
+
+    if ('mediaSession' in navigator) {
       try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
     }
   };
@@ -72,7 +75,6 @@ if (typeof window !== 'undefined' && !(window as any).__noorayaAudioGuard) {
   window.addEventListener('visibilitychange', resumeSuspended);
   window.addEventListener('pageshow', resumeSuspended);
   window.addEventListener('focus', resumeSuspended);
-  document.addEventListener('resume', resumeSuspended);
 }
 
 export {};
