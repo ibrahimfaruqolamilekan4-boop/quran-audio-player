@@ -1,5 +1,6 @@
 // POST /api/admin/reciters  { id?, name, serverUrl, imageUrl? }  -> add/update a global reciter
-import { type Handler, qWithFallback, requireAdmin, sendJson, readJson, cleanImageUrl } from '../_lib.mjs';
+import { type Handler, qWithFallback, requireAdmin, sendJson } from '../_lib.mjs';
+import { cleanPortableImageUrl, readJsonLarge } from '../media-lib.mjs';
 
 const handler: Handler = async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
@@ -7,10 +8,12 @@ const handler: Handler = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const body = await readJson(req);
+    const body = await readJsonLarge(req);
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const serverUrl = typeof body.serverUrl === 'string' ? body.serverUrl.trim() : '';
-    const imageUrl = cleanImageUrl(body.imageUrl);
+    // Accepts hosted http(s) links AND bounded inline images, so a portrait
+    // uploaded from the admin's device is stored centrally and loads everywhere.
+    const imageUrl = cleanPortableImageUrl(body.imageUrl);
     if (!name || !serverUrl) return sendJson(res, 400, { error: 'Name and server URL are required.' });
 
     const id = typeof body.id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(body.id) ? body.id : `global_${Date.now()}`;

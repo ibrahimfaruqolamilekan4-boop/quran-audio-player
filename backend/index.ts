@@ -29,6 +29,8 @@ import adminOverview from './admin/overview';
 import adminReciters from './admin/reciters';
 import adminRole from './admin/role';
 import adminAmbient from './admin/ambient';
+import adminMedia from './admin/media';
+import publicMedia from './media/[id]';
 import health from './health.mjs';
 import publicReciters from './reciters';
 import publicAmbient from './ambient';
@@ -49,6 +51,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/reciters$/, adminReciters],
   [/^\/api\/admin\/role$/, adminRole],
   [/^\/api\/admin\/ambient$/, adminAmbient],
+  [/^\/api\/admin\/media$/, adminMedia],
+  [/^\/api\/media\/[^/]+$/, publicMedia],
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
