@@ -1,4 +1,5 @@
 {
+  "buildCommand": "npm run build",
   "headers": [
     {
       "source": "/sw.js",
@@ -9,6 +10,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/((?!api/|sw\\.js).*)", "destination": "/index.html" }
+    { "source": "/((?!/api/|sw\\.js).*)", "destination": "/index.html" }
   ]
 }
