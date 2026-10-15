@@ -127,31 +127,53 @@ export function BackgroundsAdmin({
       
       // Store blob locally in localforage
       await localforage.setItem(`customVideo_blob_${id}`, blob);
-      setBgProgress(65);
+      setBgProgress(50);
 
       let videoUrl: string | undefined = undefined;
-      // If file is small (< 3.5 MB), we can also save to database as a Data URL for instant cross-device sync
-      if (file.size < 3.5 * 1024 * 1024) {
-        try {
-          const reader = new FileReader();
-          videoUrl = await new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
+      try {
+        const reader = new FileReader();
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
 
+        const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
+          method: 'POST',
+          body: {
+            data: base64Data,
+            filename: file.name,
+            name,
+            type: file.type,
+            isDefault: bgSetDefault,
+          },
+        });
+        if (mediaRes?.url) {
+          videoUrl = mediaRes.url;
+        }
+      } catch (mediaErr) {
+        console.warn('Could not stream to /api/media:', mediaErr);
+      }
+
+      setBgProgress(80);
+
+      if (videoUrl) {
+        await appApi('/admin/ambient', {
+          method: 'POST',
+          body: {
+            action: 'add_video',
+            name,
+            videoUrl,
+            description: bgDescription.trim() || undefined,
+            isDefault: bgSetDefault,
+          },
+        }).catch(() => {});
+
+        if (bgSetDefault) {
           await appApi('/admin/ambient', {
             method: 'POST',
-            body: {
-              action: 'add_video',
-              name,
-              videoUrl,
-              description: bgDescription.trim() || undefined,
-              isDefault: bgSetDefault,
-            },
+            body: { action: 'set_default', videoUrl },
           }).catch(() => {});
-        } catch {
-          // Fall back to local storage
         }
       }
 
@@ -159,7 +181,7 @@ export function BackgroundsAdmin({
       const entry: CustomVideo = {
         id,
         name,
-        videoUrl,
+        videoUrl: videoUrl || id,
         description: bgDescription.trim() || undefined,
         sizeBytes: file.size,
         isDefault: bgSetDefault,

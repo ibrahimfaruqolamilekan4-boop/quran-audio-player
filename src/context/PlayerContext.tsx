@@ -311,6 +311,107 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       } else {
         setCustomReciters(localReciters);
       }
+
+      // 3. Auto-sync any previously saved sheikh profile pictures and background videos from this device to cloud
+      // This ensures all videos and photos added on this system are immediately visible on phone, tablet, and all devices!
+      try {
+        // Sync sheikh profile photos to server
+        const overrides = await localforage.getItem<Record<string, Partial<Reciter>>>('reciterOverrides') || {};
+        for (const [id, patch] of Object.entries(overrides)) {
+          if (patch.imageUrl && patch.imageUrl.startsWith('data:image/')) {
+            try {
+              const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
+                method: 'POST',
+                body: {
+                  data: patch.imageUrl,
+                  filename: `sheikh_${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
+                  name: patch.name || id,
+                  type: 'image/jpeg',
+                },
+              });
+              const permanentUrl = mediaRes?.url || patch.imageUrl;
+              await appApi('/admin/reciters', {
+                method: 'POST',
+                body: {
+                  id,
+                  name: patch.name || id,
+                  imageUrl: permanentUrl,
+                  bio: patch.bio,
+                  serverUrl: patch.serverUrl || '',
+                },
+              });
+            } catch {}
+          }
+        }
+
+        // Sync background videos to server so phones and tablets can stream them
+        const localVideos = await localforage.getItem<CustomVideo[]>('customVideos_list') || [];
+        let hasUpdatedVideos = false;
+        const updatedVideos = [...localVideos];
+
+        for (let i = 0; i < updatedVideos.length; i++) {
+          const v = updatedVideos[i];
+          const needsUpload = !v.videoUrl || (!v.videoUrl.startsWith('http') && !v.videoUrl.startsWith('/videos/'));
+          if (needsUpload) {
+            let blob = await localforage.getItem<Blob>(v.id);
+            if (!blob) blob = await localforage.getItem<Blob>(`customVideo_blob_${v.id}`);
+
+            if (blob) {
+              try {
+                const reader = new FileReader();
+                const base64Data = await new Promise<string>((resolve, reject) => {
+                  reader.onload = () => resolve(reader.result as string);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
+
+                const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
+                  method: 'POST',
+                  body: {
+                    data: base64Data,
+                    filename: `${v.name || 'video'}.mp4`,
+                    name: v.name,
+                    type: blob.type || 'video/mp4',
+                    isDefault: v.isDefault,
+                  },
+                });
+
+                if (mediaRes?.url) {
+                  updatedVideos[i] = { ...v, videoUrl: mediaRes.url };
+                  hasUpdatedVideos = true;
+                  await appApi('/admin/ambient', {
+                    method: 'POST',
+                    body: {
+                      action: 'add_video',
+                      name: v.name,
+                      videoUrl: mediaRes.url,
+                      description: v.description,
+                      isDefault: v.isDefault,
+                    },
+                  }).catch(() => {});
+
+                  const activeSaved = localStorage.getItem('activeBackgroundVideoId');
+                  if (v.isDefault || activeSaved === v.id || !activeSaved) {
+                    await appApi('/admin/ambient', {
+                      method: 'POST',
+                      body: { action: 'set_default', videoUrl: mediaRes.url },
+                    }).catch(() => {});
+                    setActiveBackgroundVideoId(mediaRes.url);
+                    localStorage.setItem('activeBackgroundVideoId', mediaRes.url);
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+
+        if (hasUpdatedVideos) {
+          setCustomVideos(updatedVideos);
+          await localforage.setItem('customVideos_list', updatedVideos);
+        }
+      } catch (migrationErr) {
+        console.warn('Cross-device migration notice:', migrationErr);
+      }
     }
     loadCustomAssets();
   }, [user]);

@@ -1,6 +1,6 @@
 // POST /api/auth/login  { email, password }
 import {
-  type Handler, q, verifyPassword, createSessionToken, sessionCookie,
+  type Handler, q, verifyPassword, hashPassword, createSessionToken, sessionCookie,
   sendJson, readJson, isSecureRequest, validEmail, mapUser,
 } from '../_lib.mjs';
 
@@ -22,13 +22,19 @@ const handler: Handler = async (req, res) => {
       'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1', [email]
     );
     const row = rows[0];
-    if (!row || !verifyPassword(password, row.password_hash)) {
+    if (!row) {
       return sendJson(res, 401, { error: 'Incorrect email or password.' });
     }
+
     if (!row.password_hash) {
-      return sendJson(res, 401, {
-        error: 'Please set your password using the Sign up tab.',
-      });
+      // First-time sign-in for pre-seeded user or admin: claim and save password
+      await q('UPDATE users SET password_hash = $1, last_login_at = now() WHERE uid = $2', [hashPassword(password), row.uid]);
+      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
+      return sendJson(res, 200, { user: mapUser(row) });
+    }
+
+    if (!verifyPassword(password, row.password_hash)) {
+      return sendJson(res, 401, { error: 'Incorrect email or password.' });
     }
 
     await q('UPDATE users SET last_login_at = now() WHERE uid = $1', [row.uid]);
