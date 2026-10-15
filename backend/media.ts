@@ -5,12 +5,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { sendJson, readJson, q, isDbConfigured } from './_lib.mjs';
+import { saveInlineMedia } from './media-lib.mjs';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'public/videos/uploads');
 
-// Ensure directory exists
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+/**
+ * Lazily create the upload directory, tolerating a read-only filesystem.
+ *
+ * This must NEVER run at module scope. Serverless platforms mount the
+ * deployment read-only (Vercel: /var/task), so a throwing mkdirSync there
+ * aborts evaluation of the whole function bundle, which takes down EVERY
+ * /api route, login included, with a bare non-JSON 500, not just media
+ * uploads.
+ */
+function ensureUploadsDir(): boolean {
+  try {
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+    return true;
+  } catch (err) {
+    console.warn('Upload directory is not writable; using the media store instead:', err);
+    return false;
+  }
 }
 
 export default async function mediaHandler(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -46,11 +63,27 @@ export default async function mediaHandler(req: IncomingMessage, res: ServerResp
 
       const safeId = `up_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const safeFilename = `${safeId}${ext}`;
-      const filePath = path.join(UPLOADS_DIR, safeFilename);
 
-      fs.writeFileSync(filePath, buffer);
+      // Prefer the real filesystem when it is writable (local dev / self-hosted).
+      let publicUrl: string | null = null;
+      if (ensureUploadsDir()) {
+        try {
+          fs.writeFileSync(path.join(UPLOADS_DIR, safeFilename), buffer);
+          publicUrl = `/videos/uploads/${safeFilename}`;
+        } catch (err) {
+          console.warn('Writing the upload to disk failed; using the media store instead:', err);
+        }
+      }
 
-      const publicUrl = `/videos/uploads/${safeFilename}`;
+      // Serverless filesystems are read-only and ephemeral, so fall back to the
+      // database-backed store, which serves the same bytes from /api/media/:id.
+      if (!publicUrl) {
+        const saved = await saveInlineMedia(
+          `data:${mediaType};base64,${base64Data}`,
+          mediaType.startsWith('video') ? 'video' : 'image',
+        );
+        publicUrl = `/api/media/${saved.id}`;
+      }
 
       // If it is a video, save in global_background_videos and set active if isDefault
       if (mediaType.startsWith('video') || ext === '.mp4' || ext === '.webm') {
