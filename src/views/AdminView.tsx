@@ -220,31 +220,60 @@ export function AdminView() {
         bio: editBio.trim() || undefined,
         ...(photoUrl ? { imageUrl: photoUrl } : {}),
       });
-      // 2) Global catalog — visible to every visitor. Only absolute http(s) photos
-      //    pass the server-side image sanitiser, so a device upload stays local.
-      if (photoUrl.startsWith('http')) {
+      // 2) Global catalog — visible to every visitor and device (phones, tablets, and computers).
+      let publicPhotoUrl = photoUrl;
+      if (photoUrl && photoUrl.startsWith('data:image/')) {
+        try {
+          const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
+            method: 'POST',
+            body: {
+              data: photoUrl,
+              filename: `sheikh_${editing.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
+              name: name || editing.name,
+              type: 'image/jpeg',
+            },
+          });
+          if (mediaRes?.url) {
+            publicPhotoUrl = mediaRes.url;
+            updateReciterOverride(editing.id, { imageUrl: publicPhotoUrl });
+          }
+        } catch {
+          // Keep dataUrl
+        }
+      }
+
+      if (publicPhotoUrl || isCurated) {
         await appApi('/admin/reciters', {
           method: 'POST',
           body: {
             id: editing.id,
             name: name || editing.name,
-            serverUrl: serverUrl || editing.serverUrl,
-            imageUrl: photoUrl,
+            serverUrl: serverUrl || editing.serverUrl || '',
+            imageUrl: publicPhotoUrl || undefined,
+            bio: editBio.trim() || undefined,
           },
         });
-      } else if (!isCurated) {
+      }
+
+      if (!isCurated) {
         await appApi('/admin/reciters', {
           method: 'POST',
-          body: { id: editing.id, name, serverUrl },
+          body: { 
+            id: editing.id, 
+            name, 
+            serverUrl: serverUrl || '', 
+            imageUrl: publicPhotoUrl || undefined,
+            bio: editBio.trim() || undefined,
+          },
         });
         const updated = customReciters.some((r) => r.id === editing.id)
-          ? customReciters.map((r) => (r.id === editing.id ? { ...r, name, serverUrl } : r))
-          : [...customReciters, { id: editing.id, name, style: 'Custom', serverUrl }];
+          ? customReciters.map((r) => (r.id === editing.id ? { ...r, name, serverUrl, ...(publicPhotoUrl ? { imageUrl: publicPhotoUrl } : {}) } : r))
+          : [...customReciters, { id: editing.id, name, style: 'Custom', serverUrl, ...(publicPhotoUrl ? { imageUrl: publicPhotoUrl } : {}) }];
         setCustomReciters(updated);
         await localforage.setItem('customReciters', updated);
       }
       await fetchAdminData();
-      showToast(`Saved ${name || editing.name}.`, 'success');
+      showToast(`Saved and synced ${name || editing.name} to all devices!`, 'success');
       setEditing(null);
     } catch (e: any) {
       showToast(e?.message || 'Saved on this device only — the server rejected the change.', 'error');

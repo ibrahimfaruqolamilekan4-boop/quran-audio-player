@@ -179,10 +179,7 @@ const IslamicPattern = ({ intensity, theme }: { intensity: number; theme: ThemeC
         </linearGradient>
       </defs>
 
-      {/* Background layers */}
-      <rect width="1200" height="800" fill={theme.colors.background} />
-      
-      {/* Subtle gradient base */}
+      {/* Subtle gradient base over video */}
       <rect
         width="1200"
         height="800"
@@ -377,12 +374,22 @@ export function QuranicPremiumBackground({
 }: QuranicPremiumBackgroundProps) {
   const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['midnight-scholar'];
   const { activeBackgroundVideoId, customVideos } = usePlayer();
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+
+  // Initial video loop: default to Cosmos star loop immediately to eliminate any blank frame
+  const initialVideo = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('activeBackgroundVideoId');
+      if (saved) return saved;
+    }
+    return '/videos/cosmos.mp4';
+  }, []);
+
+  const [videoUrl, setVideoUrl] = useState<string>(initialVideo);
   // Dual-buffered persistent video slots for stutter-free, gapless transitions
   const [activeSlot, setActiveSlot] = useState<'A' | 'B'>('A');
-  const [slotAUrl, setSlotAUrl] = useState<string | null>(null);
+  const [slotAUrl, setSlotAUrl] = useState<string>(initialVideo);
   const [slotBUrl, setSlotBUrl] = useState<string | null>(null);
-  const [slotAOpacity, setSlotAOpacity] = useState(0);
+  const [slotAOpacity, setSlotAOpacity] = useState(1);
   const [slotBOpacity, setSlotBOpacity] = useState(0);
 
   const videoRefA = useRef<HTMLVideoElement>(null);
@@ -390,16 +397,13 @@ export function QuranicPremiumBackground({
 
   const visualIntensity = Math.max(0.2, ambientVolume);
 
+  // Sync activeBackgroundVideoId from PlayerContext
   useEffect(() => {
     let isMounted = true;
 
     async function loadCustomVideo() {
       if (!activeBackgroundVideoId) {
-        if (isMounted) {
-          setVideoUrl(null);
-          setSlotAOpacity(0);
-          setSlotBOpacity(0);
-        }
+        if (isMounted) setVideoUrl('/videos/cosmos.mp4');
         return;
       }
       try {
@@ -408,40 +412,22 @@ export function QuranicPremiumBackground({
         if (resolved?.url) {
           setVideoUrl(resolved.url);
         } else {
-          setVideoUrl(null);
-          setSlotAOpacity(0);
-          setSlotBOpacity(0);
+          setVideoUrl('/videos/cosmos.mp4');
         }
       } catch (e) {
         console.error("Failed to load background video:", e);
-        if (isMounted) setVideoUrl(null);
+        if (isMounted) setVideoUrl('/videos/cosmos.mp4');
       }
     }
 
     loadCustomVideo();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [activeBackgroundVideoId, customVideos]);
 
   // Dual-buffer crossfade manager: smoothly transitions to new video without black frames or reload glitches
   useEffect(() => {
-    if (!videoUrl) {
-      setSlotAOpacity(0);
-      setSlotBOpacity(0);
-      return;
-    }
+    if (!videoUrl) return;
 
-    // Initial load: neither slot is playing yet
-    if (!slotAUrl && !slotBUrl) {
-      setSlotAUrl(videoUrl);
-      setSlotAOpacity(1);
-      setActiveSlot('A');
-      return;
-    }
-
-    // If current slot already has this video, ensure it's visible
     if (activeSlot === 'A') {
       if (slotAUrl === videoUrl) {
         setSlotAOpacity(1);
@@ -467,53 +453,163 @@ export function QuranicPremiumBackground({
     }
   }, [videoUrl]);
 
-  // Ensure video playback starts whenever a slot gets a URL
+  // Start playback safely on video elements whenever sources are ready (iOS Safari, iPadOS, Android)
+  const playVideoSafe = (vid: HTMLVideoElement | null) => {
+    if (!vid) return;
+    try {
+      vid.muted = true;
+      vid.defaultMuted = true;
+      (vid as any).playsInline = true;
+      vid.setAttribute('muted', '');
+      vid.setAttribute('playsinline', '');
+      vid.setAttribute('webkit-playsinline', 'true');
+      vid.setAttribute('x5-playsinline', 'true');
+      const promise = vid.play();
+      if (promise !== undefined) {
+        promise.catch(() => {
+          // Autoplay policy paused it; unblock listener will start on first touch/click/scroll
+        });
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     if (slotAUrl && videoRefA.current) {
-      videoRefA.current.muted = true;
-      videoRefA.current.defaultMuted = true;
-      videoRefA.current.play().catch(() => {});
+      playVideoSafe(videoRefA.current);
     }
   }, [slotAUrl]);
 
   useEffect(() => {
     if (slotBUrl && videoRefB.current) {
-      videoRefB.current.muted = true;
-      videoRefB.current.defaultMuted = true;
-      videoRefB.current.play().catch(() => {});
+      playVideoSafe(videoRefB.current);
     }
   }, [slotBUrl]);
 
   // Global user interaction unblocker for mobile browser autoplay policy
   useEffect(() => {
     const unblock = () => {
-      if (videoRefA.current && slotAUrl) {
-        videoRefA.current.muted = true;
-        videoRefA.current.play().catch(() => {});
-      }
-      if (videoRefB.current && slotBUrl) {
-        videoRefB.current.muted = true;
-        videoRefB.current.play().catch(() => {});
-      }
+      if (videoRefA.current && slotAUrl) playVideoSafe(videoRefA.current);
+      if (videoRefB.current && slotBUrl) playVideoSafe(videoRefB.current);
     };
     window.addEventListener('touchstart', unblock, { once: true, passive: true });
     window.addEventListener('pointerdown', unblock, { once: true, passive: true });
+    window.addEventListener('click', unblock, { once: true, passive: true });
+    window.addEventListener('keydown', unblock, { once: true, passive: true });
     return () => {
       window.removeEventListener('touchstart', unblock);
       window.removeEventListener('pointerdown', unblock);
+      window.removeEventListener('click', unblock);
+      window.removeEventListener('keydown', unblock);
     };
   }, [slotAUrl, slotBUrl]);
 
   return (
-    <div className="fixed inset-0 z-0 w-full h-full overflow-hidden pointer-events-none">
+    <div 
+      className="fixed inset-0 pointer-events-none overflow-hidden select-none"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: 0,
+      }}
+    >
       {/* Base gradient using theme colors */}
       <div 
-        className="absolute inset-0"
+        className="fixed inset-0"
         style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
           background: `linear-gradient(to bottom right, ${theme.colors.background}, ${theme.colors.muted})`,
+          zIndex: 0,
         }}
       />
 
+      {/*
+       * Dual-Buffer Persistent Video Elements:
+       * Fullscreen 100vw x 100vh canvas with object-cover - NO half-screen translations or crop offsets.
+       */}
+      <video
+        ref={videoRefA}
+        src={slotAUrl || undefined}
+        autoPlay
+        loop
+        muted
+        defaultMuted
+        playsInline
+        preload="auto"
+        disablePictureInPicture
+        aria-hidden="true"
+        className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          height: '100%',
+          minWidth: '100%',
+          minHeight: '100%',
+          objectFit: 'cover',
+          opacity: slotAOpacity,
+          filter: `brightness(${0.9 + visualIntensity * 0.2}) contrast(1.08)`,
+          zIndex: 1,
+        }}
+        onCanPlay={() => playVideoSafe(videoRefA.current)}
+        onLoadedData={() => playVideoSafe(videoRefA.current)}
+        onEnded={() => {
+          if (videoRefA.current) {
+            videoRefA.current.currentTime = 0;
+            playVideoSafe(videoRefA.current);
+          }
+        }}
+      />
+
+      <video
+        ref={videoRefB}
+        src={slotBUrl || undefined}
+        autoPlay
+        loop
+        muted
+        defaultMuted
+        playsInline
+        preload="auto"
+        disablePictureInPicture
+        aria-hidden="true"
+        className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          height: '100%',
+          minWidth: '100%',
+          minHeight: '100%',
+          objectFit: 'cover',
+          opacity: slotBOpacity,
+          filter: `brightness(${0.9 + visualIntensity * 0.2}) contrast(1.08)`,
+          zIndex: 1,
+        }}
+        onCanPlay={() => playVideoSafe(videoRefB.current)}
+        onLoadedData={() => playVideoSafe(videoRefB.current)}
+        onEnded={() => {
+          if (videoRefB.current) {
+            videoRefB.current.currentTime = 0;
+            playVideoSafe(videoRefB.current);
+          }
+        }}
+      />
+
+      {/* Theme-Aware Islamic Patterns and Divine Glows overlaying video */}
       <AnimatePresence mode="wait">
         <motion.div
           key={themeName}
@@ -521,7 +617,15 @@ export function QuranicPremiumBackground({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 1.5 }}
-          className="absolute inset-0"
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 2,
+          }}
         >
           {/* Islamic Geometric Patterns - THEME AWARE */}
           <IslamicPattern intensity={visualIntensity} theme={theme} />
@@ -537,49 +641,17 @@ export function QuranicPremiumBackground({
         </motion.div>
       </AnimatePresence>
 
-      {/*
-       * Dual-Buffer Persistent Video Elements:
-       * Full-screen 100vw x 100vh canvas with object-cover - NO half-screen translations or crop offsets.
-       */}
-      <video
-        ref={videoRefA}
-        src={slotAUrl || undefined}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        disablePictureInPicture
-        aria-hidden="true"
-        className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
-        style={{
-          opacity: slotAOpacity,
-          filter: `brightness(${0.85 + visualIntensity * 0.25}) contrast(1.1)`,
-        }}
-      />
-
-      <video
-        ref={videoRefB}
-        src={slotBUrl || undefined}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        disablePictureInPicture
-        aria-hidden="true"
-        className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
-        style={{
-          opacity: slotBOpacity,
-          filter: `brightness(${0.85 + visualIntensity * 0.25}) contrast(1.1)`,
-        }}
-      />
-
       {/* Subtle protective vignette overlay so text and UI remain crystal clear */}
       <div 
-        className="absolute inset-0 pointer-events-none"
+        className="fixed inset-0 pointer-events-none"
         style={{
-          background: `radial-gradient(ellipse at center, rgba(2,6,18,0.2) 0%, rgba(2,6,18,0.7) 100%)`,
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: `radial-gradient(ellipse at center, rgba(2,6,18,0.15) 0%, rgba(2,6,18,0.65) 100%)`,
+          zIndex: 3,
         }}
       />
     </div>

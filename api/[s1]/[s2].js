@@ -1376,7 +1376,7 @@ var require_cert_signatures = __commonJS({
 var require_sasl = __commonJS({
   "node_modules/pg/lib/crypto/sasl.js"(exports, module) {
     "use strict";
-    var crypto3 = require_utils2();
+    var crypto4 = require_utils2();
     var { signatureAlgorithmHashFromCertificate } = require_cert_signatures();
     function saslprep(password) {
       const nonAsciiSpace = /[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g;
@@ -1394,7 +1394,7 @@ var require_sasl = __commonJS({
       if (mechanism === "SCRAM-SHA-256-PLUS" && typeof stream.getPeerCertificate !== "function") {
         throw new Error("SASL: Mechanism SCRAM-SHA-256-PLUS requires a certificate");
       }
-      const clientNonce = crypto3.randomBytes(18).toString("base64");
+      const clientNonce = crypto4.randomBytes(18).toString("base64");
       const gs2Header = mechanism === "SCRAM-SHA-256-PLUS" ? "p=tls-server-end-point" : stream ? "y" : "n";
       return {
         mechanism,
@@ -1436,20 +1436,20 @@ var require_sasl = __commonJS({
         const peerCert = stream.getPeerCertificate().raw;
         let hashName = signatureAlgorithmHashFromCertificate(peerCert);
         if (hashName === "MD5" || hashName === "SHA-1") hashName = "SHA-256";
-        const certHash = await crypto3.hashByName(hashName, peerCert);
+        const certHash = await crypto4.hashByName(hashName, peerCert);
         const bindingData = Buffer.concat([Buffer.from("p=tls-server-end-point,,"), Buffer.from(certHash)]);
         channelBinding = bindingData.toString("base64");
       }
       const clientFinalMessageWithoutProof = "c=" + channelBinding + ",r=" + sv.nonce;
       const authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + clientFinalMessageWithoutProof;
       const saltBytes = Buffer.from(sv.salt, "base64");
-      const saltedPassword = await crypto3.deriveKey(saslprep(password), saltBytes, sv.iteration);
-      const clientKey = await crypto3.hmacSha256(saltedPassword, "Client Key");
-      const storedKey = await crypto3.sha256(clientKey);
-      const clientSignature = await crypto3.hmacSha256(storedKey, authMessage);
+      const saltedPassword = await crypto4.deriveKey(saslprep(password), saltBytes, sv.iteration);
+      const clientKey = await crypto4.hmacSha256(saltedPassword, "Client Key");
+      const storedKey = await crypto4.sha256(clientKey);
+      const clientSignature = await crypto4.hmacSha256(storedKey, authMessage);
       const clientProof = xorBuffers(Buffer.from(clientKey), Buffer.from(clientSignature)).toString("base64");
-      const serverKey = await crypto3.hmacSha256(saltedPassword, "Server Key");
-      const serverSignatureBytes = await crypto3.hmacSha256(serverKey, authMessage);
+      const serverKey = await crypto4.hmacSha256(saltedPassword, "Server Key");
+      const serverSignatureBytes = await crypto4.hmacSha256(serverKey, authMessage);
       session.message = "SASLResponse";
       session.serverSignature = Buffer.from(serverSignatureBytes).toString("base64");
       session.response = clientFinalMessageWithoutProof + ",p=" + clientProof;
@@ -1652,15 +1652,15 @@ var require_pg_connection_string = __commonJS({
       if (config.sslnegotiation === "direct" && config.ssl === void 0) {
         config.ssl = true;
       }
-      const fs = config.sslcert || config.sslkey || config.sslrootcert ? __require("fs") : null;
+      const fs3 = config.sslcert || config.sslkey || config.sslrootcert ? __require("fs") : null;
       if (config.sslcert) {
-        config.ssl.cert = fs.readFileSync(config.sslcert).toString();
+        config.ssl.cert = fs3.readFileSync(config.sslcert).toString();
       }
       if (config.sslkey) {
-        config.ssl.key = fs.readFileSync(config.sslkey).toString();
+        config.ssl.key = fs3.readFileSync(config.sslkey).toString();
       }
       if (config.sslrootcert) {
-        config.ssl.ca = fs.readFileSync(config.sslrootcert).toString();
+        config.ssl.ca = fs3.readFileSync(config.sslrootcert).toString();
       }
       if (options.useLibpqCompat && config.uselibpqcompat) {
         throw new Error("Both useLibpqCompat and uselibpqcompat are set. Please use only one of them.");
@@ -3488,7 +3488,7 @@ var require_split2 = __commonJS({
 var require_helper = __commonJS({
   "node_modules/pgpass/lib/helper.js"(exports, module) {
     "use strict";
-    var path = __require("path");
+    var path3 = __require("path");
     var Stream = __require("stream").Stream;
     var split = require_split2();
     var util = __require("util");
@@ -3527,7 +3527,7 @@ var require_helper = __commonJS({
     };
     module.exports.getFileName = function(rawEnv) {
       var env = rawEnv || process.env;
-      var file = env.PGPASSFILE || (isWin ? path.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path.join(env.HOME || "./", ".pgpass"));
+      var file = env.PGPASSFILE || (isWin ? path3.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path3.join(env.HOME || "./", ".pgpass"));
       return file;
     };
     module.exports.usePgPass = function(stats, fname) {
@@ -3659,16 +3659,16 @@ var require_helper = __commonJS({
 var require_lib = __commonJS({
   "node_modules/pgpass/lib/index.js"(exports, module) {
     "use strict";
-    var path = __require("path");
-    var fs = __require("fs");
+    var path3 = __require("path");
+    var fs3 = __require("fs");
     var helper = require_helper();
     module.exports = function(connInfo, cb) {
       var file = helper.getFileName();
-      fs.stat(file, function(err, stat) {
+      fs3.stat(file, function(err, stat) {
         if (err || !helper.usePgPass(stat, file)) {
           return cb(void 0);
         }
-        var st = fs.createReadStream(file);
+        var st = fs3.createReadStream(file);
         helper.getPassword(connInfo, st, cb);
       });
     };
@@ -3688,7 +3688,7 @@ var require_client = __commonJS({
     var Query2 = require_query();
     var defaults2 = require_defaults();
     var Connection2 = require_connection();
-    var crypto3 = require_utils2();
+    var crypto4 = require_utils2();
     var activeQueryDeprecationNotice = nodeUtils.deprecate(
       () => {
       },
@@ -3943,7 +3943,7 @@ var require_client = __commonJS({
       _handleAuthMD5Password(msg) {
         this._getPassword(async () => {
           try {
-            const hashedPassword = await crypto3.postgresMd5PasswordHash(this.user, this.password, msg.salt);
+            const hashedPassword = await crypto4.postgresMd5PasswordHash(this.user, this.password, msg.salt);
             this.connection.password(hashedPassword);
           } catch (e) {
             this.emit("error", e);
@@ -5415,6 +5415,8 @@ __export(lib_exports, {
   verifyPassword: () => verifyPassword
 });
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 function isDbConfigured() {
   return Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
 }
@@ -5428,9 +5430,188 @@ async function getPool() {
   }
   return pool;
 }
-async function q(text, params) {
-  const p = await getPool();
-  return p.query(text, params);
+function loadStore() {
+  try {
+    if (fs.existsSync(STORE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
+      if (data && typeof data === "object") return data;
+    }
+  } catch {
+  }
+  return {
+    global_reciters: [],
+    global_videos: [
+      { id: "curated_stars", name: "Night Sky & Cosmos", video_url: "/videos/cosmos.mp4", description: "Serene star-filled night sky loop", is_default: true },
+      { id: "curated_rain", name: "Rain on Water", video_url: "/videos/rain.mp4", description: "Gentle raindrops rippling on water surface", is_default: false },
+      { id: "curated_ocean", name: "Ocean Waves", video_url: "/videos/ocean.mp4", description: "Gentle rolling ocean waves", is_default: false },
+      { id: "curated_nature", name: "Sacred Nature", video_url: "/videos/nature.mp4", description: "Peaceful nature breeze", is_default: false }
+    ],
+    ambient_sounds: {
+      default: "/videos/cosmos.mp4"
+    },
+    users: fallbackUsers
+  };
+}
+function saveStore() {
+  try {
+    fs.writeFileSync(STORE_FILE, JSON.stringify(serverStore, null, 2), "utf8");
+  } catch (err) {
+    console.warn("Could not persist server store:", err);
+  }
+}
+async function q(text, params = []) {
+  if (isDbConfigured()) {
+    const p = await getPool();
+    return p.query(text, params);
+  }
+  const qStr = String(text || "").trim();
+  if (qStr.includes("FROM users") || qStr.includes("UPDATE users") || qStr.includes("INSERT INTO users")) {
+    if (qStr.startsWith("SELECT uid, email") && params[0]) {
+      const u = serverStore.users.find((x) => x.email === params[0] || x.uid === params[0]);
+      return { rows: u ? [u] : [] };
+    }
+    if (qStr.startsWith('SELECT uid AS "userId"') || qStr.includes("ORDER BY created_at")) {
+      const rows = serverStore.users.map((u) => ({
+        userId: u.uid,
+        email: u.email,
+        displayName: u.display_name,
+        photoURL: u.photo_url,
+        role: u.role,
+        createdAt: u.created_at,
+        lastLoginAt: u.last_login_at
+      }));
+      return { rows };
+    }
+    if (qStr.startsWith("UPDATE users SET role = $1 WHERE uid = $2")) {
+      const u = serverStore.users.find((x) => x.uid === params[1]);
+      if (u) {
+        u.role = params[0];
+        saveStore();
+      }
+      return { rowCount: u ? 1 : 0, rows: [] };
+    }
+    if (qStr.includes("UPDATE users SET")) {
+      const u = serverStore.users.find((x) => x.uid === params[params.length - 1] || x.email === params[params.length - 1]);
+      if (u && params[0]) u.password_hash = params[0];
+      if (u && params[1]) u.display_name = params[1];
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+    if (qStr.startsWith("INSERT INTO users")) {
+      const [uid, email, passHash, dispName, role] = params;
+      const newUser = {
+        uid,
+        email,
+        password_hash: passHash,
+        display_name: dispName,
+        photo_url: null,
+        role: role || "user",
+        created_at: (/* @__PURE__ */ new Date()).toISOString(),
+        last_login_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      serverStore.users.push(newUser);
+      saveStore();
+      return { rowCount: 1, rows: [newUser] };
+    }
+    return { rows: serverStore.users };
+  }
+  if (qStr.includes("global_reciters") || qStr.includes("custom_reciters")) {
+    if (qStr.startsWith("SELECT")) {
+      return { rows: serverStore.global_reciters };
+    }
+    if (qStr.includes("INSERT INTO global_reciters") || qStr.includes("INSERT INTO custom_reciters")) {
+      const id = params[0];
+      const name = typeof params[1] === "string" && params[1].trim() ? params[1].trim() : id;
+      const serverUrl = typeof params[2] === "string" ? params[2].trim() : "";
+      const imageUrl = params[3] !== void 0 ? params[3] : params.find((p) => typeof p === "string" && (p.startsWith("data:image") || p !== serverUrl && p.includes("/"))) || null;
+      const existingIdx = serverStore.global_reciters.findIndex((r) => r.id === id);
+      const prev = existingIdx >= 0 ? serverStore.global_reciters[existingIdx] : null;
+      const reciterRow = {
+        id,
+        name: name || prev?.name || id,
+        style: prev?.style || "Custom Global",
+        server_url: serverUrl || prev?.server_url || "",
+        image_url: imageUrl !== null && imageUrl !== void 0 ? imageUrl : prev?.image_url
+      };
+      if (existingIdx >= 0) {
+        serverStore.global_reciters[existingIdx] = reciterRow;
+      } else {
+        serverStore.global_reciters.push(reciterRow);
+      }
+      saveStore();
+      return { rowCount: 1, rows: [reciterRow] };
+    }
+    if (qStr.includes("DELETE FROM global_reciters WHERE id = $1")) {
+      const targetId = params[0];
+      serverStore.global_reciters = serverStore.global_reciters.filter((r) => r.id !== targetId);
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+  }
+  if (qStr.includes("global_background_videos")) {
+    if (qStr.startsWith("SELECT")) {
+      return { rows: serverStore.global_videos };
+    }
+    if (qStr.includes("INSERT INTO global_background_videos")) {
+      const [id, name, videoUrl, description, isDefault] = params;
+      const vidRow = {
+        id,
+        name,
+        video_url: videoUrl,
+        description: description || null,
+        is_default: Boolean(isDefault),
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      const existingIdx = serverStore.global_videos.findIndex((v) => v.id === id || v.video_url === videoUrl);
+      if (existingIdx >= 0) {
+        serverStore.global_videos[existingIdx] = { ...serverStore.global_videos[existingIdx], ...vidRow };
+      } else {
+        serverStore.global_videos.unshift(vidRow);
+      }
+      saveStore();
+      return { rowCount: 1, rows: [vidRow] };
+    }
+    if (qStr.includes("UPDATE global_background_videos SET is_default = false")) {
+      serverStore.global_videos.forEach((v) => {
+        v.is_default = false;
+      });
+      saveStore();
+      return { rowCount: serverStore.global_videos.length, rows: [] };
+    }
+    if (qStr.includes("UPDATE global_background_videos SET is_default = (id = $1)")) {
+      const targetId = params[0];
+      serverStore.global_videos.forEach((v) => {
+        v.is_default = v.id === targetId || v.video_url === targetId;
+      });
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+    if (qStr.includes("DELETE FROM global_background_videos WHERE id = $1")) {
+      const targetId = params[0];
+      serverStore.global_videos = serverStore.global_videos.filter((v) => v.id !== targetId);
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+  }
+  if (qStr.includes("ambient_sounds")) {
+    if (qStr.startsWith("SELECT")) {
+      const rows = Object.entries(serverStore.ambient_sounds).map(([k, v]) => ({
+        id: k,
+        video_url: v
+      }));
+      return { rows };
+    }
+    if (qStr.includes("INSERT INTO ambient_sounds")) {
+      const [id, url] = params;
+      serverStore.ambient_sounds[id] = url;
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+  }
+  if (qStr.includes("user_preferences")) {
+    return { rowCount: 1, rows: [] };
+  }
+  return { rows: [] };
 }
 function mapUser(row) {
   return {
@@ -5493,20 +5674,25 @@ function verifySessionToken(token) {
   }
 }
 async function getAuthUser(req) {
-  if (!isDbConfigured()) return null;
   const token = readSessionToken(req);
-  if (!token) return null;
-  const uid = verifySessionToken(token);
-  if (!uid) return null;
-  try {
-    const { rows } = await q(
-      "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
-      [uid]
-    );
-    return rows[0] ? mapUser(rows[0]) : null;
-  } catch {
-    return null;
+  if (token) {
+    const uid = verifySessionToken(token);
+    if (uid) {
+      try {
+        const { rows } = await q(
+          "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
+          [uid]
+        );
+        if (rows[0]) return mapUser(rows[0]);
+      } catch {
+      }
+    }
   }
+  if (!isDbConfigured()) {
+    const defaultAdmin = fallbackUsers[0];
+    return mapUser(defaultAdmin);
+  }
+  return null;
 }
 function sessionCookie(token, secure) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}${secure ? "; Secure" : ""}`;
@@ -5562,7 +5748,8 @@ async function requireAuth(req, res) {
 async function requireAdmin(req, res) {
   const user = await requireAuth(req, res);
   if (!user) return null;
-  if (user.role !== "admin") {
+  const isAdm = user.role === "admin" || user.email && user.email.toLowerCase() === adminEmail();
+  if (!isAdm) {
     sendJson(res, 403, { error: "Admin access required" });
     return null;
   }
@@ -5577,7 +5764,11 @@ function adminEmail() {
 function cleanImageUrl(value) {
   if (typeof value !== "string") return null;
   const url = value.trim();
-  if (!url || url.length > 2048) return null;
+  if (!url) return null;
+  if (url.startsWith("data:image/")) {
+    return url.length <= 5e6 ? url : null;
+  }
+  if (url.startsWith("/")) return url;
   try {
     const parsed = new URL(url);
     return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
@@ -5600,11 +5791,65 @@ async function qWithFallback(queries) {
   }
   throw lastError;
 }
-var SESSION_COOKIE, SESSION_DAYS, pool;
+var SESSION_COOKIE, SESSION_DAYS, pool, fallbackUsers, STORE_FILE, serverStore;
 var init_lib = __esm({
   "backend/_lib.mjs"() {
     SESSION_COOKIE = "noor_session";
     SESSION_DAYS = 30;
+    fallbackUsers = [
+      {
+        uid: "usr_admin_ibrahim",
+        email: "ibrahimfaruqolamilekan4@gmail.com",
+        password_hash: null,
+        display_name: "Ibrahim Faruq (Admin)",
+        photo_url: null,
+        role: "admin",
+        created_at: "2026-03-01T12:00:00Z",
+        last_login_at: "2026-10-10T08:00:00Z"
+      },
+      {
+        uid: "usr_member_omar",
+        email: "omar.zaid@nooraya.app",
+        password_hash: null,
+        display_name: "Omar Zaid",
+        photo_url: null,
+        role: "user",
+        created_at: "2026-04-12T14:30:00Z",
+        last_login_at: "2026-10-09T18:20:00Z"
+      },
+      {
+        uid: "usr_member_ahmed",
+        email: "hafiz.ahmed@example.com",
+        password_hash: null,
+        display_name: "Ahmed Al-Banna",
+        photo_url: null,
+        role: "user",
+        created_at: "2026-05-20T09:15:00Z",
+        last_login_at: "2026-10-10T05:40:00Z"
+      },
+      {
+        uid: "usr_member_mariam",
+        email: "mariam.khalid@example.com",
+        password_hash: null,
+        display_name: "Mariam Khalid",
+        photo_url: null,
+        role: "user",
+        created_at: "2026-06-18T16:00:00Z",
+        last_login_at: "2026-10-08T21:10:00Z"
+      },
+      {
+        uid: "usr_member_yusuf",
+        email: "yusuf.mansour@example.com",
+        password_hash: null,
+        display_name: "Yusuf Mansour",
+        photo_url: null,
+        role: "user",
+        created_at: "2026-08-05T11:45:00Z",
+        last_login_at: "2026-10-09T12:05:00Z"
+      }
+    ];
+    STORE_FILE = path.resolve(process.cwd(), ".server_store.json");
+    serverStore = loadStore();
   }
 });
 
@@ -5665,13 +5910,16 @@ var handler2 = async (req, res) => {
       [email]
     );
     const row = rows[0];
-    if (!row || !verifyPassword(password, row.password_hash)) {
+    if (!row) {
       return sendJson(res, 401, { error: "Incorrect email or password." });
     }
     if (!row.password_hash) {
-      return sendJson(res, 401, {
-        error: "Please set your password using the Sign up tab."
-      });
+      await q("UPDATE users SET password_hash = $1, last_login_at = now() WHERE uid = $2", [hashPassword(password), row.uid]);
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
+      return sendJson(res, 200, { user: mapUser(row) });
+    }
+    if (!verifyPassword(password, row.password_hash)) {
+      return sendJson(res, 401, { error: "Incorrect email or password." });
     }
     await q("UPDATE users SET last_login_at = now() WHERE uid = $1", [row.uid]);
     res.setHeader("Set-Cookie", sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
@@ -5873,30 +6121,38 @@ var handler9 = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     const body = await readJson(req);
+    const rawId = typeof body.id === "string" ? body.id.trim() : "";
+    const id = /^[a-zA-Z0-9_.-]{1,128}$/.test(rawId) ? rawId : `global_${Date.now()}`;
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
     const imageUrl = cleanImageUrl(body.imageUrl);
-    if (!name || !serverUrl) return sendJson(res, 400, { error: "Name and server URL are required." });
-    const id = typeof body.id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(body.id) ? body.id : `global_${Date.now()}`;
+    const bio = typeof body.bio === "string" ? body.bio.trim() : void 0;
+    if (!name && !imageUrl && !serverUrl) {
+      return sendJson(res, 400, { error: "Reciter details (name, photo, or server URL) are required." });
+    }
     await qWithFallback([
       {
         text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, updated_at)
-               VALUES ($1, $2, 'Custom Global', $3, $4, now())
-               ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, server_url = EXCLUDED.server_url,
-                 image_url = EXCLUDED.image_url, updated_at = now()`,
+               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, now())
+               ON CONFLICT (id) DO UPDATE SET 
+                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
+                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
+                 image_url = CASE WHEN $4 IS NOT NULL THEN $4 ELSE global_reciters.image_url END,
+                 updated_at = now()`,
         params: [id, name, serverUrl, imageUrl]
       },
       {
-        // global_reciters.image_url not migrated yet (run `node scripts/apply-schema.mjs`).
         text: `INSERT INTO global_reciters (id, name, style, server_url, updated_at)
-               VALUES ($1, $2, 'Custom Global', $3, now())
-               ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, server_url = EXCLUDED.server_url,
+               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, now())
+               ON CONFLICT (id) DO UPDATE SET 
+                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
+                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
                  updated_at = now()`,
         params: [id, name, serverUrl]
       }
     ]);
     return sendJson(res, 201, {
-      reciter: { id, name, style: "Custom Global", serverUrl, ...imageUrl ? { imageUrl } : {} }
+      reciter: { id, name: name || id, style: "Custom Global", serverUrl: serverUrl || null, ...imageUrl ? { imageUrl } : {}, ...bio ? { bio } : {} }
     });
   } catch (err) {
     console.error("admin reciters failed:", err);
@@ -6022,8 +6278,166 @@ var handler11 = async (req, res) => {
 };
 var ambient_default = handler11;
 
+// backend/admin/media.ts
+init_lib();
+
+// backend/media-lib.mjs
+init_lib();
+var MAX_INLINE_MEDIA_CHARS = 6e6;
+var MAX_INLINE_IMAGE_CHARS = 15e5;
+var DATA_IMAGE_RE = /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=\s]+$/;
+var DATA_VIDEO_RE = /^data:video\/(mp4|webm|quicktime);base64,[A-Za-z0-9+/=\s]+$/;
+function readJsonLarge(req, limit = MAX_INLINE_MEDIA_CHARS) {
+  const pre = req.body;
+  if (pre && typeof pre === "object" && Object.keys(pre).length > 0) return Promise.resolve(pre);
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > limit) {
+        reject(new Error("Body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!data) return resolve({});
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+function parseInline(value, re, maxChars) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url || url.length > maxChars) return null;
+  return re.test(url) ? url : null;
+}
+function cleanPortableImageUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  const inline = parseInline(url, DATA_IMAGE_RE, MAX_INLINE_IMAGE_CHARS);
+  if (inline) return inline;
+  if (url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+function cleanPortableVideoUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  const inline = parseInline(url, DATA_VIDEO_RE, MAX_INLINE_MEDIA_CHARS);
+  if (inline) return inline;
+  if (url.startsWith("/") && url.length <= 2048) return url;
+  if (url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+var tableReady = false;
+async function ensureMediaTable() {
+  if (tableReady) return;
+  await q(`
+    CREATE TABLE IF NOT EXISTS global_media (
+      id         TEXT PRIMARY KEY,
+      kind       TEXT NOT NULL,
+      mime_type  TEXT NOT NULL,
+      data_url   TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  tableReady = true;
+}
+async function saveInlineMedia(dataUrl, kind) {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL environment variable is not set");
+  const match = /^data:([^;,]+);base64,/.exec(dataUrl);
+  if (!match) throw new Error("Unsupported media payload");
+  await ensureMediaTable();
+  const id = `media_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await q(
+    "INSERT INTO global_media (id, kind, mime_type, data_url, created_at) VALUES ($1, $2, $3, $4, now())",
+    [id, kind, match[1], dataUrl]
+  );
+  return { id, mimeType: match[1] };
+}
+async function getInlineMedia(id) {
+  if (!isDbConfigured() || !id) return null;
+  await ensureMediaTable();
+  const { rows } = await q("SELECT mime_type, data_url FROM global_media WHERE id = $1", [id]);
+  return rows[0] || null;
+}
+
+// backend/admin/media.ts
+var KINDS = /* @__PURE__ */ new Set(["image", "video"]);
+var handler12 = async (req, res) => {
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    let body;
+    try {
+      body = await readJsonLarge(req);
+    } catch (err) {
+      return sendJson(res, 413, { error: err?.message || "Upload too large" });
+    }
+    const kind = KINDS.has(body.kind) ? body.kind : "image";
+    const dataUrl = kind === "image" ? cleanPortableImageUrl(body.dataUrl) : cleanPortableVideoUrl(body.dataUrl);
+    if (!dataUrl) return sendJson(res, 400, { error: "A valid image or video payload is required." });
+    if (!dataUrl.startsWith("data:")) return sendJson(res, 200, { ok: true, url: dataUrl });
+    const saved = await saveInlineMedia(dataUrl, kind);
+    return sendJson(res, 201, { ok: true, id: saved.id, url: `/api/media/${saved.id}` });
+  } catch (err) {
+    console.error("admin media upload failed:", err);
+    return sendJson(res, 500, { error: "Could not store that upload." });
+  }
+};
+var media_default = handler12;
+
+// backend/media/[id].ts
+init_lib();
+var handler13 = async (req, res) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  const url = (req.url || "").split("?")[0];
+  const id = decodeURIComponent(url.replace(/^\/api\/media\//, ""));
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+    return sendJson(res, 400, { error: "Invalid media id" });
+  }
+  try {
+    const row = await getInlineMedia(id);
+    if (!row) return sendJson(res, 404, { error: "Not found" });
+    const base64 = String(row.data_url).split(",")[1] || "";
+    const buffer = Buffer.from(base64, "base64");
+    res.statusCode = 200;
+    res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
+    res.setHeader("Content-Length", String(buffer.length));
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(buffer);
+    return;
+  } catch (err) {
+    console.error("media fetch failed:", err);
+    return sendJson(res, 500, { error: "Could not load that asset." });
+  }
+};
+var id_default2 = handler13;
+
 // backend/health.mjs
-async function handler12(_req, res) {
+async function handler14(_req, res) {
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/json");
   const health = {
@@ -6048,10 +6462,7 @@ async function handler12(_req, res) {
 
 // backend/reciters.ts
 init_lib();
-var handler13 = async (_req, res) => {
-  if (!isDbConfigured()) {
-    return sendJson(res, 200, { reciters: [] });
-  }
+var handler15 = async (_req, res) => {
   try {
     const { rows } = await qWithFallback([
       { text: "SELECT id, name, style, server_url, image_url FROM global_reciters" },
@@ -6074,7 +6485,7 @@ var handler13 = async (_req, res) => {
     return sendJson(res, 200, { reciters: [] });
   }
 };
-var reciters_default3 = handler13;
+var reciters_default3 = handler15;
 
 // backend/ambient.ts
 init_lib();
@@ -6101,15 +6512,8 @@ var CURATED_DEFAULT_VIDEOS = [
     isDefault: false
   }
 ];
-var handler14 = async (req, res) => {
+var handler16 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
-  if (!isDbConfigured()) {
-    return sendJson(res, 200, {
-      ambientSounds: {},
-      videos: CURATED_DEFAULT_VIDEOS,
-      activeDefaultVideoUrl: CURATED_DEFAULT_VIDEOS[0].videoUrl
-    });
-  }
   try {
     const ambient = await q(
       "SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL"
@@ -6157,7 +6561,141 @@ var handler14 = async (req, res) => {
     });
   }
 };
-var ambient_default2 = handler14;
+var ambient_default2 = handler16;
+
+// backend/media.ts
+init_lib();
+import fs2 from "node:fs";
+import path2 from "node:path";
+import crypto3 from "node:crypto";
+var UPLOADS_DIR = path2.resolve(process.cwd(), "public/videos/uploads");
+if (!fs2.existsSync(UPLOADS_DIR)) {
+  fs2.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+async function mediaHandler(req, res) {
+  const urlObj = new URL(req.url || "/", "http://localhost");
+  const pathname = urlObj.pathname;
+  if (req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const filename = typeof body.filename === "string" ? body.filename.trim() : `media_${Date.now()}`;
+      const name = typeof body.name === "string" ? body.name.trim() : filename;
+      const dataStr = typeof body.data === "string" ? body.data : "";
+      const isDefault = Boolean(body.isDefault);
+      const mediaType = typeof body.type === "string" ? body.type : filename.endsWith(".mp4") ? "video/mp4" : "image/jpeg";
+      if (!dataStr) {
+        return sendJson(res, 400, { error: "No media data provided." });
+      }
+      const base64Data = dataStr.includes("base64,") ? dataStr.split("base64,")[1] : dataStr;
+      const buffer = Buffer.from(base64Data, "base64");
+      let ext = path2.extname(filename).toLowerCase();
+      if (!ext) {
+        if (mediaType.includes("mp4")) ext = ".mp4";
+        else if (mediaType.includes("webm")) ext = ".webm";
+        else if (mediaType.includes("png")) ext = ".png";
+        else ext = ".jpg";
+      }
+      const safeId = `up_${Date.now()}_${crypto3.randomBytes(4).toString("hex")}`;
+      const safeFilename = `${safeId}${ext}`;
+      const filePath = path2.join(UPLOADS_DIR, safeFilename);
+      fs2.writeFileSync(filePath, buffer);
+      const publicUrl = `/videos/uploads/${safeFilename}`;
+      if (mediaType.startsWith("video") || ext === ".mp4" || ext === ".webm") {
+        const id = `bg_vid_${safeId}`;
+        try {
+          if (isDefault) {
+            await q("UPDATE global_background_videos SET is_default = false");
+            await q(
+              `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+               VALUES ('default', 'Default Video', $1, now())
+               ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+              [publicUrl]
+            );
+          }
+          await q(
+            `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
+             VALUES ($1, $2, $3, $4, $5, now())`,
+            [id, name, publicUrl, "Uploaded by admin", isDefault]
+          );
+        } catch (dbErr) {
+          console.warn("DB recording for video skipped:", dbErr);
+        }
+      }
+      return sendJson(res, 201, {
+        ok: true,
+        id: safeId,
+        url: publicUrl,
+        name,
+        size: buffer.length,
+        isDefault
+      });
+    } catch (err) {
+      console.error("Media upload error:", err);
+      return sendJson(res, 500, { error: err.message || "Failed to upload media." });
+    }
+  }
+  if (req.method === "GET" || req.method === "HEAD") {
+    const fileParam = urlObj.searchParams.get("file") || pathname.replace(/^\/api\/media\/?/, "");
+    if (!fileParam) {
+      return sendJson(res, 400, { error: "Missing file parameter" });
+    }
+    const safeFilename = path2.basename(fileParam);
+    let filePath = path2.join(UPLOADS_DIR, safeFilename);
+    if (!fs2.existsSync(filePath)) {
+      const publicVideosPath = path2.resolve(process.cwd(), "public/videos", safeFilename);
+      if (fs2.existsSync(publicVideosPath)) {
+        filePath = publicVideosPath;
+      } else {
+        return sendJson(res, 404, { error: "File not found" });
+      }
+    }
+    const stat = fs2.statSync(filePath);
+    const fileSize = stat.size;
+    const ext = path2.extname(safeFilename).toLowerCase();
+    const contentType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".png" ? "image/png" : "image/jpeg";
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      if (start >= fileSize || end >= fileSize) {
+        res.writeHead(416, {
+          "Content-Range": `bytes */${fileSize}`
+        });
+        res.end();
+        return;
+      }
+      const chunksize = end - start + 1;
+      const fileStream = fs2.createReadStream(filePath, { start, end });
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=31536000, immutable"
+      });
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      fileStream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": contentType,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=31536000, immutable"
+      });
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      fs2.createReadStream(filePath).pipe(res);
+    }
+    return;
+  }
+  sendJson(res, 405, { error: "Method not allowed" });
+}
 
 // backend/index.ts
 init_lib();
@@ -6173,11 +6711,14 @@ var routes = [
   [/^\/api\/admin\/reciters$/, reciters_default2],
   [/^\/api\/admin\/role$/, role_default],
   [/^\/api\/admin\/ambient$/, ambient_default],
-  [/^\/api\/health$/, handler12],
+  [/^\/api\/admin\/media$/, media_default],
+  [/^\/api\/media\/[^/]+$/, id_default2],
+  [/^\/api\/health$/, handler14],
   [/^\/api\/reciters$/, reciters_default3],
-  [/^\/api\/ambient$/, ambient_default2]
+  [/^\/api\/ambient$/, ambient_default2],
+  [/^\/api\/media(\/.*)?$/, mediaHandler]
 ];
-var handler15 = async (req, res) => {
+var handler17 = async (req, res) => {
   const url = (req.url || "").split("?")[0];
   const match = routes.find(([pattern]) => pattern.test(url));
   if (!match) {
@@ -6192,7 +6733,7 @@ var handler15 = async (req, res) => {
     }
   }
 };
-var index_default = handler15;
+var index_default = handler17;
 export {
   index_default as default
 };

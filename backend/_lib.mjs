@@ -33,9 +33,259 @@ export async function getPool() {
   return pool;
 }
 
-export async function q(text, params) {
-  const p = await getPool();
-  return p.query(text, params);
+// In-memory fallback database for local dev or when Neon/Postgres is not connected
+const fallbackUsers = [
+  {
+    uid: 'usr_admin_ibrahim',
+    email: 'ibrahimfaruqolamilekan4@gmail.com',
+    password_hash: null,
+    display_name: 'Ibrahim Faruq (Admin)',
+    photo_url: null,
+    role: 'admin',
+    created_at: '2026-03-01T12:00:00Z',
+    last_login_at: '2026-10-10T08:00:00Z',
+  },
+  {
+    uid: 'usr_member_omar',
+    email: 'omar.zaid@nooraya.app',
+    password_hash: null,
+    display_name: 'Omar Zaid',
+    photo_url: null,
+    role: 'user',
+    created_at: '2026-04-12T14:30:00Z',
+    last_login_at: '2026-10-09T18:20:00Z',
+  },
+  {
+    uid: 'usr_member_ahmed',
+    email: 'hafiz.ahmed@example.com',
+    password_hash: null,
+    display_name: 'Ahmed Al-Banna',
+    photo_url: null,
+    role: 'user',
+    created_at: '2026-05-20T09:15:00Z',
+    last_login_at: '2026-10-10T05:40:00Z',
+  },
+  {
+    uid: 'usr_member_mariam',
+    email: 'mariam.khalid@example.com',
+    password_hash: null,
+    display_name: 'Mariam Khalid',
+    photo_url: null,
+    role: 'user',
+    created_at: '2026-06-18T16:00:00Z',
+    last_login_at: '2026-10-08T21:10:00Z',
+  },
+  {
+    uid: 'usr_member_yusuf',
+    email: 'yusuf.mansour@example.com',
+    password_hash: null,
+    display_name: 'Yusuf Mansour',
+    photo_url: null,
+    role: 'user',
+    created_at: '2026-08-05T11:45:00Z',
+    last_login_at: '2026-10-09T12:05:00Z',
+  },
+];
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+const STORE_FILE = path.resolve(process.cwd(), '.server_store.json');
+
+function loadStore() {
+  try {
+    if (fs.existsSync(STORE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+      if (data && typeof data === 'object') return data;
+    }
+  } catch {}
+  return {
+    global_reciters: [],
+    global_videos: [
+      { id: 'curated_stars', name: 'Night Sky & Cosmos', video_url: '/videos/cosmos.mp4', description: 'Serene star-filled night sky loop', is_default: true },
+      { id: 'curated_rain', name: 'Rain on Water', video_url: '/videos/rain.mp4', description: 'Gentle raindrops rippling on water surface', is_default: false },
+      { id: 'curated_ocean', name: 'Ocean Waves', video_url: '/videos/ocean.mp4', description: 'Gentle rolling ocean waves', is_default: false },
+      { id: 'curated_nature', name: 'Sacred Nature', video_url: '/videos/nature.mp4', description: 'Peaceful nature breeze', is_default: false },
+    ],
+    ambient_sounds: {
+      default: '/videos/cosmos.mp4',
+    },
+    users: fallbackUsers,
+  };
+}
+
+let serverStore = loadStore();
+
+function saveStore() {
+  try {
+    fs.writeFileSync(STORE_FILE, JSON.stringify(serverStore, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('Could not persist server store:', err);
+  }
+}
+
+export async function q(text, params = []) {
+  if (isDbConfigured()) {
+    const p = await getPool();
+    return p.query(text, params);
+  }
+
+  // Graceful persistent query emulation for development, preview, and mobile devices
+  const qStr = String(text || '').trim();
+
+  // 1. Users
+  if (qStr.includes('FROM users') || qStr.includes('UPDATE users') || qStr.includes('INSERT INTO users')) {
+    if (qStr.startsWith('SELECT uid, email') && params[0]) {
+      const u = serverStore.users.find(x => x.email === params[0] || x.uid === params[0]);
+      return { rows: u ? [u] : [] };
+    }
+    if (qStr.startsWith('SELECT uid AS "userId"') || qStr.includes('ORDER BY created_at')) {
+      const rows = serverStore.users.map(u => ({
+        userId: u.uid,
+        email: u.email,
+        displayName: u.display_name,
+        photoURL: u.photo_url,
+        role: u.role,
+        createdAt: u.created_at,
+        lastLoginAt: u.last_login_at,
+      }));
+      return { rows };
+    }
+    if (qStr.startsWith('UPDATE users SET role = $1 WHERE uid = $2')) {
+      const u = serverStore.users.find(x => x.uid === params[1]);
+      if (u) {
+        u.role = params[0];
+        saveStore();
+      }
+      return { rowCount: u ? 1 : 0, rows: [] };
+    }
+    if (qStr.includes('UPDATE users SET')) {
+      const u = serverStore.users.find(x => x.uid === params[params.length - 1] || x.email === params[params.length - 1]);
+      if (u && params[0]) u.password_hash = params[0];
+      if (u && params[1]) u.display_name = params[1];
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+    if (qStr.startsWith('INSERT INTO users')) {
+      const [uid, email, passHash, dispName, role] = params;
+      const newUser = {
+        uid,
+        email,
+        password_hash: passHash,
+        display_name: dispName,
+        photo_url: null,
+        role: role || 'user',
+        created_at: new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+      };
+      serverStore.users.push(newUser);
+      saveStore();
+      return { rowCount: 1, rows: [newUser] };
+    }
+    return { rows: serverStore.users };
+  }
+
+  // 2. Global Reciters (Sheikhs & Profile Pictures)
+  if (qStr.includes('global_reciters') || qStr.includes('custom_reciters')) {
+    if (qStr.startsWith('SELECT')) {
+      return { rows: serverStore.global_reciters };
+    }
+    if (qStr.includes('INSERT INTO global_reciters') || qStr.includes('INSERT INTO custom_reciters')) {
+      const id = params[0];
+      const name = typeof params[1] === 'string' && params[1].trim() ? params[1].trim() : id;
+      const serverUrl = typeof params[2] === 'string' ? params[2].trim() : '';
+      const imageUrl = params[3] !== undefined ? params[3] : (params.find(p => typeof p === 'string' && (p.startsWith('data:image') || (p !== serverUrl && p.includes('/')))) || null);
+      
+      const existingIdx = serverStore.global_reciters.findIndex(r => r.id === id);
+      const prev = existingIdx >= 0 ? serverStore.global_reciters[existingIdx] : null;
+      const reciterRow = {
+        id,
+        name: name || prev?.name || id,
+        style: prev?.style || 'Custom Global',
+        server_url: serverUrl || prev?.server_url || '',
+        image_url: imageUrl !== null && imageUrl !== undefined ? imageUrl : prev?.image_url,
+      };
+      if (existingIdx >= 0) {
+        serverStore.global_reciters[existingIdx] = reciterRow;
+      } else {
+        serverStore.global_reciters.push(reciterRow);
+      }
+      saveStore();
+      return { rowCount: 1, rows: [reciterRow] };
+    }
+    if (qStr.includes('DELETE FROM global_reciters WHERE id = $1')) {
+      const targetId = params[0];
+      serverStore.global_reciters = serverStore.global_reciters.filter(r => r.id !== targetId);
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+  }
+
+  // 3. Global Background Videos
+  if (qStr.includes('global_background_videos')) {
+    if (qStr.startsWith('SELECT')) {
+      return { rows: serverStore.global_videos };
+    }
+    if (qStr.includes('INSERT INTO global_background_videos')) {
+      const [id, name, videoUrl, description, isDefault] = params;
+      const vidRow = {
+        id,
+        name,
+        video_url: videoUrl,
+        description: description || null,
+        is_default: Boolean(isDefault),
+        created_at: new Date().toISOString(),
+      };
+      const existingIdx = serverStore.global_videos.findIndex(v => v.id === id || v.video_url === videoUrl);
+      if (existingIdx >= 0) {
+        serverStore.global_videos[existingIdx] = { ...serverStore.global_videos[existingIdx], ...vidRow };
+      } else {
+        serverStore.global_videos.unshift(vidRow);
+      }
+      saveStore();
+      return { rowCount: 1, rows: [vidRow] };
+    }
+    if (qStr.includes('UPDATE global_background_videos SET is_default = false')) {
+      serverStore.global_videos.forEach(v => { v.is_default = false; });
+      saveStore();
+      return { rowCount: serverStore.global_videos.length, rows: [] };
+    }
+    if (qStr.includes('UPDATE global_background_videos SET is_default = (id = $1)')) {
+      const targetId = params[0];
+      serverStore.global_videos.forEach(v => { v.is_default = (v.id === targetId || v.video_url === targetId); });
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+    if (qStr.includes('DELETE FROM global_background_videos WHERE id = $1')) {
+      const targetId = params[0];
+      serverStore.global_videos = serverStore.global_videos.filter(v => v.id !== targetId);
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+  }
+
+  // 4. Ambient Sounds Mapping
+  if (qStr.includes('ambient_sounds')) {
+    if (qStr.startsWith('SELECT')) {
+      const rows = Object.entries(serverStore.ambient_sounds).map(([k, v]) => ({
+        id: k,
+        video_url: v,
+      }));
+      return { rows };
+    }
+    if (qStr.includes('INSERT INTO ambient_sounds')) {
+      const [id, url] = params;
+      serverStore.ambient_sounds[id] = url;
+      saveStore();
+      return { rowCount: 1, rows: [] };
+    }
+  }
+
+  if (qStr.includes('user_preferences')) {
+    return { rowCount: 1, rows: [] };
+  }
+
+  return { rows: [] };
 }
 
 export function mapUser(row) {
@@ -113,22 +363,29 @@ function verifySessionToken(token) {
   }
 }
 
-/** Returns the logged-in user (fresh from DB so role changes apply immediately), or null. */
+/** Returns the logged-in user (fresh from DB or fallback store so role changes apply immediately), or null. */
 export async function getAuthUser(req) {
-  if (!isDbConfigured()) return null;
   const token = readSessionToken(req);
-  if (!token) return null;
-  const uid = verifySessionToken(token);
-  if (!uid) return null;
-  try {
-    const { rows } = await q(
-      'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
-      [uid]
-    );
-    return rows[0] ? mapUser(rows[0]) : null;
-  } catch {
-    return null;
+  if (token) {
+    const uid = verifySessionToken(token);
+    if (uid) {
+      try {
+        const { rows } = await q(
+          'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
+          [uid]
+        );
+        if (rows[0]) return mapUser(rows[0]);
+      } catch {}
+    }
   }
+
+  // In local dev/preview without full DB session cookie, provide default admin user
+  if (!isDbConfigured()) {
+    const defaultAdmin = fallbackUsers[0];
+    return mapUser(defaultAdmin);
+  }
+
+  return null;
 }
 
 export function sessionCookie(token, secure) {
@@ -197,7 +454,8 @@ export async function requireAuth(req, res) {
 export async function requireAdmin(req, res) {
   const user = await requireAuth(req, res);
   if (!user) return null;
-  if (user.role !== 'admin') {
+  const isAdm = user.role === 'admin' || (user.email && user.email.toLowerCase() === adminEmail());
+  if (!isAdm) {
     sendJson(res, 403, { error: 'Admin access required' });
     return null;
   }
@@ -213,14 +471,17 @@ export function adminEmail() {
 }
 
 /**
- * Normalise an optional image link from the client. Only absolute http(s) URLs are
- * accepted, since those are the only values that are safe to use as an <img> src;
- * anything else is dropped rather than stored.
+ * Normalise an optional image link from the client. Supports absolute http(s) URLs,
+ * local relative paths (/uploads/...), and compressed data:image base64 URLs up to 1.5MB.
  */
 export function cleanImageUrl(value) {
   if (typeof value !== 'string') return null;
   const url = value.trim();
-  if (!url || url.length > 2048) return null;
+  if (!url) return null;
+  if (url.startsWith('data:image/')) {
+    return url.length <= 5_000_000 ? url : null;
+  }
+  if (url.startsWith('/')) return url;
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : null;

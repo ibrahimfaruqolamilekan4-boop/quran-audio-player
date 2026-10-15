@@ -18,9 +18,12 @@ import adminOverview from './backend/admin/overview';
 import adminReciters from './backend/admin/reciters';
 import adminRole from './backend/admin/role';
 import adminAmbient from './backend/admin/ambient';
+import adminMedia from './backend/admin/media';
+import publicMedia from './backend/media/[id]';
 import health from './backend/health.mjs';
 import publicReciters from './backend/reciters';
 import publicAmbient from './backend/ambient';
+import media from './backend/media';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -72,9 +75,12 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/reciters$/, adminReciters],
   [/^\/api\/admin\/role$/, adminRole],
   [/^\/api\/admin\/ambient$/, adminAmbient],
+  [/^\/api\/admin\/media$/, adminMedia],
+  [/^\/api\/media\/[^/]+$/, publicMedia],
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/media(\/.*)?$/, media],
 ];
 
 /** Serves the /api serverless functions inside `vite dev` so one command runs the whole app. */

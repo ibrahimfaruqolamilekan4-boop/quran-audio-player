@@ -28,9 +28,12 @@ const handler: Handler = async (req, res) => {
     res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
     res.setHeader('Content-Length', String(buffer.length));
     // Uploaded assets are immutable, so they can cache hard.
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    if (req.method === 'HEAD') return res.end();
-    return res.end(buffer);
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    res.end(buffer);
+    return;
   } catch (err: any) {
     console.error('media fetch failed:', err);
     return sendJson(res, 500, { error: 'Could not load that asset.' });

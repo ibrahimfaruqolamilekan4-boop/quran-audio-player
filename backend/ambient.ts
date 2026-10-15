@@ -27,13 +27,6 @@ const CURATED_DEFAULT_VIDEOS = [
 
 const handler: Handler = async (req, res) => {
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
-  if (!isDbConfigured()) {
-    return sendJson(res, 200, {
-      ambientSounds: {},
-      videos: CURATED_DEFAULT_VIDEOS,
-      activeDefaultVideoUrl: CURATED_DEFAULT_VIDEOS[0].videoUrl,
-    });
-  }
   try {
     const ambient = await q<{ id: string; video_url: string | null }>(
       'SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL'

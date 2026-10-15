@@ -26,6 +26,13 @@ import {
   ShieldCheck,
   User as UserIcon,
   Sparkles,
+  Users,
+  Shield,
+  UserCheck,
+  ExternalLink,
+  Mail,
+  Calendar,
+  ShieldAlert,
 } from 'lucide-react';
 import { ReciterAvatar } from '../components/ReciterAvatar';
 import { resizeImageToDataUrl } from '../lib/upload';
@@ -119,6 +126,76 @@ export function SettingsView() {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  // ============================================================
+  // ADMIN USER & COMMUNITY MANAGEMENT
+  // ============================================================
+  const [adminUsers, setAdminUsers] = useState<Array<{
+    userId: string;
+    email: string;
+    displayName: string | null;
+    photoURL: string | null;
+    role: 'user' | 'admin';
+    createdAt: string;
+    lastLoginAt: string;
+  }>>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+
+  const fetchAdminUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const data = await appApi<{ users: Array<any> }>('/admin/overview');
+      if (Array.isArray(data?.users)) {
+        setAdminUsers(data.users);
+      }
+    } catch (err: any) {
+      console.warn('Could not load admin users:', err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchAdminUsers();
+    }
+  }, [isAdmin]);
+
+  const handleUpdateRole = async (targetUser: { userId: string; email: string; displayName: string | null }, newRole: 'user' | 'admin') => {
+    if (targetUser.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com' && newRole === 'user') {
+      showToast('Master admin account cannot be demoted.', 'error');
+      return;
+    }
+    setUpdatingUserId(targetUser.userId);
+    try {
+      await appApi('/admin/role', {
+        method: 'PUT',
+        body: { userId: targetUser.userId, role: newRole }
+      });
+      setAdminUsers(prev => prev.map(u => u.userId === targetUser.userId ? { ...u, role: newRole } : u));
+      showToast(`Updated ${targetUser.displayName || targetUser.email} role to ${newRole.toUpperCase()}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update user role.', 'error');
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  const filteredAdminUsers = useMemo(() => {
+    return adminUsers.filter(u => {
+      const q = userSearchQuery.toLowerCase();
+      const matchesSearch =
+        u.email.toLowerCase().includes(q) ||
+        (u.displayName && u.displayName.toLowerCase().includes(q)) ||
+        u.userId.toLowerCase().includes(q);
+      const matchesRole =
+        userRoleFilter === 'all' || u.role === userRoleFilter;
+      return matchesSearch && matchesRole;
+    });
+  }, [adminUsers, userSearchQuery, userRoleFilter]);
 
   // Complete 114 surahs list (uses player chapters or robust static fallback)
   const surahsList = useMemo(() => {
@@ -222,10 +299,9 @@ export function SettingsView() {
         return;
       }
 
-      // Update override in PlayerContext + localforage
+      // 1. Instant local visual update
       updateReciterOverride(reciterId, { imageUrl: dataUrl });
 
-      // If it is a custom reciter, also update customReciters list
       const reciter = allReciters.find(r => r.id === reciterId);
       if (reciter && customReciters.some(c => c.id === reciterId)) {
         const updated = customReciters.map(c =>
@@ -235,7 +311,42 @@ export function SettingsView() {
         await localforage.setItem('customReciters', updated);
       }
 
-      showToast(`Profile picture for ${reciter?.name || 'sheikh'} updated from phone!`, 'success');
+      // 2. Global server sync — persist to backend so phone, tablet, and all users get this portrait!
+      let permanentUrl = dataUrl;
+      try {
+        const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
+          method: 'POST',
+          body: {
+            data: dataUrl,
+            filename: `sheikh_${reciterId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
+            name: reciter?.name || reciterId,
+            type: 'image/jpeg',
+          },
+        });
+        if (mediaRes?.url) {
+          permanentUrl = mediaRes.url;
+          updateReciterOverride(reciterId, { imageUrl: permanentUrl });
+        }
+      } catch (mediaErr) {
+        // Fall back to dataUrl
+      }
+
+      try {
+        await appApi('/admin/reciters', {
+          method: 'POST',
+          body: {
+            id: reciterId,
+            name: reciter?.name || reciterId,
+            serverUrl: reciter?.serverUrl || '',
+            imageUrl: permanentUrl,
+            bio: reciter?.bio,
+          },
+        });
+      } catch (adminErr) {
+        console.warn('Could not sync to /admin/reciters:', adminErr);
+      }
+
+      showToast(`Profile picture for ${reciter?.name || 'sheikh'} synced to all devices!`, 'success');
     } catch (err: any) {
       console.error('Error uploading photo:', err);
       showToast('Failed to update picture. Please try again.', 'error');
@@ -256,8 +367,20 @@ export function SettingsView() {
       await localforage.setItem('customReciters', updated);
     }
 
+    try {
+      await appApi('/admin/reciters', {
+        method: 'POST',
+        body: {
+          id: reciterId,
+          name: reciter?.name || reciterId,
+          serverUrl: reciter?.serverUrl || '',
+          bio: trimmed || undefined,
+        },
+      });
+    } catch {}
+
     setEditingBioReciterId(null);
-    showToast(`Biography saved for ${reciter?.name || 'sheikh'}!`, 'success');
+    showToast('Reciter biography saved and synced across all devices.', 'success');
   };
 
   // 3. ADD NEW RECITER (WITH PHONE PHOTO)
@@ -466,25 +589,60 @@ export function SettingsView() {
       setVideoError('The selected file must be a valid video (e.g. mp4, webm).');
       return;
     }
+
     const blob = new Blob([videoFile], { type: videoFile.type });
     const id = 'custom_vid_' + Date.now();
-    const updated = [...customVideos, { id, name: videoFile.name, isDefault: true }];
+    let publicUrl = id;
+
+    // 1. Upload video directly to server media storage so every device (phone, tablet, computer) can stream it
+    try {
+      const reader = new FileReader();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
+        method: 'POST',
+        body: {
+          data: base64Data,
+          filename: videoFile.name,
+          name: videoFile.name.replace(/\.[^/.]+$/, ''),
+          type: videoFile.type,
+          isDefault: true,
+        },
+      });
+
+      if (mediaRes?.url) {
+        publicUrl = mediaRes.url;
+      }
+    } catch (uploadErr) {
+      console.warn('Could not stream to /api/media, using fallback:', uploadErr);
+    }
+
+    const updated = [...customVideos, { id, name: videoFile.name, videoUrl: publicUrl, isDefault: true }];
     setCustomVideos(updated);
     await localforage.setItem('customVideos_list', updated);
     await localforage.setItem('customVideo_blob_' + id, blob);
-    setActiveBackgroundVideoId(id);
+    setActiveBackgroundVideoId(publicUrl);
     setVideoFile(null);
 
-    if (isAdmin) {
-      try {
-        await appApi('/admin/ambient', {
-          method: 'POST',
-          body: { action: 'add_video', name: videoFile.name, videoUrl: id, isDefault: true }
-        });
-      } catch {}
+    // 2. Broadcast to all users / devices via backend ambient service
+    try {
+      await appApi('/admin/ambient', {
+        method: 'POST',
+        body: { action: 'add_video', name: videoFile.name, videoUrl: publicUrl, isDefault: true },
+      });
+      await appApi('/admin/ambient', {
+        method: 'POST',
+        body: { action: 'set_default', videoUrl: publicUrl },
+      });
+    } catch (ambientErr) {
+      console.warn('Could not broadcast ambient video:', ambientErr);
     }
 
-    showToast('Background video uploaded and broadcast to all users!', 'success');
+    showToast('Background video uploaded and broadcast to all phones, tablets, and computers!', 'success');
   };
 
   const handleBroadcastPreset = async (url: string, name: string) => {
@@ -1180,6 +1338,289 @@ export function SettingsView() {
             </div>
           )}
         </AnimatePresence>
+
+        {/* ============================================================ */}
+        {/* ADMIN USER & COMMUNITY MANAGEMENT CONSOLE */}
+        {/* ============================================================ */}
+        {isAdmin && (
+          <section className="bg-[#0D121F]/90 backdrop-blur-xl border border-teal-500/30 rounded-3xl p-6 lg:p-8 shadow-2xl relative overflow-hidden">
+            {/* Ambient gold-teal glow */}
+            <div className="absolute top-0 right-0 w-80 h-80 bg-teal-500/10 blur-[100px] pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-60 h-60 bg-amber-500/10 blur-[90px] pointer-events-none" />
+
+            <div className="relative z-10">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-800/80">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                    <ShieldCheck size={14} />
+                    <span>Admin Operations Hub</span>
+                  </div>
+                  <h2 className="text-2xl font-bold font-serif text-white tracking-wide flex items-center gap-2.5">
+                    <Users className="w-6 h-6 text-teal-400" />
+                    <span>User Management & Community</span>
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Monitor total registered users, govern account permissions, and manage the Nooraya global sanctuary.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={fetchAdminUsers}
+                    disabled={loadingUsers}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} className={loadingUsers ? 'animate-spin' : ''} />
+                    <span>Refresh Users</span>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/admin')}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-lg shadow-teal-500/20 cursor-pointer"
+                  >
+                    <span>Full Admin Studio</span>
+                    <ExternalLink size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Stat Cards Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <div className="bg-[#050811] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Total Users</span>
+                    <div className="w-8 h-8 rounded-xl bg-teal-500/10 text-teal-400 flex items-center justify-center">
+                      <Users size={16} />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-bold font-serif text-white">
+                    {adminUsers.length}
+                  </div>
+                  <span className="text-[11px] text-teal-400/80 mt-1">Community Members</span>
+                </div>
+
+                <div className="bg-[#050811] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Administrators</span>
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                      <Shield size={16} />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-bold font-serif text-amber-300">
+                    {adminUsers.filter(u => u.role === 'admin').length}
+                  </div>
+                  <span className="text-[11px] text-amber-400/80 mt-1">Full System Authority</span>
+                </div>
+
+                <div className="bg-[#050811] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Standard Users</span>
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                      <UserCheck size={16} />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-bold font-serif text-blue-300">
+                    {adminUsers.filter(u => u.role !== 'admin').length}
+                  </div>
+                  <span className="text-[11px] text-blue-400/80 mt-1">Active Worshipers</span>
+                </div>
+
+                <div className="bg-[#050811] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-slate-400 mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider">Atmosphere</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                      <Video size={16} />
+                    </div>
+                  </div>
+                  <div className="text-xl font-bold text-emerald-300 truncate">
+                    {activeBackgroundVideoId ? activeBackgroundVideoId.split('/').pop()?.replace('.mp4', '') : 'Cosmos'}
+                  </div>
+                  <span className="text-[11px] text-emerald-400/80 mt-1">Live Global Broadcast</span>
+                </div>
+              </div>
+
+              {/* Search & Filter Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5">
+                <div className="relative flex-1 max-w-md">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    value={userSearchQuery}
+                    onChange={e => setUserSearchQuery(e.target.value)}
+                    placeholder="Search by name, email, or user ID..."
+                    className="w-full bg-[#050811] border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                  />
+                  {userSearchQuery && (
+                    <button
+                      onClick={() => setUserSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-[#050811] p-1 rounded-2xl border border-slate-800 text-xs self-start">
+                  <button
+                    onClick={() => setUserRoleFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl font-medium transition-all ${
+                      userRoleFilter === 'all'
+                        ? 'bg-teal-500/20 text-teal-300 font-bold border border-teal-500/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    All ({adminUsers.length})
+                  </button>
+                  <button
+                    onClick={() => setUserRoleFilter('admin')}
+                    className={`px-3 py-1.5 rounded-xl font-medium transition-all ${
+                      userRoleFilter === 'admin'
+                        ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Admins ({adminUsers.filter(u => u.role === 'admin').length})
+                  </button>
+                  <button
+                    onClick={() => setUserRoleFilter('user')}
+                    className={`px-3 py-1.5 rounded-xl font-medium transition-all ${
+                      userRoleFilter === 'user'
+                        ? 'bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Users ({adminUsers.filter(u => u.role !== 'admin').length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Users Directory Table */}
+              <div className="overflow-x-auto rounded-2xl border border-slate-800/80 bg-[#050811]/70">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-900/60 text-slate-400 uppercase font-semibold tracking-wider text-[10px] border-b border-slate-800">
+                    <tr>
+                      <th className="py-3.5 px-4">User</th>
+                      <th className="py-3.5 px-4">Email</th>
+                      <th className="py-3.5 px-4">Role</th>
+                      <th className="py-3.5 px-4 hidden md:table-cell">Registered</th>
+                      <th className="py-3.5 px-4 hidden lg:table-cell">Last Active</th>
+                      <th className="py-3.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {loadingUsers ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-400">
+                          <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-teal-400" />
+                          <span>Loading community directory...</span>
+                        </td>
+                      </tr>
+                    ) : filteredAdminUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-400">
+                          <Users size={28} className="mx-auto mb-2 text-slate-600" />
+                          <span>No users found matching "{userSearchQuery}"</span>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAdminUsers.map(u => {
+                        const isSelf = user?.email && u.email.toLowerCase() === user.email.toLowerCase();
+                        const isMasterAdmin = u.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com';
+                        const isUpdating = updatingUserId === u.userId;
+
+                        return (
+                          <tr key={u.userId} className="hover:bg-white/[0.02] transition-colors">
+                            {/* Avatar & Display Name */}
+                            <td className="py-3.5 px-4 whitespace-nowrap">
+                              <div className="flex items-center gap-3">
+                                {u.photoURL ? (
+                                  <img src={u.photoURL} alt={u.displayName || 'User'} className="w-8 h-8 rounded-xl object-cover border border-slate-700" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500/20 to-emerald-500/20 border border-teal-500/30 flex items-center justify-center text-teal-300 font-bold text-xs uppercase">
+                                    {(u.displayName || u.email)[0]}
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="font-semibold text-white flex items-center gap-1.5">
+                                    <span>{u.displayName || u.email.split('@')[0]}</span>
+                                    {isSelf && (
+                                      <span className="px-1.5 py-0.5 rounded text-[9px] bg-teal-500/20 text-teal-300 border border-teal-500/30">You</span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] font-mono text-slate-500 block truncate max-w-[140px]">{u.userId}</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Email */}
+                            <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px] whitespace-nowrap">
+                              {u.email}
+                            </td>
+
+                            {/* Role Badge */}
+                            <td className="py-3.5 px-4 whitespace-nowrap">
+                              {u.role === 'admin' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                                  <Shield size={11} />
+                                  <span>Admin</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[10px] font-medium uppercase tracking-wider">
+                                  <UserCheck size={11} />
+                                  <span>User</span>
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Registered */}
+                            <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap hidden md:table-cell">
+                              {u.createdAt ? new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+                            </td>
+
+                            {/* Last Active */}
+                            <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap hidden lg:table-cell">
+                              {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+                            </td>
+
+                            {/* Actions: Promote / Demote */}
+                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                              {isMasterAdmin ? (
+                                <span className="text-[10px] text-amber-400/80 font-semibold px-2 py-1">Owner</span>
+                              ) : (
+                                <div className="inline-flex items-center gap-2">
+                                  {u.role === 'admin' ? (
+                                    <button
+                                      onClick={() => handleUpdateRole(u, 'user')}
+                                      disabled={isUpdating}
+                                      className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-red-500/20 hover:text-red-300 border border-slate-700 text-slate-300 text-[11px] font-medium transition-all disabled:opacity-50 cursor-pointer"
+                                      title="Demote to standard user"
+                                    >
+                                      {isUpdating ? 'Updating...' : 'Set as User'}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleUpdateRole(u, 'admin')}
+                                      disabled={isUpdating}
+                                      className="px-3 py-1 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/30 text-teal-300 text-[11px] font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                                      title="Grant admin permissions"
+                                    >
+                                      {isUpdating ? 'Updating...' : 'Promote to Admin'}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* ============================================================ */}
         {/* CUSTOM BACKGROUND VIDEOS SECTION */}

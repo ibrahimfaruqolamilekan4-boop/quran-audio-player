@@ -13,9 +13,6 @@ interface GlobalRow {
 }
 
 const handler: Handler = async (_req, res) => {
-  if (!isDbConfigured()) {
-    return sendJson(res, 200, { reciters: [] });
-  }
 
   try {
     const { rows } = await qWithFallback<GlobalRow>([
