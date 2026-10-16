@@ -45,7 +45,7 @@ for (const outfile of TARGETS) {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node24',
+    target: 'node20',
     external: [],
     banner: { js: BANNER },
     logLevel: 'warning',
