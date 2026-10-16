@@ -38,9 +38,21 @@ export async function appApi<T>(path: string, options: { method?: string; body?:
     headers: options.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
+  let data: any = {};
+  try {
+    data = await res.json();
+  } catch {
+    const text = await res.text().catch(() => '');
+    if (text && text.length < 120 && !text.includes('<html')) {
+      data = { error: text };
+    }
+  }
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error || `Request failed (${res.status})`);
+    const errorMsg = (data as { error?: string }).error;
+    if (errorMsg) throw new Error(errorMsg);
+    if (res.status === 405) throw new Error('Request method not allowed (405). Please refresh and try again.');
+    if (res.status === 500) throw new Error('Server temporarily unavailable (500). Please try again.');
+    throw new Error(`Request failed (${res.status})`);
   }
   return data as T;
 }

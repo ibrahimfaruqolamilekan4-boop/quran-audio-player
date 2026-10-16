@@ -28,7 +28,16 @@ export async function getPool() {
     if (!connectionString) throw new Error('DATABASE_URL environment variable is not set');
     const mod = await import('pg');
     const PG = mod.default ?? mod;
-    pool = new PG.Pool({ connectionString, max: 3 });
+    const needsSsl = connectionString.includes('neon.tech') || connectionString.includes('sslmode=require') || connectionString.includes('supabase') || connectionString.includes('ssl=true');
+    pool = new PG.Pool({
+      connectionString,
+      max: 3,
+      ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+      connectionTimeoutMillis: 5000,
+    });
+    pool.on('error', (err) => {
+      console.warn('[db] Unexpected pool error on idle client:', err?.message || err);
+    });
   }
   return pool;
 }
@@ -90,7 +99,7 @@ const fallbackUsers = [
 import fs from 'node:fs';
 import path from 'node:path';
 
-const STORE_FILE = path.resolve(process.cwd(), '.server_store.json');
+const STORE_FILE = process.env.VERCEL ? '/tmp/.server_store.json' : path.resolve(process.cwd(), '.server_store.json');
 
 function loadStore() {
   try {
@@ -120,14 +129,73 @@ function saveStore() {
   try {
     fs.writeFileSync(STORE_FILE, JSON.stringify(serverStore, null, 2), 'utf8');
   } catch (err) {
-    console.warn('Could not persist server store:', err);
+    // Graceful no-op on read-only environments
+  }
+}
+
+let dbInitialized = false;
+async function ensureDbInitialized(p) {
+  if (dbInitialized) return;
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        uid           TEXT PRIMARY KEY,
+        email         TEXT UNIQUE NOT NULL,
+        password_hash TEXT,
+        display_name  TEXT,
+        photo_url     TEXT,
+        role          TEXT NOT NULL DEFAULT 'user',
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_login_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS global_reciters (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        style      TEXT,
+        server_url TEXT,
+        image_url  TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS global_background_videos (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        video_url   TEXT NOT NULL,
+        description TEXT,
+        is_default  BOOLEAN NOT NULL DEFAULT false,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS ambient_sounds (
+        id         TEXT PRIMARY KEY,
+        name       TEXT,
+        video_url  TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS global_media (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        mime_type  TEXT NOT NULL,
+        data_url   TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      INSERT INTO users (uid, email, display_name, role)
+      VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
+      ON CONFLICT (email) DO NOTHING;
+    `);
+    dbInitialized = true;
+  } catch (err) {
+    console.warn('[db] Auto-schema initialization notice:', err?.message || err);
   }
 }
 
 export async function q(text, params = []) {
   if (isDbConfigured()) {
-    const p = await getPool();
-    return p.query(text, params);
+    try {
+      const p = await getPool();
+      await ensureDbInitialized(p);
+      return await p.query(text, params);
+    } catch (dbErr) {
+      console.warn('[db] Query execution failed, using resilient fallback:', dbErr?.message || dbErr);
+    }
   }
 
   // Graceful persistent query emulation for development, preview, and mobile devices
