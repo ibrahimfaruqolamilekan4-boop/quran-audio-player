@@ -1652,15 +1652,15 @@ var require_pg_connection_string = __commonJS({
       if (config.sslnegotiation === "direct" && config.ssl === void 0) {
         config.ssl = true;
       }
-      const fs3 = config.sslcert || config.sslkey || config.sslrootcert ? __require("fs") : null;
+      const fs6 = config.sslcert || config.sslkey || config.sslrootcert ? __require("fs") : null;
       if (config.sslcert) {
-        config.ssl.cert = fs3.readFileSync(config.sslcert).toString();
+        config.ssl.cert = fs6.readFileSync(config.sslcert).toString();
       }
       if (config.sslkey) {
-        config.ssl.key = fs3.readFileSync(config.sslkey).toString();
+        config.ssl.key = fs6.readFileSync(config.sslkey).toString();
       }
       if (config.sslrootcert) {
-        config.ssl.ca = fs3.readFileSync(config.sslrootcert).toString();
+        config.ssl.ca = fs6.readFileSync(config.sslrootcert).toString();
       }
       if (options.useLibpqCompat && config.uselibpqcompat) {
         throw new Error("Both useLibpqCompat and uselibpqcompat are set. Please use only one of them.");
@@ -3488,7 +3488,7 @@ var require_split2 = __commonJS({
 var require_helper = __commonJS({
   "node_modules/pgpass/lib/helper.js"(exports, module) {
     "use strict";
-    var path3 = __require("path");
+    var path6 = __require("path");
     var Stream = __require("stream").Stream;
     var split = require_split2();
     var util = __require("util");
@@ -3527,7 +3527,7 @@ var require_helper = __commonJS({
     };
     module.exports.getFileName = function(rawEnv) {
       var env = rawEnv || process.env;
-      var file = env.PGPASSFILE || (isWin ? path3.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path3.join(env.HOME || "./", ".pgpass"));
+      var file = env.PGPASSFILE || (isWin ? path6.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path6.join(env.HOME || "./", ".pgpass"));
       return file;
     };
     module.exports.usePgPass = function(stats, fname) {
@@ -3659,16 +3659,16 @@ var require_helper = __commonJS({
 var require_lib = __commonJS({
   "node_modules/pgpass/lib/index.js"(exports, module) {
     "use strict";
-    var path3 = __require("path");
-    var fs3 = __require("fs");
+    var path6 = __require("path");
+    var fs6 = __require("fs");
     var helper = require_helper();
     module.exports = function(connInfo, cb) {
       var file = helper.getFileName();
-      fs3.stat(file, function(err, stat) {
+      fs6.stat(file, function(err, stat) {
         if (err || !helper.usePgPass(stat, file)) {
           return cb(void 0);
         }
-        var st = fs3.createReadStream(file);
+        var st = fs6.createReadStream(file);
         helper.getPassword(connInfo, st, cb);
       });
     };
@@ -5443,7 +5443,11 @@ function loadStore() {
   try {
     if (fs.existsSync(STORE_FILE)) {
       const data = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
-      if (data && typeof data === "object") return data;
+      if (data && typeof data === "object") {
+        if (!data.global_media) data.global_media = {};
+        if (!data.global_media_chunks) data.global_media_chunks = {};
+        return data;
+      }
     }
   } catch {
   }
@@ -5458,6 +5462,8 @@ function loadStore() {
     ambient_sounds: {
       default: "/videos/cosmos.mp4"
     },
+    global_media: {},
+    global_media_chunks: {},
     users: fallbackUsers
   };
 }
@@ -5482,13 +5488,20 @@ async function ensureDbInitialized(p) {
         last_login_at TIMESTAMPTZ
       );
       CREATE TABLE IF NOT EXISTS global_reciters (
-        id         TEXT PRIMARY KEY,
-        name       TEXT NOT NULL,
-        style      TEXT,
-        server_url TEXT,
-        image_url  TEXT,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        name_arabic TEXT,
+        style       TEXT,
+        category    TEXT,
+        bio         TEXT,
+        server_url  TEXT,
+        image_url   TEXT,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT;
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT;
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT;
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
       CREATE TABLE IF NOT EXISTS global_background_videos (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL,
@@ -5509,6 +5522,13 @@ async function ensureDbInitialized(p) {
         mime_type  TEXT NOT NULL,
         data_url   TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS global_media_chunks (
+        upload_id   TEXT NOT NULL,
+        chunk_index INT NOT NULL,
+        chunk_data  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (upload_id, chunk_index)
       );
       INSERT INTO users (uid, email, display_name, role)
       VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
@@ -5586,17 +5606,39 @@ async function q(text, params = []) {
     }
     if (qStr.includes("INSERT INTO global_reciters") || qStr.includes("INSERT INTO custom_reciters")) {
       const id = params[0];
-      const name = typeof params[1] === "string" && params[1].trim() ? params[1].trim() : id;
-      const serverUrl = typeof params[2] === "string" ? params[2].trim() : "";
-      const imageUrl = params[3] !== void 0 ? params[3] : params.find((p) => typeof p === "string" && (p.startsWith("data:image") || p !== serverUrl && p.includes("/"))) || null;
       const existingIdx = serverStore.global_reciters.findIndex((r) => r.id === id);
       const prev = existingIdx >= 0 ? serverStore.global_reciters[existingIdx] : null;
+      let name = "";
+      let serverUrl = "";
+      let imageUrl = null;
+      let nameArabic = null;
+      let category = null;
+      let bio = null;
+      if (qStr.includes("INSERT INTO custom_reciters")) {
+        name = typeof params[2] === "string" ? params[2].trim() : id;
+        serverUrl = typeof params[4] === "string" ? params[4].trim() : "";
+        imageUrl = params[5] !== void 0 ? params[5] : null;
+      } else if (params.length >= 7) {
+        name = typeof params[1] === "string" ? params[1].trim() : "";
+        serverUrl = typeof params[2] === "string" ? params[2].trim() : "";
+        imageUrl = params[3] !== void 0 ? params[3] : null;
+        nameArabic = params[4] !== void 0 ? params[4] : null;
+        category = params[5] !== void 0 ? params[5] : null;
+        bio = params[6] !== void 0 ? params[6] : null;
+      } else {
+        name = typeof params[1] === "string" ? params[1].trim() : "";
+        serverUrl = typeof params[2] === "string" ? params[2].trim() : "";
+        imageUrl = params[3] !== void 0 ? params[3] : null;
+      }
       const reciterRow = {
         id,
         name: name || prev?.name || id,
+        name_arabic: nameArabic !== null && nameArabic !== void 0 ? nameArabic : prev?.name_arabic || null,
         style: prev?.style || "Custom Global",
+        category: category !== null && category !== void 0 ? category : prev?.category || null,
+        bio: bio !== null && bio !== void 0 ? bio : prev?.bio || null,
         server_url: serverUrl || prev?.server_url || "",
-        image_url: imageUrl !== null && imageUrl !== void 0 ? imageUrl : prev?.image_url
+        image_url: imageUrl !== null && imageUrl !== void 0 ? imageUrl : prev?.image_url || null
       };
       if (existingIdx >= 0) {
         serverStore.global_reciters[existingIdx] = reciterRow;
@@ -5606,7 +5648,7 @@ async function q(text, params = []) {
       saveStore();
       return { rowCount: 1, rows: [reciterRow] };
     }
-    if (qStr.includes("DELETE FROM global_reciters WHERE id = $1")) {
+    if (qStr.includes("DELETE FROM global_reciters") || qStr.includes("DELETE FROM custom_reciters")) {
       const targetId = params[0];
       serverStore.global_reciters = serverStore.global_reciters.filter((r) => r.id !== targetId);
       saveStore();
@@ -5672,6 +5714,48 @@ async function q(text, params = []) {
       saveStore();
       return { rowCount: 1, rows: [] };
     }
+  }
+  if (qStr.includes("global_media_chunks")) {
+    if (!serverStore.global_media_chunks) serverStore.global_media_chunks = {};
+    if (qStr.startsWith("INSERT INTO global_media_chunks")) {
+      const [uploadId, chunkIndex, chunkData] = params;
+      if (!serverStore.global_media_chunks[uploadId]) {
+        serverStore.global_media_chunks[uploadId] = {};
+      }
+      serverStore.global_media_chunks[uploadId][Number(chunkIndex)] = String(chunkData || "");
+      return { rowCount: 1, rows: [] };
+    }
+    if (qStr.startsWith("SELECT") && params[0]) {
+      const uploadId = params[0];
+      const map = serverStore.global_media_chunks[uploadId] || {};
+      const rows = Object.keys(map).map((k) => ({ chunk_index: Number(k), chunk_data: map[k] })).sort((a, b) => a.chunk_index - b.chunk_index);
+      return { rows };
+    }
+    if (qStr.startsWith("DELETE FROM global_media_chunks") && params[0]) {
+      delete serverStore.global_media_chunks[params[0]];
+      return { rowCount: 1, rows: [] };
+    }
+    return { rows: [] };
+  }
+  if (qStr.includes("global_media")) {
+    if (!serverStore.global_media) serverStore.global_media = {};
+    if (qStr.startsWith("INSERT INTO global_media")) {
+      const [id, kind, mimeType, dataUrl] = params;
+      serverStore.global_media[id] = {
+        id,
+        kind,
+        mime_type: mimeType,
+        data_url: dataUrl,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      saveStore();
+      return { rowCount: 1, rows: [serverStore.global_media[id]] };
+    }
+    if (qStr.startsWith("SELECT") && params[0]) {
+      const item = serverStore.global_media[params[0]];
+      return { rows: item ? [item] : [] };
+    }
+    return { rows: [] };
   }
   if (qStr.includes("user_preferences")) {
     return { rowCount: 1, rows: [] };
@@ -6096,11 +6180,192 @@ var preferences_default = handler5;
 
 // backend/me/reciters.ts
 init_lib();
+
+// backend/media-lib.mjs
+init_lib();
+var MAX_INLINE_MEDIA_CHARS = 25e7;
+var MAX_INLINE_IMAGE_CHARS = 5e6;
+var DATA_IMAGE_RE = /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=\s]+$/;
+var DATA_VIDEO_RE = /^data:video\/(mp4|webm|quicktime|ogg);base64,[A-Za-z0-9+/=\s]+$/;
+function readJsonLarge(req, limit = MAX_INLINE_MEDIA_CHARS) {
+  const pre = req.body;
+  if (pre && typeof pre === "object" && Object.keys(pre).length > 0) return Promise.resolve(pre);
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > limit) {
+        reject(new Error("Body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!data) return resolve({});
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+function parseInline(value, re, maxChars) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url || url.length > maxChars) return null;
+  return re.test(url) ? url : null;
+}
+function cleanPortableImageUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  const inline = parseInline(url, DATA_IMAGE_RE, MAX_INLINE_IMAGE_CHARS);
+  if (inline) return inline;
+  if (url.startsWith("/") && url.length <= 2048) return url;
+  if (url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+function cleanPortableVideoUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  const inline = parseInline(url, DATA_VIDEO_RE, MAX_INLINE_MEDIA_CHARS);
+  if (inline) return inline;
+  if (url.startsWith("/") && url.length <= 2048) return url;
+  if (url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+var tableReady = false;
+async function ensureMediaTable() {
+  if (tableReady) return;
+  try {
+    await q(`
+      CREATE TABLE IF NOT EXISTS global_media (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        mime_type  TEXT NOT NULL,
+        data_url   TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await q(`
+      CREATE TABLE IF NOT EXISTS global_media_chunks (
+        upload_id   TEXT NOT NULL,
+        chunk_index INT NOT NULL,
+        chunk_data  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (upload_id, chunk_index)
+      )
+    `);
+    tableReady = true;
+  } catch (err) {
+    console.warn("Media table initialization note:", err?.message || err);
+  }
+}
+async function saveInlineMedia(dataUrl, kind, customId) {
+  const match = /^data:([^;,]+);base64,/.exec(dataUrl);
+  const mimeType = match ? match[1] : kind === "video" ? "video/mp4" : "image/jpeg";
+  const normalizedDataUrl = match ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
+  await ensureMediaTable();
+  const id = customId || `media_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await q(
+    "INSERT INTO global_media (id, kind, mime_type, data_url, created_at) VALUES ($1, $2, $3, $4, now()) ON CONFLICT (id) DO UPDATE SET data_url = EXCLUDED.data_url, mime_type = EXCLUDED.mime_type",
+    [id, kind, mimeType, normalizedDataUrl]
+  );
+  return { id, mimeType };
+}
+async function saveMediaChunk(uploadId, chunkIndex, chunkData) {
+  await ensureMediaTable();
+  await q(
+    "INSERT INTO global_media_chunks (upload_id, chunk_index, chunk_data, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (upload_id, chunk_index) DO UPDATE SET chunk_data = EXCLUDED.chunk_data",
+    [uploadId, Number(chunkIndex), String(chunkData || "")]
+  );
+}
+async function assembleMediaChunks(uploadId, mimeType, kind, customId) {
+  await ensureMediaTable();
+  const { rows } = await q(
+    "SELECT chunk_index, chunk_data FROM global_media_chunks WHERE upload_id = $1 ORDER BY chunk_index ASC",
+    [uploadId]
+  );
+  if (!rows || rows.length === 0) {
+    throw new Error("No chunks found for upload " + uploadId);
+  }
+  const combinedBase64 = rows.map((r) => r.chunk_data).join("");
+  const cleanBase64 = combinedBase64.includes("base64,") ? combinedBase64.split("base64,")[1] : combinedBase64;
+  const fullDataUrl = `data:${mimeType};base64,${cleanBase64}`;
+  const saved = await saveInlineMedia(fullDataUrl, kind, customId);
+  await q("DELETE FROM global_media_chunks WHERE upload_id = $1", [uploadId]).catch(() => {
+  });
+  return { ...saved, size: Math.floor(cleanBase64.length * 3 / 4) };
+}
+async function getInlineMedia(id) {
+  if (!id) return null;
+  await ensureMediaTable();
+  const { rows } = await q("SELECT mime_type, data_url FROM global_media WHERE id = $1", [id]);
+  return rows[0] || null;
+}
+function streamBufferWithRange(req, res, buffer, mimeType) {
+  const total = buffer.length;
+  const range = req.headers?.range;
+  const commonHeaders = {
+    "Accept-Ranges": "bytes",
+    "Content-Type": mimeType || "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Access-Control-Allow-Origin": "*"
+  };
+  if (range) {
+    const parts = String(range).replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? Math.min(parseInt(parts[1], 10), total - 1) : total - 1;
+    if (isNaN(start) || isNaN(end) || start >= total || end >= total || start > end) {
+      res.writeHead(416, {
+        ...commonHeaders,
+        "Content-Range": `bytes */${total}`
+      });
+      res.end();
+      return;
+    }
+    const chunkLength = end - start + 1;
+    res.writeHead(206, {
+      ...commonHeaders,
+      "Content-Range": `bytes ${start}-${end}/${total}`,
+      "Content-Length": String(chunkLength)
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(buffer.subarray(start, end + 1));
+    return;
+  }
+  res.writeHead(200, {
+    ...commonHeaders,
+    "Content-Length": String(total)
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(buffer);
+}
+
+// backend/me/reciters.ts
 var mapRow = (r) => ({
   id: r.id,
   name: r.name,
   style: r.style ?? "Custom",
-  serverUrl: r.server_url,
+  serverUrl: r.server_url || "",
   ...r.image_url ? { imageUrl: r.image_url } : {}
 });
 var handler6 = async (req, res) => {
@@ -6122,13 +6387,13 @@ var handler6 = async (req, res) => {
       return sendJson(res, 200, { reciters: rows.map(mapRow) });
     }
     if (req.method === "POST") {
-      const body = await readJson(req);
+      const body = await readJsonLarge(req);
       const name = typeof body.name === "string" ? body.name.trim() : "";
       const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
       const style = typeof body.style === "string" ? body.style : "Custom";
       const imageUrl = cleanImageUrl(body.imageUrl);
-      const id = typeof body.id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(body.id) ? body.id : `custom_${Date.now()}`;
-      if (!name || !serverUrl) return sendJson(res, 400, { error: "Reciter name and server URL are required." });
+      const id = typeof body.id === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id) ? body.id : `custom_${Date.now()}`;
+      if (!name) return sendJson(res, 400, { error: "Reciter name is required." });
       await qWithFallback([
         {
           text: `INSERT INTO custom_reciters (id, user_uid, name, style, server_url, image_url)
@@ -6204,21 +6469,53 @@ var overview_default = handler8;
 // backend/admin/reciters.ts
 init_lib();
 var handler9 = async (req, res) => {
-  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  if (req.method !== "POST" && req.method !== "DELETE") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
-    const body = await readJson(req);
+    const body = await readJsonLarge(req);
+    if (req.method === "DELETE" || body.action === "delete") {
+      const targetId = typeof body.id === "string" ? body.id.trim() : "";
+      if (!targetId) return sendJson(res, 400, { error: "Reciter ID is required." });
+      await q("DELETE FROM global_reciters WHERE id = $1", [targetId]);
+      return sendJson(res, 200, { ok: true, id: targetId });
+    }
     const rawId = typeof body.id === "string" ? body.id.trim() : "";
     const id = /^[a-zA-Z0-9_.-]{1,128}$/.test(rawId) ? rawId : `global_${Date.now()}`;
     const name = typeof body.name === "string" ? body.name.trim() : "";
+    const nameArabic = typeof body.nameArabic === "string" ? body.nameArabic.trim() : "";
+    const category = typeof body.category === "string" ? body.category.trim() : "";
     const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
-    const imageUrl = cleanImageUrl(body.imageUrl);
-    const bio = typeof body.bio === "string" ? body.bio.trim() : void 0;
-    if (!name && !imageUrl && !serverUrl) {
-      return sendJson(res, 400, { error: "Reciter details (name, photo, or server URL) are required." });
+    const rawImage = cleanImageUrl(body.imageUrl);
+    const imageUrl = rawImage ? rawImage.replace(/^https?:\/\/localhost(:\d+)?/, "") : null;
+    const bio = typeof body.bio === "string" ? body.bio.trim() : "";
+    if (!name && !imageUrl && !serverUrl && !bio) {
+      return sendJson(res, 400, { error: "Reciter details (name, photo, bio, or server URL) are required." });
     }
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT").catch(() => {
+    });
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT").catch(() => {
+    });
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT").catch(() => {
+    });
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT").catch(() => {
+    });
     await qWithFallback([
+      {
+        text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, name_arabic, category, bio, updated_at)
+               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), now())
+               ON CONFLICT (id) DO UPDATE SET 
+                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
+                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
+                 image_url = CASE WHEN $4 IS NOT NULL THEN $4 ELSE global_reciters.image_url END,
+                 name_arabic = CASE WHEN $5 <> '' THEN $5 ELSE global_reciters.name_arabic END,
+                 category = CASE WHEN $6 <> '' THEN $6 ELSE global_reciters.category END,
+                 bio = CASE WHEN $7 <> '' THEN $7 ELSE global_reciters.bio END,
+                 updated_at = now()`,
+        params: [id, name, serverUrl, imageUrl, nameArabic, category, bio]
+      },
       {
         text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, updated_at)
                VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, now())
@@ -6240,7 +6537,16 @@ var handler9 = async (req, res) => {
       }
     ]);
     return sendJson(res, 201, {
-      reciter: { id, name: name || id, style: "Custom Global", serverUrl: serverUrl || null, ...imageUrl ? { imageUrl } : {}, ...bio ? { bio } : {} }
+      reciter: {
+        id,
+        name: name || id,
+        ...nameArabic ? { nameArabic } : {},
+        style: "Custom Global",
+        ...category ? { category } : {},
+        serverUrl: serverUrl || null,
+        ...imageUrl ? { imageUrl } : {},
+        ...bio ? { bio } : {}
+      }
     });
   } catch (err) {
     console.error("admin reciters failed:", err);
@@ -6283,6 +6589,15 @@ async function ensureTable() {
     )
   `);
 }
+function sanitizeGlobalVideoUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
+  if (!trimmed) return null;
+  if (trimmed.startsWith("blob:") || trimmed.startsWith("custom_vid_") || trimmed.startsWith("upload_")) {
+    return null;
+  }
+  return trimmed;
+}
 var handler11 = async (req, res) => {
   if (req.method !== "PUT" && req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
@@ -6290,12 +6605,12 @@ var handler11 = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
-    const body = await readJson(req);
+    const body = await readJsonLarge(req);
     if (req.method === "PUT") {
       const sounds = body.sounds && typeof body.sounds === "object" ? body.sounds : {};
       for (const [id, url] of Object.entries(sounds)) {
         if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) continue;
-        const videoUrl = typeof url === "string" && url.trim() ? url.trim() : null;
+        const videoUrl = sanitizeGlobalVideoUrl(url);
         await q(
           `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
            VALUES ($1, $1, $2, now())
@@ -6311,13 +6626,13 @@ var handler11 = async (req, res) => {
       const action = body.action;
       if (action === "add_video") {
         const name = typeof body.name === "string" ? body.name.trim() : "";
-        const videoUrl = typeof body.videoUrl === "string" ? body.videoUrl.trim() : "";
+        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
         const description = typeof body.description === "string" ? body.description.trim() : null;
         const isDefault = Boolean(body.isDefault);
         if (!name || !videoUrl) {
-          return sendJson(res, 400, { error: "Name and video URL are required." });
+          return sendJson(res, 400, { error: "Name and a portable video URL are required." });
         }
-        const id = `bg_vid_${Date.now()}`;
+        const id = typeof body.id === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id) ? body.id : `bg_vid_${Date.now()}`;
         if (isDefault) {
           await q("UPDATE global_background_videos SET is_default = false");
           await q(
@@ -6329,7 +6644,8 @@ var handler11 = async (req, res) => {
         }
         await q(
           `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
-           VALUES ($1, $2, $3, $4, $5, now())`,
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
           [id, name, videoUrl, description, isDefault]
         );
         return sendJson(res, 201, { video: { id, name, videoUrl, description, isDefault } });
@@ -6342,8 +6658,8 @@ var handler11 = async (req, res) => {
       }
       if (action === "set_default") {
         const id = typeof body.id === "string" ? body.id : "";
-        const videoUrl = typeof body.videoUrl === "string" ? body.videoUrl.trim() : "";
-        if (!id && !videoUrl) return sendJson(res, 400, { error: "Video ID or URL required" });
+        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
+        if (!id && !videoUrl) return sendJson(res, 400, { error: "Video ID or portable URL required" });
         if (id) {
           await q("UPDATE global_background_videos SET is_default = (id = $1)", [id]);
         }
@@ -6368,105 +6684,6 @@ var ambient_default = handler11;
 
 // backend/admin/media.ts
 init_lib();
-
-// backend/media-lib.mjs
-init_lib();
-var MAX_INLINE_MEDIA_CHARS = 6e6;
-var MAX_INLINE_IMAGE_CHARS = 15e5;
-var DATA_IMAGE_RE = /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=\s]+$/;
-var DATA_VIDEO_RE = /^data:video\/(mp4|webm|quicktime);base64,[A-Za-z0-9+/=\s]+$/;
-function readJsonLarge(req, limit = MAX_INLINE_MEDIA_CHARS) {
-  const pre = req.body;
-  if (pre && typeof pre === "object" && Object.keys(pre).length > 0) return Promise.resolve(pre);
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (chunk) => {
-      data += chunk;
-      if (data.length > limit) {
-        reject(new Error("Body too large"));
-        req.destroy();
-      }
-    });
-    req.on("end", () => {
-      if (!data) return resolve({});
-      try {
-        resolve(JSON.parse(data));
-      } catch {
-        reject(new Error("Invalid JSON body"));
-      }
-    });
-    req.on("error", reject);
-  });
-}
-function parseInline(value, re, maxChars) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!url || url.length > maxChars) return null;
-  return re.test(url) ? url : null;
-}
-function cleanPortableImageUrl(value) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!url) return null;
-  const inline = parseInline(url, DATA_IMAGE_RE, MAX_INLINE_IMAGE_CHARS);
-  if (inline) return inline;
-  if (url.length > 2048) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-function cleanPortableVideoUrl(value) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!url) return null;
-  const inline = parseInline(url, DATA_VIDEO_RE, MAX_INLINE_MEDIA_CHARS);
-  if (inline) return inline;
-  if (url.startsWith("/") && url.length <= 2048) return url;
-  if (url.length > 2048) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-var tableReady = false;
-async function ensureMediaTable() {
-  if (tableReady) return;
-  await q(`
-    CREATE TABLE IF NOT EXISTS global_media (
-      id         TEXT PRIMARY KEY,
-      kind       TEXT NOT NULL,
-      mime_type  TEXT NOT NULL,
-      data_url   TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-  tableReady = true;
-}
-async function saveInlineMedia(dataUrl, kind) {
-  if (!isDbConfigured()) throw new Error("DATABASE_URL environment variable is not set");
-  const match = /^data:([^;,]+);base64,/.exec(dataUrl);
-  if (!match) throw new Error("Unsupported media payload");
-  await ensureMediaTable();
-  const id = `media_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  await q(
-    "INSERT INTO global_media (id, kind, mime_type, data_url, created_at) VALUES ($1, $2, $3, $4, now())",
-    [id, kind, match[1], dataUrl]
-  );
-  return { id, mimeType: match[1] };
-}
-async function getInlineMedia(id) {
-  if (!isDbConfigured() || !id) return null;
-  await ensureMediaTable();
-  const { rows } = await q("SELECT mime_type, data_url FROM global_media WHERE id = $1", [id]);
-  return rows[0] || null;
-}
-
-// backend/admin/media.ts
 var KINDS = /* @__PURE__ */ new Set(["image", "video"]);
 var handler12 = async (req, res) => {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
@@ -6494,29 +6711,39 @@ var media_default = handler12;
 
 // backend/media/[id].ts
 init_lib();
+import fs2 from "node:fs";
+import path2 from "node:path";
+var UPLOADS_DIR = path2.resolve(process.cwd(), "public/videos/uploads");
+var PUBLIC_VIDEOS_DIR = path2.resolve(process.cwd(), "public/videos");
 var handler13 = async (req, res) => {
   if (req.method !== "GET" && req.method !== "HEAD") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
   const url = (req.url || "").split("?")[0];
   const id = decodeURIComponent(url.replace(/^\/api\/media\//, ""));
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+  if (!/^[A-Za-z0-9_.-]{1,128}$/.test(id)) {
     return sendJson(res, 400, { error: "Invalid media id" });
   }
   try {
     const row = await getInlineMedia(id);
-    if (!row) return sendJson(res, 404, { error: "Not found" });
-    const base64 = String(row.data_url).split(",")[1] || "";
-    const buffer = Buffer.from(base64, "base64");
-    res.statusCode = 200;
-    res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
-    res.setHeader("Content-Length", String(buffer.length));
-    if (req.method === "HEAD") {
-      res.end();
+    if (row && row.data_url) {
+      const base64 = String(row.data_url).includes(",") ? String(row.data_url).split(",")[1] : String(row.data_url);
+      const buffer = Buffer.from(base64, "base64");
+      streamBufferWithRange(req, res, buffer, row.mime_type || "application/octet-stream");
       return;
     }
-    res.end(buffer);
-    return;
+    const safeName = path2.basename(id);
+    for (const dir of [UPLOADS_DIR, PUBLIC_VIDEOS_DIR]) {
+      const candidate = path2.join(dir, safeName);
+      if (fs2.existsSync(candidate)) {
+        const buffer = fs2.readFileSync(candidate);
+        const ext = path2.extname(safeName).toLowerCase();
+        const mimeType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".mov" ? "video/quicktime" : ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+        streamBufferWithRange(req, res, buffer, mimeType);
+        return;
+      }
+    }
+    return sendJson(res, 404, { error: "Not found" });
   } catch (err) {
     console.error("media fetch failed:", err);
     return sendJson(res, 500, { error: "Could not load that asset." });
@@ -6550,23 +6777,39 @@ async function handler14(_req, res) {
 
 // backend/reciters.ts
 init_lib();
+import fs3 from "node:fs";
+import path3 from "node:path";
+function sanitizePublicImageUrl(url) {
+  if (!url || typeof url !== "string") return void 0;
+  const trimmed = url.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
+  if (!trimmed) return void 0;
+  if (trimmed.startsWith("/videos/uploads/")) {
+    const fileOnDisk = path3.resolve(process.cwd(), "public", trimmed.replace(/^\//, ""));
+    if (!fs3.existsSync(fileOnDisk)) return void 0;
+  }
+  return trimmed;
+}
 var handler15 = async (_req, res) => {
   try {
     const { rows } = await qWithFallback([
+      { text: "SELECT id, name, name_arabic, style, category, bio, server_url, image_url FROM global_reciters" },
       { text: "SELECT id, name, style, server_url, image_url FROM global_reciters" },
-      {
-        // global_reciters.image_url not migrated yet (run `node scripts/apply-schema.mjs`).
-        text: "SELECT id, name, style, server_url FROM global_reciters"
-      }
+      { text: "SELECT id, name, style, server_url FROM global_reciters" }
     ]);
     return sendJson(res, 200, {
-      reciters: rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        style: r.style ?? null,
-        serverUrl: r.server_url ?? null,
-        ...r.image_url ? { imageUrl: r.image_url } : {}
-      }))
+      reciters: rows.map((r) => {
+        const cleanImg = sanitizePublicImageUrl(r.image_url);
+        return {
+          id: r.id,
+          name: r.name,
+          ...r.name_arabic ? { nameArabic: r.name_arabic } : {},
+          style: r.style ?? null,
+          ...r.category ? { category: r.category } : {},
+          ...r.bio ? { bio: r.bio } : {},
+          serverUrl: r.server_url ?? null,
+          ...cleanImg ? { imageUrl: cleanImg } : {}
+        };
+      })
     });
   } catch (err) {
     console.warn("public reciters unavailable, using fallback:", err?.message || String(err));
@@ -6577,6 +6820,8 @@ var reciters_default3 = handler15;
 
 // backend/ambient.ts
 init_lib();
+import fs4 from "node:fs";
+import path4 from "node:path";
 var CURATED_DEFAULT_VIDEOS = [
   {
     id: "curated_stars",
@@ -6598,8 +6843,32 @@ var CURATED_DEFAULT_VIDEOS = [
     videoUrl: "/videos/ocean.mp4",
     description: "Gentle rolling ocean waves for tranquil reflection",
     isDefault: false
+  },
+  {
+    id: "curated_nature",
+    name: "Sacred Nature",
+    videoUrl: "/videos/nature.mp4",
+    description: "Peaceful nature breeze",
+    isDefault: false
   }
 ];
+function isPlayablePublicVideoUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  const url = rawUrl.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
+  if (!url) return null;
+  if (url.startsWith("blob:") || url.startsWith("custom_vid_") || url.startsWith("upload_")) {
+    return null;
+  }
+  if (url.startsWith("/videos/uploads/")) {
+    const diskPath = path4.resolve(process.cwd(), "public", url.replace(/^\//, ""));
+    if (!fs4.existsSync(diskPath)) return null;
+    return url;
+  }
+  if (url.startsWith("/api/media/") || url.startsWith("/videos/") || url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:video/")) {
+    return url;
+  }
+  return null;
+}
 var handler16 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
   try {
@@ -6609,10 +6878,11 @@ var handler16 = async (req, res) => {
     const ambientSounds = {};
     let activeDefaultVideoUrl = null;
     for (const row of ambient.rows) {
-      if (row.video_url) {
-        ambientSounds[row.id] = row.video_url;
+      const validUrl = isPlayablePublicVideoUrl(row.video_url);
+      if (validUrl) {
+        ambientSounds[row.id] = validUrl;
         if (row.id === "default" || row.id === "active" || row.id === "global") {
-          activeDefaultVideoUrl = row.video_url;
+          activeDefaultVideoUrl = validUrl;
         }
       }
     }
@@ -6621,24 +6891,36 @@ var handler16 = async (req, res) => {
       const vidRes = await q(
         "SELECT id, name, video_url, description, is_default FROM global_background_videos ORDER BY is_default DESC, created_at DESC"
       );
-      videos = vidRes.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        videoUrl: r.video_url,
-        description: r.description || void 0,
-        isDefault: Boolean(r.is_default)
-      }));
+      for (const r of vidRes.rows) {
+        const validUrl = isPlayablePublicVideoUrl(r.video_url);
+        if (validUrl) {
+          videos.push({
+            id: r.id,
+            name: r.name,
+            videoUrl: validUrl,
+            description: r.description || void 0,
+            isDefault: Boolean(r.is_default)
+          });
+        }
+      }
       const defVid = videos.find((v) => v.isDefault);
       if (defVid && !activeDefaultVideoUrl) {
         activeDefaultVideoUrl = defVid.videoUrl;
+      } else if (!activeDefaultVideoUrl && videos.length > 0) {
+        activeDefaultVideoUrl = videos[0].videoUrl;
       }
     } catch {
     }
-    if (videos.length === 0) {
-      videos = CURATED_DEFAULT_VIDEOS;
-      if (!activeDefaultVideoUrl) {
-        activeDefaultVideoUrl = CURATED_DEFAULT_VIDEOS[0].videoUrl;
+    for (const curated of CURATED_DEFAULT_VIDEOS) {
+      if (!videos.some((v) => v.videoUrl === curated.videoUrl)) {
+        videos.push({
+          ...curated,
+          isDefault: videos.length === 0 ? curated.isDefault : false
+        });
       }
+    }
+    if (!activeDefaultVideoUrl) {
+      activeDefaultVideoUrl = CURATED_DEFAULT_VIDEOS[0].videoUrl;
     }
     return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
   } catch (err) {
@@ -6653,19 +6935,49 @@ var ambient_default2 = handler16;
 
 // backend/media.ts
 init_lib();
-import fs2 from "node:fs";
-import path2 from "node:path";
+import fs5 from "node:fs";
+import path5 from "node:path";
 import crypto3 from "node:crypto";
-var UPLOADS_DIR = path2.resolve(process.cwd(), "public/videos/uploads");
+var UPLOADS_DIR2 = path5.resolve(process.cwd(), "public/videos/uploads");
 function ensureUploadsDir() {
   try {
-    if (!fs2.existsSync(UPLOADS_DIR)) {
-      fs2.mkdirSync(UPLOADS_DIR, { recursive: true });
+    if (!fs5.existsSync(UPLOADS_DIR2)) {
+      fs5.mkdirSync(UPLOADS_DIR2, { recursive: true });
     }
     return true;
-  } catch (err) {
-    console.warn("Upload directory is not writable; using the media store instead:", err);
+  } catch {
     return false;
+  }
+}
+async function recordVideoInAmbientDb(id, name, publicUrl, isDefault) {
+  try {
+    await q(`
+      CREATE TABLE IF NOT EXISTS global_background_videos (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        video_url   TEXT NOT NULL,
+        description TEXT,
+        is_default  BOOLEAN DEFAULT false,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    if (isDefault) {
+      await q("UPDATE global_background_videos SET is_default = false");
+      await q(
+        `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+         VALUES ('default', 'Default Video', $1, now())
+         ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+        [publicUrl]
+      );
+    }
+    await q(
+      `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
+       VALUES ($1, $2, $3, $4, $5, now())
+       ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
+      [id, name, publicUrl, "Uploaded by admin", isDefault]
+    );
+  } catch (dbErr) {
+    console.warn("DB recording for video skipped:", dbErr);
   }
 }
 async function mediaHandler(req, res) {
@@ -6673,66 +6985,90 @@ async function mediaHandler(req, res) {
   const pathname = urlObj.pathname;
   if (req.method === "POST") {
     try {
-      const body = await readJson(req);
+      const body = await readJsonLarge(req);
+      const action = typeof body.action === "string" ? body.action : "upload";
       const filename = typeof body.filename === "string" ? body.filename.trim() : `media_${Date.now()}`;
       const name = typeof body.name === "string" ? body.name.trim() : filename;
-      const dataStr = typeof body.data === "string" ? body.data : "";
       const isDefault = Boolean(body.isDefault);
-      const mediaType = typeof body.type === "string" ? body.type : filename.endsWith(".mp4") ? "video/mp4" : "image/jpeg";
+      const mediaType = typeof body.type === "string" && body.type ? body.type : filename.endsWith(".mp4") ? "video/mp4" : filename.endsWith(".webm") ? "video/webm" : "image/jpeg";
+      const kind = mediaType.startsWith("video") || filename.endsWith(".mp4") || filename.endsWith(".webm") ? "video" : "image";
+      if (action === "chunk") {
+        const uploadId = typeof body.uploadId === "string" ? body.uploadId.trim() : "";
+        const chunkIndex = Number(body.chunkIndex ?? 0);
+        const totalChunks = Number(body.totalChunks ?? 1);
+        const chunkData = typeof body.chunkData === "string" ? body.chunkData : "";
+        if (!uploadId || !chunkData) {
+          return sendJson(res, 400, { error: "Missing uploadId or chunkData." });
+        }
+        await saveMediaChunk(uploadId, chunkIndex, chunkData);
+        const isLastChunk = Boolean(body.finalize) || chunkIndex + 1 >= totalChunks;
+        if (!isLastChunk) {
+          return sendJson(res, 200, {
+            ok: true,
+            chunkIndex,
+            totalChunks,
+            complete: false
+          });
+        }
+        const assembled = await assembleMediaChunks(uploadId, mediaType, kind);
+        const publicUrl2 = `/api/media/${assembled.id}`;
+        if (kind === "video") {
+          await recordVideoInAmbientDb(`bg_vid_${assembled.id}`, name, publicUrl2, isDefault);
+        }
+        return sendJson(res, 201, {
+          ok: true,
+          complete: true,
+          id: assembled.id,
+          url: publicUrl2,
+          name,
+          size: assembled.size,
+          isDefault
+        });
+      }
+      const dataStr = typeof body.data === "string" ? body.data.trim() : "";
       if (!dataStr) {
         return sendJson(res, 400, { error: "No media data provided." });
       }
+      if (dataStr.startsWith("http://") || dataStr.startsWith("https://") || dataStr.startsWith("/api/media/")) {
+        const cleanUrl = dataStr.replace(/^https?:\/\/localhost(:\d+)?/, "");
+        return sendJson(res, 200, {
+          ok: true,
+          id: path5.basename(cleanUrl),
+          url: cleanUrl,
+          name,
+          size: 0,
+          isDefault
+        });
+      }
       const base64Data = dataStr.includes("base64,") ? dataStr.split("base64,")[1] : dataStr;
       const buffer = Buffer.from(base64Data, "base64");
-      let ext = path2.extname(filename).toLowerCase();
+      let ext = path5.extname(filename).toLowerCase();
       if (!ext) {
         if (mediaType.includes("mp4")) ext = ".mp4";
         else if (mediaType.includes("webm")) ext = ".webm";
         else if (mediaType.includes("png")) ext = ".png";
         else ext = ".jpg";
       }
-      const safeId = `up_${Date.now()}_${crypto3.randomBytes(4).toString("hex")}`;
+      const safeId = `media_${kind}_${Date.now()}_${crypto3.randomBytes(4).toString("hex")}`;
       const safeFilename = `${safeId}${ext}`;
-      let publicUrl = null;
+      const saved = await saveInlineMedia(
+        `data:${mediaType};base64,${base64Data}`,
+        kind,
+        safeId
+      );
+      const publicUrl = `/api/media/${saved.id}`;
       if (ensureUploadsDir()) {
         try {
-          fs2.writeFileSync(path2.join(UPLOADS_DIR, safeFilename), buffer);
-          publicUrl = `/videos/uploads/${safeFilename}`;
-        } catch (err) {
-          console.warn("Writing the upload to disk failed; using the media store instead:", err);
+          fs5.writeFileSync(path5.join(UPLOADS_DIR2, safeFilename), buffer);
+        } catch {
         }
       }
-      if (!publicUrl) {
-        const saved = await saveInlineMedia(
-          `data:${mediaType};base64,${base64Data}`,
-          mediaType.startsWith("video") ? "video" : "image"
-        );
-        publicUrl = `/api/media/${saved.id}`;
-      }
-      if (mediaType.startsWith("video") || ext === ".mp4" || ext === ".webm") {
-        const id = `bg_vid_${safeId}`;
-        try {
-          if (isDefault) {
-            await q("UPDATE global_background_videos SET is_default = false");
-            await q(
-              `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
-               VALUES ('default', 'Default Video', $1, now())
-               ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
-              [publicUrl]
-            );
-          }
-          await q(
-            `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
-             VALUES ($1, $2, $3, $4, $5, now())`,
-            [id, name, publicUrl, "Uploaded by admin", isDefault]
-          );
-        } catch (dbErr) {
-          console.warn("DB recording for video skipped:", dbErr);
-        }
+      if (kind === "video") {
+        await recordVideoInAmbientDb(`bg_vid_${saved.id}`, name, publicUrl, isDefault);
       }
       return sendJson(res, 201, {
         ok: true,
-        id: safeId,
+        id: saved.id,
         url: publicUrl,
         name,
         size: buffer.length,
@@ -6748,59 +7084,32 @@ async function mediaHandler(req, res) {
     if (!fileParam) {
       return sendJson(res, 400, { error: "Missing file parameter" });
     }
-    const safeFilename = path2.basename(fileParam);
-    let filePath = path2.join(UPLOADS_DIR, safeFilename);
-    if (!fs2.existsSync(filePath)) {
-      const publicVideosPath = path2.resolve(process.cwd(), "public/videos", safeFilename);
-      if (fs2.existsSync(publicVideosPath)) {
+    const cleanId = decodeURIComponent(fileParam).replace(/\.[^/.]+$/, "");
+    try {
+      const row = await getInlineMedia(fileParam) || await getInlineMedia(cleanId);
+      if (row && row.data_url) {
+        const base64 = String(row.data_url).includes(",") ? String(row.data_url).split(",")[1] : String(row.data_url);
+        const buffer2 = Buffer.from(base64, "base64");
+        streamBufferWithRange(req, res, buffer2, row.mime_type || "application/octet-stream");
+        return;
+      }
+    } catch (err) {
+      console.warn("DB media lookup fallback:", err);
+    }
+    const safeFilename = path5.basename(fileParam);
+    let filePath = path5.join(UPLOADS_DIR2, safeFilename);
+    if (!fs5.existsSync(filePath)) {
+      const publicVideosPath = path5.resolve(process.cwd(), "public/videos", safeFilename);
+      if (fs5.existsSync(publicVideosPath)) {
         filePath = publicVideosPath;
       } else {
         return sendJson(res, 404, { error: "File not found" });
       }
     }
-    const stat = fs2.statSync(filePath);
-    const fileSize = stat.size;
-    const ext = path2.extname(safeFilename).toLowerCase();
+    const buffer = fs5.readFileSync(filePath);
+    const ext = path5.extname(safeFilename).toLowerCase();
     const contentType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".png" ? "image/png" : "image/jpeg";
-    const range = req.headers.range;
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      if (start >= fileSize || end >= fileSize) {
-        res.writeHead(416, {
-          "Content-Range": `bytes */${fileSize}`
-        });
-        res.end();
-        return;
-      }
-      const chunksize = end - start + 1;
-      const fileStream = fs2.createReadStream(filePath, { start, end });
-      res.writeHead(206, {
-        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": chunksize,
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=31536000, immutable"
-      });
-      if (req.method === "HEAD") {
-        res.end();
-        return;
-      }
-      fileStream.pipe(res);
-    } else {
-      res.writeHead(200, {
-        "Content-Length": fileSize,
-        "Content-Type": contentType,
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "public, max-age=31536000, immutable"
-      });
-      if (req.method === "HEAD") {
-        res.end();
-        return;
-      }
-      fs2.createReadStream(filePath).pipe(res);
-    }
+    streamBufferWithRange(req, res, buffer, contentType);
     return;
   }
   sendJson(res, 405, { error: "Method not allowed" });

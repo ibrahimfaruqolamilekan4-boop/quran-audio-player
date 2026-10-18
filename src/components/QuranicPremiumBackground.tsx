@@ -378,8 +378,12 @@ export function QuranicPremiumBackground({
   // Initial video loop: default to Cosmos star loop immediately to eliminate any blank frame
   const initialVideo = useMemo(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('activeBackgroundVideoId');
-      if (saved) return saved;
+      const saved = (localStorage.getItem('activeBackgroundVideoId') || '')
+        .trim()
+        .replace(/^https?:\/\/localhost(:\d+)?/, '');
+      if (saved && (saved.startsWith('/') || saved.startsWith('http://') || saved.startsWith('https://'))) {
+        return saved;
+      }
     }
     return '/videos/cosmos.mp4';
   }, []);
@@ -415,7 +419,7 @@ export function QuranicPremiumBackground({
           setVideoUrl('/videos/cosmos.mp4');
         }
       } catch (e) {
-        console.error("Failed to load background video:", e);
+        console.error('Failed to load background video:', e);
         if (isMounted) setVideoUrl('/videos/cosmos.mp4');
       }
     }
@@ -475,15 +479,29 @@ export function QuranicPremiumBackground({
 
   useEffect(() => {
     if (slotAUrl && videoRefA.current) {
+      try { videoRefA.current.load(); } catch {}
       playVideoSafe(videoRefA.current);
     }
   }, [slotAUrl]);
 
   useEffect(() => {
     if (slotBUrl && videoRefB.current) {
+      try { videoRefB.current.load(); } catch {}
       playVideoSafe(videoRefB.current);
     }
   }, [slotBUrl]);
+
+  const handleVideoError = (failedSrc: string | null) => {
+    if (!failedSrc || failedSrc === '/videos/cosmos.mp4') return;
+    // Try another cloud default video from customVideos if available, otherwise fall back to cosmos.mp4
+    const fallbackCloud = customVideos.find(
+      v =>
+        v.videoUrl &&
+        v.videoUrl !== failedSrc &&
+        (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http://') || v.videoUrl.startsWith('https://'))
+    );
+    setVideoUrl(fallbackCloud?.videoUrl || '/videos/cosmos.mp4');
+  };
 
   // Global user interaction unblocker for mobile browser autoplay policy
   useEffect(() => {
@@ -564,6 +582,7 @@ export function QuranicPremiumBackground({
         }}
         onCanPlay={() => playVideoSafe(videoRefA.current)}
         onLoadedData={() => playVideoSafe(videoRefA.current)}
+        onError={() => handleVideoError(slotAUrl)}
         onEnded={() => {
           if (videoRefA.current) {
             videoRefA.current.currentTime = 0;
@@ -601,6 +620,7 @@ export function QuranicPremiumBackground({
         }}
         onCanPlay={() => playVideoSafe(videoRefB.current)}
         onLoadedData={() => playVideoSafe(videoRefB.current)}
+        onError={() => handleVideoError(slotBUrl)}
         onEnded={() => {
           if (videoRefB.current) {
             videoRefB.current.currentTime = 0;

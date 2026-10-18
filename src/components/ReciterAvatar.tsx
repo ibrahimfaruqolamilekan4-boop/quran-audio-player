@@ -49,7 +49,8 @@ export function ReciterAvatar({
     setFailed(false);
   }, [reciter.imageUrl]);
 
-  const source = reciter.imageUrl && !failed ? reciter.imageUrl : null;
+  const rawSource = reciter.imageUrl && !failed ? reciter.imageUrl.trim() : null;
+  const source = rawSource ? rawSource.replace(/^https?:\/\/localhost(:\d+)?/, '') : null;
   const initials = reciterInitials(reciter.name);
 
   return (
@@ -67,10 +68,10 @@ export function ReciterAvatar({
           alt={reciter.name}
           loading="lazy"
           decoding="async"
-          crossOrigin="anonymous"
           onError={() => setFailed(true)}
           className="absolute inset-0 block h-full w-full object-cover object-center"
         />
+
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
           {initials === '?' ? (

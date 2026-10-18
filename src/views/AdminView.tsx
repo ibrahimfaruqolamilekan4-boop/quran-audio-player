@@ -26,6 +26,7 @@ import {
   getStoredMediaList,
   deleteStoredMedia,
   resizeImageToDataUrl,
+  uploadMediaToServer,
   StoredMediaItem,
   UPLOAD_RULES,
 } from '../lib/upload';
@@ -48,6 +49,7 @@ export function AdminView() {
     setCustomReciters,
     recitations,
     updateReciterOverride,
+    refreshGlobalCatalog,
   } = usePlayer();
 
   const [activeTab, setActiveTab] = useState<TabId>('reciters');
@@ -208,8 +210,8 @@ export function AdminView() {
     const isCurated = isCuratedId(editing.id);
     const name = editName.trim();
     const serverUrl = editServerUrl.trim();
-    if (!isCurated && (!name || !serverUrl)) {
-      showToast('Name and server URL are required.', 'error');
+    if (!isCurated && !name) {
+      showToast('Reciter name is required.', 'error');
       return;
     }
     const photoUrl = editPhotoData || editPhotoUrl.trim();
@@ -217,6 +219,7 @@ export function AdminView() {
     try {
       // 1) Device-local + instant (portrait + bio for any sheikh, curated included).
       updateReciterOverride(editing.id, {
+        name: name || editing.name,
         bio: editBio.trim() || undefined,
         ...(photoUrl ? { imageUrl: photoUrl } : {}),
       });
@@ -224,17 +227,13 @@ export function AdminView() {
       let publicPhotoUrl = photoUrl;
       if (photoUrl && photoUrl.startsWith('data:image/')) {
         try {
-          const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
-            method: 'POST',
-            body: {
-              data: photoUrl,
-              filename: `sheikh_${editing.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
-              name: name || editing.name,
-              type: 'image/jpeg',
-            },
+          const hosted = await uploadMediaToServer(photoUrl, {
+            filename: `sheikh_${editing.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
+            name: name || editing.name,
+            type: 'image/jpeg',
           });
-          if (mediaRes?.url) {
-            publicPhotoUrl = mediaRes.url;
+          if (hosted) {
+            publicPhotoUrl = hosted;
             updateReciterOverride(editing.id, { imageUrl: publicPhotoUrl });
           }
         } catch {
@@ -242,38 +241,44 @@ export function AdminView() {
         }
       }
 
-      if (publicPhotoUrl || isCurated) {
-        await appApi('/admin/reciters', {
-          method: 'POST',
-          body: {
-            id: editing.id,
-            name: name || editing.name,
-            serverUrl: serverUrl || editing.serverUrl || '',
-            imageUrl: publicPhotoUrl || undefined,
-            bio: editBio.trim() || undefined,
-          },
-        });
-      }
+      await appApi('/admin/reciters', {
+        method: 'POST',
+        body: {
+          id: editing.id,
+          name: name || editing.name,
+          nameArabic: editing.nameArabic,
+          category: editing.category,
+          style: editing.style || 'Murattal',
+          serverUrl: serverUrl || editing.serverUrl || '',
+          imageUrl: publicPhotoUrl || editing.imageUrl || undefined,
+          bio: editBio.trim() || undefined,
+        },
+      });
 
       if (!isCurated) {
-        await appApi('/admin/reciters', {
-          method: 'POST',
-          body: { 
-            id: editing.id, 
-            name, 
-            serverUrl: serverUrl || '', 
-            imageUrl: publicPhotoUrl || undefined,
-            bio: editBio.trim() || undefined,
-          },
-        });
         const updated = customReciters.some((r) => r.id === editing.id)
-          ? customReciters.map((r) => (r.id === editing.id ? { ...r, name, serverUrl, ...(publicPhotoUrl ? { imageUrl: publicPhotoUrl } : {}) } : r))
-          : [...customReciters, { id: editing.id, name, style: 'Custom', serverUrl, ...(publicPhotoUrl ? { imageUrl: publicPhotoUrl } : {}) }];
+          ? customReciters.map((r) =>
+              r.id === editing.id
+                ? { ...r, name, serverUrl, bio: editBio.trim() || undefined, ...(publicPhotoUrl ? { imageUrl: publicPhotoUrl } : {}) }
+                : r
+            )
+          : [
+              ...customReciters,
+              {
+                id: editing.id,
+                name,
+                style: 'Custom',
+                serverUrl,
+                bio: editBio.trim() || undefined,
+                ...(publicPhotoUrl ? { imageUrl: publicPhotoUrl } : {}),
+              },
+            ];
         setCustomReciters(updated);
         await localforage.setItem('customReciters', updated);
       }
       await fetchAdminData();
-      showToast(`Saved and synced ${name || editing.name} to all devices!`, 'success');
+      await refreshGlobalCatalog();
+      showToast(`Saved and synced ${name || editing.name} to all phones, tablets, and computers!`, 'success');
       setEditing(null);
     } catch (e: any) {
       showToast(e?.message || 'Saved on this device only — the server rejected the change.', 'error');
@@ -288,7 +293,10 @@ export function AdminView() {
       `Remove "${reciter.name}" from the catalog? Their uploaded recitation files stay on this device.`,
       async () => {
         try {
-          await appApi(`/admin/reciters?id=${encodeURIComponent(reciter.id)}`, { method: 'DELETE' });
+          await appApi('/admin/reciters', {
+            method: 'POST',
+            body: { id: reciter.id, action: 'delete' },
+          });
         } catch {
           // Not in the global catalog (device-local only) — local removal is enough.
         }
@@ -296,6 +304,7 @@ export function AdminView() {
         setCustomReciters(updated);
         await localforage.setItem('customReciters', updated);
         setGlobalReciters((prev) => prev.filter((r: any) => r.id !== reciter.id));
+        await refreshGlobalCatalog();
         showToast('Reciter deleted.', 'success');
       }
     );

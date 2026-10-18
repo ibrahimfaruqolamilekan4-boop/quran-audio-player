@@ -1,6 +1,7 @@
 // PUT /api/admin/ambient  { sounds: Record<trackId, videoUrl> }
 // POST /api/admin/ambient { action: 'add_video' | 'delete_video' | 'set_default', ... }
-import { type Handler, q, requireAdmin, sendJson, readJson } from '../_lib.mjs';
+import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
+import { readJsonLarge } from '../media-lib.mjs';
 
 async function ensureTable() {
   await q(`
@@ -15,6 +16,17 @@ async function ensureTable() {
   `);
 }
 
+function sanitizeGlobalVideoUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().replace(/^https?:\/\/localhost(:\d+)?/, '');
+  if (!trimmed) return null;
+  // Never store local IndexedDB keys or blob: URLs in the global table
+  if (trimmed.startsWith('blob:') || trimmed.startsWith('custom_vid_') || trimmed.startsWith('upload_')) {
+    return null;
+  }
+  return trimmed;
+}
+
 const handler: Handler = async (req, res) => {
   if (req.method !== 'PUT' && req.method !== 'POST') {
     return sendJson(res, 405, { error: 'Method not allowed' });
@@ -24,14 +36,14 @@ const handler: Handler = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const body = await readJson(req);
+    const body = await readJsonLarge(req);
 
     if (req.method === 'PUT') {
       const sounds = (body.sounds && typeof body.sounds === 'object') ? body.sounds as Record<string, unknown> : {};
 
       for (const [id, url] of Object.entries(sounds)) {
         if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) continue;
-        const videoUrl = typeof url === 'string' && url.trim() ? url.trim() : null;
+        const videoUrl = sanitizeGlobalVideoUrl(url);
         await q(
           `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
            VALUES ($1, $1, $2, now())
@@ -48,15 +60,17 @@ const handler: Handler = async (req, res) => {
 
       if (action === 'add_video') {
         const name = typeof body.name === 'string' ? body.name.trim() : '';
-        const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : '';
+        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
         const description = typeof body.description === 'string' ? body.description.trim() : null;
         const isDefault = Boolean(body.isDefault);
 
         if (!name || !videoUrl) {
-          return sendJson(res, 400, { error: 'Name and video URL are required.' });
+          return sendJson(res, 400, { error: 'Name and a portable video URL are required.' });
         }
 
-        const id = `bg_vid_${Date.now()}`;
+        const id = typeof body.id === 'string' && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id)
+          ? body.id
+          : `bg_vid_${Date.now()}`;
         if (isDefault) {
           await q('UPDATE global_background_videos SET is_default = false');
           await q(
@@ -69,7 +83,8 @@ const handler: Handler = async (req, res) => {
 
         await q(
           `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
-           VALUES ($1, $2, $3, $4, $5, now())`,
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
           [id, name, videoUrl, description, isDefault]
         );
 
@@ -85,8 +100,8 @@ const handler: Handler = async (req, res) => {
 
       if (action === 'set_default') {
         const id = typeof body.id === 'string' ? body.id : '';
-        const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : '';
-        if (!id && !videoUrl) return sendJson(res, 400, { error: 'Video ID or URL required' });
+        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
+        if (!id && !videoUrl) return sendJson(res, 400, { error: 'Video ID or portable URL required' });
 
         if (id) {
           await q('UPDATE global_background_videos SET is_default = (id = $1)', [id]);
@@ -111,3 +126,4 @@ const handler: Handler = async (req, res) => {
 };
 
 export default handler;
+

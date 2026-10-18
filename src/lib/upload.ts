@@ -160,18 +160,115 @@ export async function deleteStoredMedia(id: string): Promise<void> {
 }
 
 /**
+ * Convert a Blob or File to a base64 Data URL string.
+ */
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read media blob'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Upload an image or video (Blob, File, or data: URL) to /api/media.
+ * Automatically splits large videos into ~1.35 MB base64 chunks so uploads
+ * never hit Vercel's 4.5 MB serverless request payload limit, and returns
+ * a permanent `/api/media/:id` URL that streams with HTTP 206 byte ranges
+ * on iPhone, iPad, Android phones, tablets, and desktop browsers.
+ */
+export async function uploadMediaToServer(
+  source: Blob | File | string,
+  options: {
+    filename?: string;
+    name?: string;
+    type?: string;
+    isDefault?: boolean;
+  } = {},
+  onProgress?: (percent: number) => void
+): Promise<string> {
+  if (typeof source === 'string') {
+    const trimmed = source.trim().replace(/^https?:\/\/localhost(:\d+)?/, '');
+    if (trimmed.startsWith('/api/media/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      if (onProgress) onProgress(100);
+      return trimmed;
+    }
+  }
+
+  const dataUrl = typeof source === 'string' ? source : await blobToDataUrl(source);
+  const mimeMatch = /^data:([^;,]+);base64,/.exec(dataUrl);
+  const mimeType = options.type || (mimeMatch ? mimeMatch[1] : 'video/mp4');
+  const rawBase64 = dataUrl.includes('base64,') ? dataUrl.split('base64,')[1] : dataUrl;
+
+  const filename = options.filename || `upload_${Date.now()}.${mimeType.includes('mp4') ? 'mp4' : mimeType.includes('webm') ? 'webm' : 'jpg'}`;
+  const name = options.name || filename.replace(/\.[^/.]+$/, '');
+  const isDefault = Boolean(options.isDefault);
+
+  // 1,800,000 base64 chars is ~1.35 MB — safely under Vercel's 4.5 MB request limit
+  const CHUNK_CHAR_LIMIT = 1_800_000;
+
+  if (rawBase64.length <= CHUNK_CHAR_LIMIT) {
+    if (onProgress) onProgress(30);
+    const res = await appApi<{ ok: boolean; url: string }>('/media', {
+      method: 'POST',
+      body: {
+        data: `data:${mimeType};base64,${rawBase64}`,
+        filename,
+        name,
+        type: mimeType,
+        isDefault,
+      },
+    });
+    if (onProgress) onProgress(100);
+    if (!res?.url) throw new Error('Server did not return a media URL.');
+    return res.url;
+  }
+
+  // Multi-chunk upload for larger videos
+  const totalChunks = Math.ceil(rawBase64.length / CHUNK_CHAR_LIMIT);
+  const uploadId = `chunked_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  let finalUrl = '';
+
+  for (let i = 0; i < totalChunks; i++) {
+    const chunkData = rawBase64.slice(i * CHUNK_CHAR_LIMIT, (i + 1) * CHUNK_CHAR_LIMIT);
+    const isLast = i + 1 === totalChunks;
+    const res = await appApi<{ ok: boolean; url?: string; complete?: boolean }>('/media', {
+      method: 'POST',
+      body: {
+        action: 'chunk',
+        uploadId,
+        chunkIndex: i,
+        totalChunks,
+        chunkData,
+        finalize: isLast,
+        filename,
+        name,
+        type: mimeType,
+        isDefault,
+      },
+    });
+
+    if (onProgress) {
+      onProgress(Math.min(99, Math.round(((i + 1) / totalChunks) * 95)));
+    }
+    if (res?.url) {
+      finalUrl = res.url;
+    }
+  }
+
+  if (onProgress) onProgress(100);
+  if (!finalUrl) throw new Error('Chunked video upload did not return a final URL.');
+  return finalUrl;
+}
+
+/**
  * Read an image picked from the device and shrink it to a portable form.
  *
- * Phone portraits run to multiple megabytes, which do not belong in IndexedDB
- * or an <img> src. This downsizes to `maxEdge` on the long side and re-encodes
- * as JPEG.
- *
- * The result is then pushed to /api/admin/media so the portrait becomes a real
- * URL that every device can load (the admin's own device used to be the only
- * place an uploaded photo appeared). When that upload is not possible - offline,
- * or the caller is not an admin - the inline data URL is returned instead, so
- * the photo still works locally. Returns null when the file cannot be decoded -
- * callers treat that as "no photo".
+ * Downsizes to `maxEdge` (512px) on the long side and re-encodes as JPEG (~35 KB).
+ * Returns a clean `data:image/jpeg;base64,...` string which is 100% portable,
+ * stores directly in `global_reciters.image_url`, and renders immediately on
+ * every phone, tablet, and desktop without domain or CORS issues.
  */
 export async function resizeImageToDataUrl(
   file: File,
@@ -194,23 +291,9 @@ export async function resizeImageToDataUrl(
     }
     ctx.drawImage(bitmap, 0, 0, width, height);
     if (typeof bitmap.close === 'function') bitmap.close();
-    const dataUrl = canvas.toDataURL('image/jpeg', quality);
-
-    // Prefer a hosted URL; fall back to the inline copy when that is not possible.
-    try {
-      const stored = await appApi<{ url?: string }>('/admin/media', {
-        method: 'POST',
-        body: { dataUrl, kind: 'image' },
-      });
-      if (stored?.url) {
-        return stored.url.startsWith('http') ? stored.url : `${window.location.origin}${stored.url}`;
-      }
-    } catch {
-      /* offline or not an admin - keep the device-local copy */
-    }
-
-    return dataUrl;
+    return canvas.toDataURL('image/jpeg', quality);
   } catch {
     return null;
   }
 }
+
