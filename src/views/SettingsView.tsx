@@ -35,7 +35,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { ReciterAvatar } from '../components/ReciterAvatar';
-import { resizeImageToDataUrl } from '../lib/upload';
+import { resizeImageToDataUrl, uploadMediaToServer, mediaStore } from '../lib/upload';
 import {
   uploadRecitation,
   replaceRecitation,
@@ -71,6 +71,8 @@ export function SettingsView() {
     setActiveBackgroundVideoId,
     ambientVideoMapping,
     setAmbientVideoMapping,
+    refreshGlobalCatalog,
+    syncLocalAssetsToCloud,
   } = usePlayer();
 
   const { user, role, logOut } = useAuth();
@@ -117,6 +119,10 @@ export function SettingsView() {
   // Background Videos state
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoError, setVideoError] = useState('');
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const [isSyncingCloudAssets, setIsSyncingCloudAssets] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState('');
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
 
   // Toast feedback state
@@ -290,7 +296,7 @@ export function SettingsView() {
     });
   }, [surahsList, surahSearch, surahFilterTab, reciterSurahMap]);
 
-  // 1. CHANGE PROFILE PICTURE DIRECTLY FROM PHONE PHOTO
+  // 1. CHANGE PROFILE PICTURE DIRECTLY FROM PHONE / SYSTEM PHOTO
   const handleReciterPhotoUpload = async (reciterId: string, file: File) => {
     try {
       const dataUrl = await resizeImageToDataUrl(file, 512, 0.88);
@@ -311,24 +317,27 @@ export function SettingsView() {
         await localforage.setItem('customReciters', updated);
       }
 
-      // 2. Global server sync — persist to backend so phone, tablet, and all users get this portrait!
+      // 2. Global server sync — persist to /api/media and /api/admin/reciters so phones, tablets, and all users get this portrait!
       let permanentUrl = dataUrl;
       try {
-        const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
-          method: 'POST',
-          body: {
-            data: dataUrl,
-            filename: `sheikh_${reciterId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
-            name: reciter?.name || reciterId,
-            type: 'image/jpeg',
-          },
+        const hostedUrl = await uploadMediaToServer(dataUrl, {
+          filename: `sheikh_${reciterId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
+          name: reciter?.name || reciterId,
+          type: 'image/jpeg',
         });
-        if (mediaRes?.url) {
-          permanentUrl = mediaRes.url;
+        if (hostedUrl) {
+          permanentUrl = hostedUrl;
           updateReciterOverride(reciterId, { imageUrl: permanentUrl });
+          if (customReciters.some(c => c.id === reciterId)) {
+            const updatedWithHosted = customReciters.map(c =>
+              c.id === reciterId ? { ...c, imageUrl: permanentUrl } : c
+            );
+            setCustomReciters(updatedWithHosted);
+            await localforage.setItem('customReciters', updatedWithHosted);
+          }
         }
       } catch (mediaErr) {
-        // Fall back to dataUrl
+        console.warn('Portrait media upload fallback:', mediaErr);
       }
 
       try {
@@ -337,6 +346,9 @@ export function SettingsView() {
           body: {
             id: reciterId,
             name: reciter?.name || reciterId,
+            nameArabic: reciter?.nameArabic,
+            category: reciter?.category,
+            style: reciter?.style || 'Murattal',
             serverUrl: reciter?.serverUrl || '',
             imageUrl: permanentUrl,
             bio: reciter?.bio,
@@ -346,7 +358,8 @@ export function SettingsView() {
         console.warn('Could not sync to /admin/reciters:', adminErr);
       }
 
-      showToast(`Profile picture for ${reciter?.name || 'sheikh'} synced to all devices!`, 'success');
+      await refreshGlobalCatalog();
+      showToast(`Profile picture for ${reciter?.name || 'sheikh'} synced to all phones, tablets, and users!`, 'success');
     } catch (err: any) {
       console.error('Error uploading photo:', err);
       showToast('Failed to update picture. Please try again.', 'error');
@@ -373,17 +386,22 @@ export function SettingsView() {
         body: {
           id: reciterId,
           name: reciter?.name || reciterId,
+          nameArabic: reciter?.nameArabic,
+          category: reciter?.category,
+          style: reciter?.style || 'Murattal',
           serverUrl: reciter?.serverUrl || '',
+          imageUrl: reciter?.imageUrl,
           bio: trimmed || undefined,
         },
       });
+      await refreshGlobalCatalog();
     } catch {}
 
     setEditingBioReciterId(null);
     showToast('Reciter biography saved and synced across all devices.', 'success');
   };
 
-  // 3. ADD NEW RECITER (WITH PHONE PHOTO)
+  // 3. ADD NEW RECITER (WITH PHONE / SYSTEM PHOTO)
   const handleCreateReciter = async () => {
     setAddReciterError('');
     if (!newReciterName.trim()) {
@@ -394,6 +412,24 @@ export function SettingsView() {
     setIsSubmittingReciter(true);
     try {
       const newId = 'custom_' + Date.now();
+      let permanentPhotoUrl = newReciterPhotoData || undefined;
+
+      // Upload profile picture to cloud media storage so phones, tablets, and all users can load it
+      if (newReciterPhotoData) {
+        try {
+          const hosted = await uploadMediaToServer(newReciterPhotoData, {
+            filename: `sheikh_${newId}.jpg`,
+            name: newReciterName.trim(),
+            type: 'image/jpeg',
+          });
+          if (hosted) {
+            permanentPhotoUrl = hosted;
+          }
+        } catch (photoErr) {
+          console.warn('New reciter photo upload fallback:', photoErr);
+        }
+      }
+
       const newReciterObj: Reciter = {
         id: newId,
         name: newReciterName.trim(),
@@ -401,28 +437,53 @@ export function SettingsView() {
         style: 'Murattal',
         category: newReciterSection,
         bio: newReciterBio.trim() || undefined,
-        imageUrl: newReciterPhotoData || undefined,
+        imageUrl: permanentPhotoUrl,
+        serverUrl: '',
       };
 
       const updated = [...customReciters, newReciterObj];
       setCustomReciters(updated);
       await localforage.setItem('customReciters', updated);
 
-      if (newReciterPhotoData || newReciterBio.trim()) {
+      if (permanentPhotoUrl || newReciterBio.trim()) {
         updateReciterOverride(newId, {
-          imageUrl: newReciterPhotoData || undefined,
+          name: newReciterObj.name,
+          nameArabic: newReciterObj.nameArabic,
+          category: newReciterObj.category,
+          imageUrl: permanentPhotoUrl,
           bio: newReciterBio.trim() || undefined,
         });
       }
 
-      // Sync to backend if authenticated
+      // Sync to global_reciters so all users, phones, and tablets see this sheikh & portrait!
+      try {
+        await appApi('/admin/reciters', {
+          method: 'POST',
+          body: {
+            id: newId,
+            name: newReciterObj.name,
+            nameArabic: newReciterObj.nameArabic,
+            style: newReciterObj.style,
+            category: newReciterObj.category,
+            bio: newReciterObj.bio,
+            imageUrl: permanentPhotoUrl,
+            serverUrl: '',
+          },
+        });
+      } catch (e) {
+        console.warn('Global reciter sync note:', e);
+      }
+
+      // Also sync to user's personal reciters if authenticated
       if (user) {
         try {
           await appApi('/me/reciters', { method: 'POST', body: newReciterObj });
         } catch (e) {
-          console.warn('Reciter added on device, sync skipped:', e);
+          console.warn('Reciter added on device, personal sync skipped:', e);
         }
       }
+
+      await refreshGlobalCatalog();
 
       // Reset modal fields
       setNewReciterName('');
@@ -431,7 +492,7 @@ export function SettingsView() {
       setNewReciterPhotoData(null);
       setShowAddReciterModal(false);
 
-      showToast(`Added ${newReciterObj.name}! Now upload your downloaded surahs.`, 'success');
+      showToast(`Added ${newReciterObj.name} and synced to all devices!`, 'success');
       // Automatically open Surah upload manager for this new sheikh
       setManagingReciterId(newId);
     } catch (err: any) {
@@ -460,6 +521,13 @@ export function SettingsView() {
       setManagingReciterId(null);
     }
 
+    try {
+      await appApi('/admin/reciters', {
+        method: 'POST',
+        body: { id: reciter.id, action: 'delete' },
+      });
+    } catch {}
+
     if (user) {
       try {
         await appApi(`/me/reciters/${encodeURIComponent(reciter.id)}`, { method: 'DELETE' });
@@ -468,6 +536,7 @@ export function SettingsView() {
       }
     }
 
+    await refreshGlobalCatalog();
     showToast(`Removed "${reciter.name}".`, 'success');
   };
 
@@ -590,59 +659,94 @@ export function SettingsView() {
       return;
     }
 
-    const blob = new Blob([videoFile], { type: videoFile.type });
-    const id = 'custom_vid_' + Date.now();
-    let publicUrl = id;
-
-    // 1. Upload video directly to server media storage so every device (phone, tablet, computer) can stream it
+    setVideoUploading(true);
+    setVideoUploadProgress(5);
     try {
-      const reader = new FileReader();
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      const blob = new Blob([await videoFile.arrayBuffer()], { type: videoFile.type || 'video/mp4' });
+      const id = 'custom_vid_' + Date.now();
+      const cleanName = videoFile.name.replace(/\.[^/.]+$/, '');
+      let publicUrl = id;
 
-      const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
-        method: 'POST',
-        body: {
-          data: base64Data,
-          filename: videoFile.name,
-          name: videoFile.name.replace(/\.[^/.]+$/, ''),
-          type: videoFile.type,
-          isDefault: true,
-        },
-      });
+      // Save locally in localforage for instant playback on this system
+      await localforage.setItem('customVideo_blob_' + id, blob);
+      await localforage.setItem(id, blob);
+      setVideoUploadProgress(15);
 
-      if (mediaRes?.url) {
-        publicUrl = mediaRes.url;
+      // 1. Upload video in chunks to server media storage so every phone, tablet, and computer can stream it!
+      try {
+        const hostedUrl = await uploadMediaToServer(
+          videoFile,
+          {
+            filename: videoFile.name,
+            name: cleanName,
+            type: videoFile.type || 'video/mp4',
+            isDefault: true,
+          },
+          pct => setVideoUploadProgress(15 + Math.round(pct * 0.75))
+        );
+
+        if (hostedUrl) {
+          publicUrl = hostedUrl;
+        }
+      } catch (uploadErr) {
+        console.warn('Could not stream to /api/media, using fallback:', uploadErr);
       }
-    } catch (uploadErr) {
-      console.warn('Could not stream to /api/media, using fallback:', uploadErr);
+
+      const newEntry = {
+        id,
+        name: cleanName,
+        videoUrl: publicUrl,
+        sizeBytes: videoFile.size,
+        isDefault: true,
+        createdAt: Date.now(),
+      };
+      const updated = [newEntry, ...customVideos.map(v => ({ ...v, isDefault: false }))];
+      setCustomVideos(updated);
+      await localforage.setItem('customVideos_list', updated);
+      setActiveBackgroundVideoId(publicUrl);
+      setVideoFile(null);
+
+      // 2. Broadcast to all users / devices via backend ambient service
+      try {
+        await appApi('/admin/ambient', {
+          method: 'POST',
+          body: { action: 'add_video', id, name: cleanName, videoUrl: publicUrl, isDefault: true },
+        });
+        await appApi('/admin/ambient', {
+          method: 'POST',
+          body: { action: 'set_default', id, videoUrl: publicUrl },
+        });
+      } catch (ambientErr) {
+        console.warn('Could not broadcast ambient video:', ambientErr);
+      }
+
+      await refreshGlobalCatalog();
+      setVideoUploadProgress(100);
+      showToast('Background video uploaded and broadcast to all phones, tablets, and computers!', 'success');
+    } catch (err: any) {
+      setVideoError(err?.message || 'Failed to upload video.');
+      showToast(err?.message || 'Failed to upload video.', 'error');
+    } finally {
+      setVideoUploading(false);
+      setVideoUploadProgress(0);
     }
+  };
 
-    const updated = [...customVideos, { id, name: videoFile.name, videoUrl: publicUrl, isDefault: true }];
-    setCustomVideos(updated);
-    await localforage.setItem('customVideos_list', updated);
-    await localforage.setItem('customVideo_blob_' + id, blob);
-    setActiveBackgroundVideoId(publicUrl);
-    setVideoFile(null);
-
-    // 2. Broadcast to all users / devices via backend ambient service
+  const handleManualCloudSync = async () => {
+    setIsSyncingCloudAssets(true);
+    setSyncStatusText('Syncing saved videos and sheikh portraits to cloud...');
     try {
-      await appApi('/admin/ambient', {
-        method: 'POST',
-        body: { action: 'add_video', name: videoFile.name, videoUrl: publicUrl, isDefault: true },
-      });
-      await appApi('/admin/ambient', {
-        method: 'POST',
-        body: { action: 'set_default', videoUrl: publicUrl },
-      });
-    } catch (ambientErr) {
-      console.warn('Could not broadcast ambient video:', ambientErr);
+      const { syncedPhotos, syncedVideos } = await syncLocalAssetsToCloud(msg => setSyncStatusText(msg));
+      showToast(
+        `Synced ${syncedPhotos} sheikh profile(s) & ${syncedVideos} background video(s) for all phones and tablets!`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(err?.message || 'Cloud sync encountered an issue.', 'error');
+    } finally {
+      setIsSyncingCloudAssets(false);
+      setSyncStatusText('');
     }
-
-    showToast('Background video uploaded and broadcast to all phones, tablets, and computers!', 'success');
   };
 
   const handleBroadcastPreset = async (url: string, name: string) => {
@@ -661,13 +765,21 @@ export function SettingsView() {
   };
 
   const handleRemoveVideo = async (id: string) => {
-    if (activeBackgroundVideoId === id) {
+    const target = customVideos.find(v => v.id === id);
+    if (activeBackgroundVideoId === id || (target?.videoUrl && activeBackgroundVideoId === target.videoUrl)) {
       setActiveBackgroundVideoId(null);
     }
     const updated = customVideos.filter(v => v.id !== id);
     setCustomVideos(updated);
     await localforage.setItem('customVideos_list', updated);
     await localforage.removeItem('customVideo_blob_' + id);
+    await localforage.removeItem(id);
+    try {
+      await appApi('/admin/ambient', {
+        method: 'POST',
+        body: { action: 'delete_video', id },
+      });
+    } catch {}
     showToast('Background video removed.', 'success');
   };
 
@@ -1626,16 +1738,29 @@ export function SettingsView() {
         {/* CUSTOM BACKGROUND VIDEOS SECTION */}
         {/* ============================================================ */}
         <section className="bg-[#0D121F]/90 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-8 shadow-xl">
-          <div className="flex items-start justify-between gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
             <div>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Video className="w-5 h-5 text-teal-400" />
                 Custom Background Videos
               </h2>
               <p className="text-slate-400 text-sm mt-1">
-                Upload your own video loops to play seamlessly in the background during recitation.
+                Upload your own video loops to play seamlessly in the background across all phones, tablets, and computers.
               </p>
             </div>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleManualCloudSync}
+                disabled={isSyncingCloudAssets}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 text-teal-300 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                title="Sync all videos and sheikh profile photos saved on this system so they show on phones, tablets, and for all users"
+              >
+                <RefreshCw size={14} className={isSyncingCloudAssets ? 'animate-spin' : ''} />
+                <span>{isSyncingCloudAssets ? (syncStatusText || 'Syncing to Cloud...') : 'Sync Saved Videos & Photos to Phone'}</span>
+              </button>
+            )}
           </div>
 
           {/* ADMIN ONLY CONTROLS */}
@@ -1646,12 +1771,12 @@ export function SettingsView() {
                   <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 hover:border-teal-500/50 rounded-2xl p-6 cursor-pointer bg-[#050811]/50 transition-all group">
                     <Video className="w-8 h-8 text-slate-500 group-hover:text-teal-400 transition-colors mb-2" />
                     <span className="text-sm font-semibold text-slate-300">
-                      {videoFile ? videoFile.name : 'Choose a video file from your phone / device'}
+                      {videoFile ? videoFile.name : 'Choose a video file from your system / phone'}
                     </span>
-                    <span className="text-xs text-slate-500 mt-1">Supports MP4, WebM (Broadcasts to all users)</span>
+                    <span className="text-xs text-slate-500 mt-1">Supports MP4, WebM, MOV (Automatically syncs to phones, tablets & all users)</span>
                     <input
                       type="file"
-                      accept="video/*"
+                      accept="video/mp4,video/webm,video/quicktime,video/*"
                       onChange={e => {
                         const f = e.target.files?.[0];
                         if (f) setVideoFile(f);
@@ -1663,18 +1788,24 @@ export function SettingsView() {
 
                 <div className="flex flex-col justify-end">
                   <button
-                    onClick={async () => {
-                      await handleUploadVideo();
-                      showToast('Uploaded! Admin background broadcasts to all users.', 'success');
-                    }}
-                    disabled={!videoFile}
+                    onClick={handleUploadVideo}
+                    disabled={!videoFile || videoUploading}
                     className="w-full bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:hover:bg-teal-500 text-slate-950 font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-teal-500/20"
                   >
                     <Upload size={18} />
-                    Upload & Broadcast
+                    {videoUploading ? `Uploading (${videoUploadProgress}%)...` : 'Upload & Broadcast'}
                   </button>
                 </div>
               </div>
+
+              {videoUploading && (
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
+                  <div
+                    className="h-full bg-teal-500 transition-all duration-200"
+                    style={{ width: `${videoUploadProgress}%` }}
+                  />
+                </div>
+              )}
 
               {videoError && (
                 <div className="flex items-center gap-2 text-red-400 text-sm mb-4">
@@ -1688,6 +1819,11 @@ export function SettingsView() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
                   {customVideos.map(vid => {
                     const isActive = activeBackgroundVideoId === vid.id || (vid.videoUrl && activeBackgroundVideoId === vid.videoUrl);
+                    const isCloudSynced =
+                      vid.videoUrl &&
+                      (vid.videoUrl.startsWith('/api/media/') ||
+                        vid.videoUrl.startsWith('https://') ||
+                        vid.videoUrl.startsWith('http://'));
                     return (
                       <div key={vid.id} className="relative group bg-[#050811] border border-slate-800 rounded-2xl p-3 flex flex-col gap-2">
                         <div className="flex items-center justify-between overflow-hidden">
@@ -1695,7 +1831,12 @@ export function SettingsView() {
                             <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center shrink-0">
                               <Video size={16} className="text-teal-400" />
                             </div>
-                            <span className="text-xs font-medium text-white truncate">{vid.name}</span>
+                            <div className="overflow-hidden">
+                              <span className="text-xs font-medium text-white truncate block">{vid.name}</span>
+                              <span className="text-[10px] text-slate-500">
+                                {isCloudSynced ? 'Synced for Phone & Tablet' : 'Saved on System (Click Set to Sync)'}
+                              </span>
+                            </div>
                           </div>
                           <button
                             onClick={() => handleRemoveVideo(vid.id)}
@@ -1710,18 +1851,53 @@ export function SettingsView() {
                           <button
                             type="button"
                             onClick={async () => {
-                              const targetVal = vid.videoUrl || vid.id;
-                              setActiveBackgroundVideoId(isActive ? null : targetVal);
-                              if (!isActive && targetVal) {
-                                try {
-                                  await appApi('/admin/ambient', {
-                                    method: 'POST',
-                                    body: { action: 'set_default', id: vid.id, videoUrl: vid.videoUrl || '' }
-                                  });
-                                  showToast('Broadcasted to all users as active background!', 'success');
-                                } catch {
-                                  showToast('Set active locally; server broadcast saved.', 'success');
+                              let targetVal = vid.videoUrl || vid.id;
+                              const isPortable =
+                                targetVal.startsWith('/api/media/') ||
+                                targetVal.startsWith('https://') ||
+                                targetVal.startsWith('http://');
+
+                              // If this video was saved locally on the system earlier, upload its blob to cloud now!
+                              if (!isPortable) {
+                                const blob =
+                                  (await localforage.getItem<Blob>(vid.id)) ||
+                                  (await localforage.getItem<Blob>(`customVideo_blob_${vid.id}`)) ||
+                                  (await mediaStore.getItem<Blob>(vid.id));
+                                if (blob) {
+                                  showToast(`Syncing "${vid.name}" to cloud for phone & tablet playback...`, 'success');
+                                  try {
+                                    const hosted = await uploadMediaToServer(blob, {
+                                      filename: `${vid.name || 'video'}.mp4`,
+                                      name: vid.name,
+                                      type: blob.type || 'video/mp4',
+                                      isDefault: true,
+                                    });
+                                    if (hosted) {
+                                      targetVal = hosted;
+                                      const nextList = customVideos.map(item =>
+                                        item.id === vid.id ? { ...item, videoUrl: hosted, isDefault: true } : { ...item, isDefault: false }
+                                      );
+                                      setCustomVideos(nextList);
+                                      await localforage.setItem('customVideos_list', nextList);
+                                    }
+                                  } catch {}
                                 }
+                              }
+
+                              setActiveBackgroundVideoId(targetVal);
+                              try {
+                                await appApi('/admin/ambient', {
+                                  method: 'POST',
+                                  body: { action: 'add_video', id: vid.id, name: vid.name, videoUrl: targetVal, isDefault: true }
+                                });
+                                await appApi('/admin/ambient', {
+                                  method: 'POST',
+                                  body: { action: 'set_default', id: vid.id, videoUrl: targetVal }
+                                });
+                                await refreshGlobalCatalog();
+                                showToast(`"${vid.name}" is now active on all phones, tablets, and user accounts!`, 'success');
+                              } catch {
+                                showToast('Set active locally; server broadcast saved.', 'success');
                               }
                             }}
                             className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
@@ -1730,7 +1906,7 @@ export function SettingsView() {
                                 : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:border-teal-500/50'
                             }`}
                           >
-                            {isActive ? '✓ Active on All Users' : 'Set for All Users'}
+                            {isActive ? '✓ Active on All Devices' : 'Set for All Devices & Phone'}
                           </button>
                           {vid.isDefault && (
                             <span className="text-[9px] text-amber-400 uppercase font-semibold">Global Default</span>

@@ -105,7 +105,11 @@ function loadStore() {
   try {
     if (fs.existsSync(STORE_FILE)) {
       const data = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
-      if (data && typeof data === 'object') return data;
+      if (data && typeof data === 'object') {
+        if (!data.global_media) data.global_media = {};
+        if (!data.global_media_chunks) data.global_media_chunks = {};
+        return data;
+      }
     }
   } catch {}
   return {
@@ -119,6 +123,8 @@ function loadStore() {
     ambient_sounds: {
       default: '/videos/cosmos.mp4',
     },
+    global_media: {},
+    global_media_chunks: {},
     users: fallbackUsers,
   };
 }
@@ -149,13 +155,20 @@ async function ensureDbInitialized(p) {
         last_login_at TIMESTAMPTZ
       );
       CREATE TABLE IF NOT EXISTS global_reciters (
-        id         TEXT PRIMARY KEY,
-        name       TEXT NOT NULL,
-        style      TEXT,
-        server_url TEXT,
-        image_url  TEXT,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        name_arabic TEXT,
+        style       TEXT,
+        category    TEXT,
+        bio         TEXT,
+        server_url  TEXT,
+        image_url   TEXT,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT;
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT;
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT;
+      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
       CREATE TABLE IF NOT EXISTS global_background_videos (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL,
@@ -176,6 +189,13 @@ async function ensureDbInitialized(p) {
         mime_type  TEXT NOT NULL,
         data_url   TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS global_media_chunks (
+        upload_id   TEXT NOT NULL,
+        chunk_index INT NOT NULL,
+        chunk_data  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (upload_id, chunk_index)
       );
       INSERT INTO users (uid, email, display_name, role)
       VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
@@ -259,19 +279,47 @@ export async function q(text, params = []) {
       return { rows: serverStore.global_reciters };
     }
     if (qStr.includes('INSERT INTO global_reciters') || qStr.includes('INSERT INTO custom_reciters')) {
+      // Support both 4-param and 7-param inserts
       const id = params[0];
-      const name = typeof params[1] === 'string' && params[1].trim() ? params[1].trim() : id;
-      const serverUrl = typeof params[2] === 'string' ? params[2].trim() : '';
-      const imageUrl = params[3] !== undefined ? params[3] : (params.find(p => typeof p === 'string' && (p.startsWith('data:image') || (p !== serverUrl && p.includes('/')))) || null);
-      
       const existingIdx = serverStore.global_reciters.findIndex(r => r.id === id);
       const prev = existingIdx >= 0 ? serverStore.global_reciters[existingIdx] : null;
+
+      let name = '';
+      let serverUrl = '';
+      let imageUrl = null;
+      let nameArabic = null;
+      let category = null;
+      let bio = null;
+
+      if (qStr.includes('INSERT INTO custom_reciters')) {
+        // params: [id, user.uid, name, style, serverUrl, imageUrl]
+        name = typeof params[2] === 'string' ? params[2].trim() : id;
+        serverUrl = typeof params[4] === 'string' ? params[4].trim() : '';
+        imageUrl = params[5] !== undefined ? params[5] : null;
+      } else if (params.length >= 7) {
+        // params: [id, name, serverUrl, imageUrl, nameArabic, category, bio]
+        name = typeof params[1] === 'string' ? params[1].trim() : '';
+        serverUrl = typeof params[2] === 'string' ? params[2].trim() : '';
+        imageUrl = params[3] !== undefined ? params[3] : null;
+        nameArabic = params[4] !== undefined ? params[4] : null;
+        category = params[5] !== undefined ? params[5] : null;
+        bio = params[6] !== undefined ? params[6] : null;
+      } else {
+        // params: [id, name, serverUrl, imageUrl]
+        name = typeof params[1] === 'string' ? params[1].trim() : '';
+        serverUrl = typeof params[2] === 'string' ? params[2].trim() : '';
+        imageUrl = params[3] !== undefined ? params[3] : null;
+      }
+
       const reciterRow = {
         id,
         name: name || prev?.name || id,
+        name_arabic: nameArabic !== null && nameArabic !== undefined ? nameArabic : (prev?.name_arabic || null),
         style: prev?.style || 'Custom Global',
+        category: category !== null && category !== undefined ? category : (prev?.category || null),
+        bio: bio !== null && bio !== undefined ? bio : (prev?.bio || null),
         server_url: serverUrl || prev?.server_url || '',
-        image_url: imageUrl !== null && imageUrl !== undefined ? imageUrl : prev?.image_url,
+        image_url: imageUrl !== null && imageUrl !== undefined ? imageUrl : (prev?.image_url || null),
       };
       if (existingIdx >= 0) {
         serverStore.global_reciters[existingIdx] = reciterRow;
@@ -281,7 +329,7 @@ export async function q(text, params = []) {
       saveStore();
       return { rowCount: 1, rows: [reciterRow] };
     }
-    if (qStr.includes('DELETE FROM global_reciters WHERE id = $1')) {
+    if (qStr.includes('DELETE FROM global_reciters') || qStr.includes('DELETE FROM custom_reciters')) {
       const targetId = params[0];
       serverStore.global_reciters = serverStore.global_reciters.filter(r => r.id !== targetId);
       saveStore();
@@ -347,6 +395,53 @@ export async function q(text, params = []) {
       saveStore();
       return { rowCount: 1, rows: [] };
     }
+  }
+
+  // 5. Global Media & Chunks
+  if (qStr.includes('global_media_chunks')) {
+    if (!serverStore.global_media_chunks) serverStore.global_media_chunks = {};
+    if (qStr.startsWith('INSERT INTO global_media_chunks')) {
+      const [uploadId, chunkIndex, chunkData] = params;
+      if (!serverStore.global_media_chunks[uploadId]) {
+        serverStore.global_media_chunks[uploadId] = {};
+      }
+      serverStore.global_media_chunks[uploadId][Number(chunkIndex)] = String(chunkData || '');
+      return { rowCount: 1, rows: [] };
+    }
+    if (qStr.startsWith('SELECT') && params[0]) {
+      const uploadId = params[0];
+      const map = serverStore.global_media_chunks[uploadId] || {};
+      const rows = Object.keys(map)
+        .map(k => ({ chunk_index: Number(k), chunk_data: map[k] }))
+        .sort((a, b) => a.chunk_index - b.chunk_index);
+      return { rows };
+    }
+    if (qStr.startsWith('DELETE FROM global_media_chunks') && params[0]) {
+      delete serverStore.global_media_chunks[params[0]];
+      return { rowCount: 1, rows: [] };
+    }
+    return { rows: [] };
+  }
+
+  if (qStr.includes('global_media')) {
+    if (!serverStore.global_media) serverStore.global_media = {};
+    if (qStr.startsWith('INSERT INTO global_media')) {
+      const [id, kind, mimeType, dataUrl] = params;
+      serverStore.global_media[id] = {
+        id,
+        kind,
+        mime_type: mimeType,
+        data_url: dataUrl,
+        created_at: new Date().toISOString(),
+      };
+      saveStore();
+      return { rowCount: 1, rows: [serverStore.global_media[id]] };
+    }
+    if (qStr.startsWith('SELECT') && params[0]) {
+      const item = serverStore.global_media[params[0]];
+      return { rows: item ? [item] : [] };
+    }
+    return { rows: [] };
   }
 
   if (qStr.includes('user_preferences')) {

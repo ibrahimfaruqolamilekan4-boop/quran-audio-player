@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Video, Upload, Trash2, Save, RefreshCw, Play, X, Film, Globe, Star, Check } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useBackgroundVideoSrc } from '../../lib/backgrounds';
-import { validateFile } from '../../lib/upload';
+import { validateFile, uploadMediaToServer, mediaStore } from '../../lib/upload';
 import { AMBIENT_TRACKS } from '../../lib/constants';
 import { formatBytes } from '../../lib/recitations';
 import { appApi } from '../../lib/api';
@@ -36,7 +36,7 @@ export function BackgroundsAdmin({
   onSaveAmbient,
   savingAmbient,
 }: Props) {
-  const { customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId } = usePlayer();
+  const { customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId, refreshGlobalCatalog } = usePlayer();
 
   const [bgName, setBgName] = useState('');
   const [bgDescription, setBgDescription] = useState('');
@@ -63,18 +63,20 @@ export function BackgroundsAdmin({
       setBgError('Give this background a name (e.g. Kaaba Evening, Rain on Water).');
       return;
     }
-    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
-      setBgError('Please enter a valid video link starting with http:// or https://');
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('/'))) {
+      setBgError('Please enter a valid video link starting with https:// or /');
       return;
     }
 
     setBgUploading(true);
     try {
+      const id = `bg_vid_${Date.now()}`;
       // Save to cloud Postgres database so all devices and phone PWAs load it
       await appApi('/admin/ambient', {
         method: 'POST',
         body: {
           action: 'add_video',
+          id,
           name,
           videoUrl: url,
           description: bgDescription.trim() || undefined,
@@ -84,7 +86,6 @@ export function BackgroundsAdmin({
         console.warn('Cloud video sync note:', err?.message);
       });
 
-      const id = `bg_vid_${Date.now()}`;
       const entry: CustomVideo = {
         id,
         name,
@@ -100,6 +101,7 @@ export function BackgroundsAdmin({
         setActiveBackgroundVideoId(url);
       }
 
+      await refreshGlobalCatalog();
       showToast(`Added background “${name}” for all devices.`, 'success');
       setBgName('');
       setBgDescription('');
@@ -115,53 +117,44 @@ export function BackgroundsAdmin({
 
   const handleUploadBackground = async (file: File) => {
     setBgError('');
-    const name = bgName.trim() || file.name.replace(/\.[^/.]+$/, "");
+    const name = bgName.trim() || file.name.replace(/\.[^/.]+$/, '');
     setBgUploading(true);
-    setBgProgress(0);
+    setBgProgress(5);
     try {
       const check = validateFile(file, 'video');
       if (!check.valid) throw new Error(check.error || 'Invalid video file.');
-      setBgProgress(25);
       const id = `custom_vid_${Date.now()}`;
-      const blob = new Blob([await file.arrayBuffer()], { type: file.type });
-      
-      // Store blob locally in localforage
+      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'video/mp4' });
+
+      // Store blob locally in localforage for instant offline cache
       await localforage.setItem(`customVideo_blob_${id}`, blob);
-      setBgProgress(50);
+      await localforage.setItem(id, blob);
+      setBgProgress(15);
 
       let videoUrl: string | undefined = undefined;
       try {
-        const reader = new FileReader();
-        const base64Data = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-
-        const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
-          method: 'POST',
-          body: {
-            data: base64Data,
+        videoUrl = await uploadMediaToServer(
+          file,
+          {
             filename: file.name,
             name,
-            type: file.type,
+            type: file.type || 'video/mp4',
             isDefault: bgSetDefault,
           },
-        });
-        if (mediaRes?.url) {
-          videoUrl = mediaRes.url;
-        }
+          pct => setBgProgress(15 + Math.round(pct * 0.7))
+        );
       } catch (mediaErr) {
         console.warn('Could not stream to /api/media:', mediaErr);
       }
 
-      setBgProgress(80);
+      setBgProgress(90);
 
       if (videoUrl) {
         await appApi('/admin/ambient', {
           method: 'POST',
           body: {
             action: 'add_video',
+            id,
             name,
             videoUrl,
             description: bgDescription.trim() || undefined,
@@ -172,12 +165,11 @@ export function BackgroundsAdmin({
         if (bgSetDefault) {
           await appApi('/admin/ambient', {
             method: 'POST',
-            body: { action: 'set_default', videoUrl },
+            body: { action: 'set_default', id, videoUrl },
           }).catch(() => {});
         }
       }
 
-      setBgProgress(95);
       const entry: CustomVideo = {
         id,
         name,
@@ -193,8 +185,9 @@ export function BackgroundsAdmin({
         setActiveBackgroundVideoId(videoUrl || id);
       }
 
+      await refreshGlobalCatalog();
       setBgProgress(100);
-      showToast(`Added background “${name}”.`, 'success');
+      showToast(`Added background “${name}” and synced to cloud for phones & tablets!`, 'success');
       setBgName('');
       setBgDescription('');
       setBgUrl('');
@@ -210,25 +203,63 @@ export function BackgroundsAdmin({
 
   const handleSetGlobalDefault = async (video: CustomVideo) => {
     try {
-      const targetUrl = video.videoUrl || video.id;
+      let targetUrl = video.videoUrl || video.id;
+      const isPortable =
+        targetUrl.startsWith('/api/media/') ||
+        targetUrl.startsWith('https://') ||
+        targetUrl.startsWith('http://');
+
+      // If this video was only stored locally on this system, upload it to cloud first so phones & tablets can play it!
+      if (!isPortable) {
+        const blob =
+          (await localforage.getItem<Blob>(video.id)) ||
+          (await localforage.getItem<Blob>(`customVideo_blob_${video.id}`)) ||
+          (await mediaStore.getItem<Blob>(video.id));
+        if (blob) {
+          showToast(`Syncing “${video.name}” to cloud for mobile & tablet playback...`, 'success');
+          const hostedUrl = await uploadMediaToServer(blob, {
+            filename: `${video.name || 'video'}.mp4`,
+            name: video.name,
+            type: blob.type || 'video/mp4',
+            isDefault: true,
+          });
+          if (hostedUrl) {
+            targetUrl = hostedUrl;
+          }
+        }
+      }
+
       setActiveBackgroundVideoId(targetUrl);
+
+      await appApi('/admin/ambient', {
+        method: 'POST',
+        body: {
+          action: 'add_video',
+          id: video.id,
+          name: video.name,
+          videoUrl: targetUrl,
+          description: video.description,
+          isDefault: true,
+        },
+      }).catch(() => {});
 
       await appApi('/admin/ambient', {
         method: 'POST',
         body: {
           action: 'set_default',
           id: video.id,
-          videoUrl: video.videoUrl || '',
+          videoUrl: targetUrl,
         },
       }).catch(() => {});
 
       const updated = customVideos.map(v => ({
         ...v,
+        videoUrl: v.id === video.id ? targetUrl : v.videoUrl,
         isDefault: v.id === video.id,
       }));
       await persistVideos(updated);
 
-      showToast(`“${video.name}” is now the default background on all devices and phone PWAs.`, 'success');
+      showToast(`“${video.name}” is now the default background on all phones, tablets, and computers!`, 'success');
     } catch (err: any) {
       showToast(err?.message || 'Failed to set global default.', 'error');
     }
@@ -243,10 +274,38 @@ export function BackgroundsAdmin({
     try {
       const check = validateFile(file, 'video');
       if (!check.valid) throw new Error(check.error || 'Invalid video file.');
-      const blob = new Blob([await file.arrayBuffer()], { type: file.type });
+      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'video/mp4' });
       await localforage.setItem(`customVideo_blob_${id}`, blob);
-      await persistVideos(customVideos.map((v) => (v.id === id ? { ...v, sizeBytes: file.size } : v)));
-      showToast('Background video replaced.', 'success');
+      await localforage.setItem(id, blob);
+
+      const existing = customVideos.find(v => v.id === id);
+      let newUrl = existing?.videoUrl;
+      try {
+        newUrl = await uploadMediaToServer(file, {
+          filename: file.name,
+          name: existing?.name || file.name,
+          type: file.type || 'video/mp4',
+          isDefault: existing?.isDefault,
+        });
+        if (newUrl && existing) {
+          await appApi('/admin/ambient', {
+            method: 'POST',
+            body: {
+              action: 'add_video',
+              id,
+              name: existing.name,
+              videoUrl: newUrl,
+              description: existing.description,
+              isDefault: existing.isDefault,
+            },
+          }).catch(() => {});
+        }
+      } catch {}
+
+      await persistVideos(
+        customVideos.map((v) => (v.id === id ? { ...v, sizeBytes: file.size, videoUrl: newUrl || v.videoUrl } : v))
+      );
+      showToast('Background video replaced and synced across all devices.', 'success');
     } catch (err: any) {
       showToast(err?.message || 'Replace failed.', 'error');
     } finally {

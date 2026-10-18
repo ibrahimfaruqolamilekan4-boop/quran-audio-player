@@ -1,6 +1,7 @@
 // GET  /api/me/reciters  -> { reciters: [{ id, name, style, serverUrl, imageUrl }] }
 // POST /api/me/reciters  { id?, name, style?, serverUrl, imageUrl? }
-import { type Handler, qWithFallback, requireAuth, sendJson, readJson, cleanImageUrl } from '../_lib.mjs';
+import { type Handler, qWithFallback, requireAuth, sendJson, cleanImageUrl } from '../_lib.mjs';
+import { readJsonLarge } from '../media-lib.mjs';
 
 interface ReciterRow {
   id: string;
@@ -14,7 +15,7 @@ const mapRow = (r: ReciterRow) => ({
   id: r.id,
   name: r.name,
   style: r.style ?? 'Custom',
-  serverUrl: r.server_url,
+  serverUrl: r.server_url || '',
   ...(r.image_url ? { imageUrl: r.image_url } : {}),
 });
 
@@ -39,16 +40,17 @@ const handler: Handler = async (req, res) => {
     }
 
     if (req.method === 'POST') {
-      const body = await readJson(req);
+      const body = await readJsonLarge(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const serverUrl = typeof body.serverUrl === 'string' ? body.serverUrl.trim() : '';
       const style = typeof body.style === 'string' ? body.style : 'Custom';
       const imageUrl = cleanImageUrl(body.imageUrl);
-      const id = typeof body.id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(body.id)
+      const id = typeof body.id === 'string' && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id)
         ? body.id
         : `custom_${Date.now()}`;
 
-      if (!name || !serverUrl) return sendJson(res, 400, { error: 'Reciter name and server URL are required.' });
+      if (!name) return sendJson(res, 400, { error: 'Reciter name is required.' });
+
 
       await qWithFallback([
         {

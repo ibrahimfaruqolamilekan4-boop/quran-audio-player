@@ -14,15 +14,24 @@ import type { CustomVideo } from '../types';
 const blobUrlCache = new Map<string, string>();
 
 import { SOUNDSCAPE_VIDEOS } from './constants';
+import { mediaStore } from './upload';
 
 export async function resolveBackgroundVideo(
-  id: string,
+  rawId: string,
   videoLibrary?: CustomVideo[]
 ): Promise<{ url: string; revoke: boolean } | null> {
+  const id = (rawId || '').trim().replace(/^https?:\/\/localhost(:\d+)?/, '');
   if (!id) return { url: '/videos/cosmos.mp4', revoke: false };
 
-  // Direct URLs or relative paths
-  if (id.startsWith('http://') || id.startsWith('https://') || id.startsWith('blob:') || id.startsWith('data:') || id.startsWith('/')) {
+  // Direct URLs or relative paths (except legacy /videos/uploads/ if a better library match exists)
+  if (
+    id.startsWith('http://') ||
+    id.startsWith('https://') ||
+    id.startsWith('blob:') ||
+    id.startsWith('data:') ||
+    id.startsWith('/api/media/') ||
+    (id.startsWith('/videos/') && !id.startsWith('/videos/uploads/'))
+  ) {
     return { url: id, revoke: false };
   }
 
@@ -31,31 +40,40 @@ export async function resolveBackgroundVideo(
     return { url: SOUNDSCAPE_VIDEOS[id], revoke: false };
   }
 
-  // Check if it matches a known video entry from library
+  // Check if it matches a known video entry from library with a portable URL
   if (videoLibrary && videoLibrary.length > 0) {
-    const match = videoLibrary.find(v => v.id === id || v.name === id);
-    if (match && match.videoUrl) {
-      return { url: match.videoUrl, revoke: false };
+    const match = videoLibrary.find(v => v.id === id || v.name === id || v.videoUrl === id);
+    if (
+      match &&
+      match.videoUrl &&
+      match.videoUrl !== id &&
+      (match.videoUrl.startsWith('/api/media/') ||
+        match.videoUrl.startsWith('http://') ||
+        match.videoUrl.startsWith('https://') ||
+        (match.videoUrl.startsWith('/videos/') && !match.videoUrl.startsWith('/videos/uploads/')))
+    ) {
+      return { url: match.videoUrl.replace(/^https?:\/\/localhost(:\d+)?/, ''), revoke: false };
     }
   }
 
-  // Direct video filenames
-  if (id.endsWith('.mp4') || id.endsWith('.webm')) {
-    return { url: `/videos/${id}`, revoke: false };
-  }
-
-  // Check cache first
+  // Check in-memory blob cache first
   if (blobUrlCache.has(id)) {
     return { url: blobUrlCache.get(id)!, revoke: false };
   }
 
-  // Check localforage for Blob (saved locally on this device)
+  // Check localforage & mediaStore for Blob (saved locally on this device)
   try {
     let blob = await localforage.getItem<Blob>(id);
     if (!blob) {
       blob = await localforage.getItem<Blob>(`customVideo_blob_${id}`);
     }
-    if (blob) {
+    if (!blob) {
+      const storedItem = await mediaStore.getItem<any>(id);
+      if (storedItem?.blob instanceof Blob) {
+        blob = storedItem.blob;
+      }
+    }
+    if (blob instanceof Blob) {
       const url = URL.createObjectURL(blob);
       blobUrlCache.set(id, url);
       return { url, revoke: false };
@@ -64,9 +82,29 @@ export async function resolveBackgroundVideo(
     console.warn('Could not read localforage video blob:', err);
   }
 
+  // If this device (e.g. a phone or tablet) had a stale local ID, prefer the admin's global default video from videoLibrary
+  if (videoLibrary && videoLibrary.length > 0) {
+    const globalDef =
+      videoLibrary.find(v => v.isDefault && v.videoUrl && (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http') || v.videoUrl.startsWith('/videos/'))) ||
+      videoLibrary.find(v => v.videoUrl && (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http')));
+    if (globalDef?.videoUrl) {
+      return { url: globalDef.videoUrl.replace(/^https?:\/\/localhost(:\d+)?/, ''), revoke: false };
+    }
+  }
+
+  if (id.startsWith('/videos/uploads/')) {
+    return { url: id, revoke: false };
+  }
+
+  // Direct video filenames
+  if (id.endsWith('.mp4') || id.endsWith('.webm')) {
+    return { url: `/videos/${id}`, revoke: false };
+  }
+
   // Safe fallback to cosmos video so screen is never blank
   return { url: '/videos/cosmos.mp4', revoke: false };
 }
+
 
 /** Object URL for a stored background id, or null. Never revokes pass-through URLs. */
 export function useBackgroundVideoSrc(id: string | null | undefined, videoLibrary?: CustomVideo[]): string | null {

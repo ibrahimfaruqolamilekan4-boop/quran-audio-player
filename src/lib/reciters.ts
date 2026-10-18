@@ -2,13 +2,16 @@ import type { Reciter } from '../types';
 
 /**
  * Row shape returned by /api/reciters (the admin-managed `global_reciters` table).
- * `serverUrl` is optional there because a row may exist purely to carry a portrait for a
- * curated sheikh, whose audio mirror is already defined in code.
+ * `serverUrl` is optional because a row may exist to carry a portrait/bio for a
+ * curated sheikh or a custom sheikh added by the admin.
  */
 export interface GlobalReciterRow {
   id: string;
   name: string;
+  nameArabic?: string | null;
   style?: string | null;
+  category?: string | null;
+  bio?: string | null;
   serverUrl?: string | null;
   imageUrl?: string | null;
 }
@@ -16,29 +19,44 @@ export interface GlobalReciterRow {
 /**
  * Merge admin-managed global rows over the reciters defined in code.
  *
- * - Same id with a photo -> that sheikh's portrait is replaced (admin control).
- * - Same id without a photo -> left untouched, so an empty global row cannot wipe a curated image.
- * - Unknown id with a server URL -> treated as a new global sheikh and appended.
+ * - Same id -> replaces portrait, bio, category, Arabic name, or serverUrl when provided by admin.
+ * - Unknown id -> appended as a global sheikh visible to every user, phone, and tablet.
  */
 export function resolveReciters<T extends Reciter>(base: T[], globals: GlobalReciterRow[]): T[] {
   if (!globals.length) return base;
 
   const merged = base.map(reciter => {
     const override = globals.find(g => g.id === reciter.id);
-    if (!override?.imageUrl) return reciter;
-    return { ...reciter, imageUrl: override.imageUrl, imageCredit: undefined };
+    if (!override) return reciter;
+    const cleanImg = override.imageUrl ? override.imageUrl.replace(/^https?:\/\/localhost(:\d+)?/, '') : undefined;
+    return {
+      ...reciter,
+      ...(override.name && override.name !== reciter.id ? { name: override.name } : {}),
+      ...(override.nameArabic ? { nameArabic: override.nameArabic } : {}),
+      ...(override.category ? { category: override.category } : {}),
+      ...(override.bio ? { bio: override.bio } : {}),
+      ...(override.serverUrl ? { serverUrl: override.serverUrl } : {}),
+      ...(cleanImg ? { imageUrl: cleanImg, imageCredit: undefined } : {}),
+    };
   });
 
   const appended = globals
-    .filter(g => g.serverUrl && !base.some(r => r.id === g.id))
-    .map(g => ({
-      id: g.id,
-      name: g.name,
-      style: g.style || 'Murattal',
-      region: 'Global',
-      serverUrl: g.serverUrl as string,
-      ...(g.imageUrl ? { imageUrl: g.imageUrl } : {}),
-    }));
+    .filter(g => !base.some(r => r.id === g.id))
+    .map(g => {
+      const cleanImg = g.imageUrl ? g.imageUrl.replace(/^https?:\/\/localhost(:\d+)?/, '') : undefined;
+      return {
+        id: g.id,
+        name: g.name || g.id,
+        ...(g.nameArabic ? { nameArabic: g.nameArabic } : {}),
+        style: g.style && g.style !== 'Custom Global' ? g.style : 'Murattal',
+        category: g.category || 'Sweet Voices',
+        ...(g.bio ? { bio: g.bio } : {}),
+        region: 'Global',
+        serverUrl: g.serverUrl || 'https://server8.mp3quran.net/afs',
+        ...(cleanImg ? { imageUrl: cleanImg } : {}),
+      };
+    });
 
   return appended.length ? [...merged, ...(appended as unknown as T[])] : merged;
 }
+

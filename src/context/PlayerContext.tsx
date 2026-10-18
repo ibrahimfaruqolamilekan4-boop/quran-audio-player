@@ -13,6 +13,7 @@ import {
   recitationObjectUrl,
   type StoredRecitation,
 } from '../lib/recitations';
+import { mediaStore, uploadMediaToServer } from '../lib/upload';
 import { ALL_SURAHS } from '../lib/surahs';
 
 interface PlayerContextType {
@@ -64,6 +65,10 @@ interface PlayerContextType {
   /** Device-local reciter edits (portrait/bio), merged over every reciter source. */
   reciterOverrides: Record<string, Partial<Reciter>>;
   updateReciterOverride: (id: string, patch: Partial<Reciter>) => void;
+  /** Reload global reciters & ambient videos from the server. */
+  refreshGlobalCatalog: () => Promise<void>;
+  /** Push any locally saved sheikhs, profile photos, and background videos from this device to the cloud. */
+  syncLocalAssetsToCloud: (onStatus?: (msg: string) => void) => Promise<{ syncedPhotos: number; syncedVideos: number }>;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -81,6 +86,13 @@ interface Attempt {
   pendingFormat: string | null;
   /** URL that really started playing; cached in the background for offline listening. */
   playedUrl: string | null;
+}
+
+function normalizePortableMediaUrl(url: string | null | undefined): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim().replace(/^https?:\/\/localhost(:\d+)?/, '');
+  if (!trimmed) return null;
+  return trimmed;
 }
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
@@ -127,41 +139,87 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (Object.keys(reciterOverrides).length === 0) return merged;
     return merged.map(reciter => {
       const override = reciterOverrides[reciter.id];
-      return override ? { ...reciter, ...override, imageCredit: undefined } : reciter;
+      if (!override) return reciter;
+      // Prefer a hosted /api/media/ or https:// URL from globalReciters over a stale local override if global has one
+      const imageUrl = override.imageUrl || reciter.imageUrl;
+      return { ...reciter, ...override, imageUrl, imageCredit: undefined };
     });
   }, [customReciters, globalReciters, reciterOverrides]);
 
   const [ambientVideoMapping, setAmbientVideoMapping] = useState<Record<string, string>>({});
 
-  // Sync ambient mapping from local storage and backend admin broadcast
-  useEffect(() => {
-    localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
-      if (mapping) setAmbientVideoMapping(mapping);
-    });
+  const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => {
+    const saved = normalizePortableMediaUrl(localStorage.getItem('activeBackgroundVideoId'));
+    if (saved && (saved.startsWith('/') || saved.startsWith('http://') || saved.startsWith('https://'))) {
+      return saved;
+    }
+    return '/videos/cosmos.mp4';
+  });
 
-    // Fetch admin broadcast background so every user account displays the admin background
-    fetch('/api/ambient')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.activeDefaultVideoUrl) {
-          const current = localStorage.getItem('activeBackgroundVideoId');
-          // If user has not explicitly locked an override or is using default, adopt admin broadcast
-          if (!current || current === 'default' || current.startsWith('/videos/') || current.startsWith('curated_')) {
-            setActiveBackgroundVideoId(data.activeDefaultVideoUrl);
+  const refreshGlobalCatalog = useCallback(async () => {
+    try {
+      const reciterData = await appApi<{ reciters: GlobalReciterRow[] }>('/reciters');
+      if (Array.isArray(reciterData?.reciters)) {
+        setGlobalReciters(reciterData.reciters);
+      }
+    } catch (err: any) {
+      console.warn('Global reciters unavailable:', err?.message || String(err));
+    }
+
+    try {
+      const data = await appApi<{
+        ambientSounds: Record<string, string>;
+        videos?: CustomVideo[];
+        activeDefaultVideoUrl?: string | null;
+      }>('/ambient');
+
+      if (data?.ambientSounds && Object.keys(data.ambientSounds).length > 0) {
+        setAmbientVideoMapping(prev => ({ ...prev, ...data.ambientSounds }));
+      }
+      if (Array.isArray(data?.videos) && data.videos.length > 0) {
+        setCustomVideos(prev => {
+          const byKey = new Map<string, CustomVideo>();
+          for (const item of prev) {
+            byKey.set(item.id, item);
           }
+          for (const cloudVid of data.videos!) {
+            const existing = Array.from(byKey.values()).find(
+              v => v.id === cloudVid.id || (v.name && cloudVid.name && v.name.toLowerCase() === cloudVid.name.toLowerCase())
+            );
+            if (existing) {
+              byKey.set(existing.id, {
+                ...existing,
+                ...cloudVid,
+                id: existing.id,
+                videoUrl: cloudVid.videoUrl || existing.videoUrl,
+              });
+            } else {
+              byKey.set(cloudVid.id, cloudVid);
+            }
+          }
+          return Array.from(byKey.values());
+        });
+      }
+      if (data?.activeDefaultVideoUrl) {
+        const cleanDefault = normalizePortableMediaUrl(data.activeDefaultVideoUrl);
+        if (cleanDefault) {
+          setActiveBackgroundVideoId(cleanDefault);
+          localStorage.setItem('activeBackgroundVideoId', cleanDefault);
         }
-        if (data?.ambientSounds && typeof data.ambientSounds === 'object') {
-          setAmbientVideoMapping(prev => ({ ...prev, ...data.ambientSounds }));
-        }
-      })
-      .catch(err => {
-        console.warn('Could not sync admin ambient broadcast:', err);
-      });
+      }
+    } catch (err: any) {
+      console.warn('Global ambient unavailable:', err?.message || String(err));
+    }
   }, []);
 
-  const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(
-    () => localStorage.getItem("activeBackgroundVideoId") || '/videos/cosmos.mp4'
-  );
+  // Load ambient mapping from local storage and refresh global catalog on mount
+  useEffect(() => {
+    localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
+      if (mapping) setAmbientVideoMapping(prev => ({ ...mapping, ...prev }));
+    }).catch(() => {});
+
+    refreshGlobalCatalog();
+  }, [refreshGlobalCatalog]);
 
   // Update active background video when ambient track changes
   useEffect(() => {
@@ -172,6 +230,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [currentAmbient, ambientVideoMapping]);
+
   const [isNowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [playMode, setPlayModeState] = useState<'surah' | 'ayah'>(() => {
     try { return localStorage.getItem('quran-garden:playMode') === 'ayah' ? 'ayah' : 'surah'; } catch { return 'surah'; }
@@ -183,8 +242,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   currentAyahRef.current = currentAyah;
 
   useEffect(() => {
-    if (activeBackgroundVideoId) localStorage.setItem("activeBackgroundVideoId", activeBackgroundVideoId);
-    else localStorage.removeItem("activeBackgroundVideoId");
+    const clean = normalizePortableMediaUrl(activeBackgroundVideoId);
+    if (clean) localStorage.setItem('activeBackgroundVideoId', clean);
+    else localStorage.removeItem('activeBackgroundVideoId');
   }, [activeBackgroundVideoId]);
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -224,61 +284,232 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
   useEffect(() => { currentReciterRef.current = currentReciter; }, [currentReciter]);
 
-  /** Reciters, portraits, and ambient background videos published in the admin panel are public, so load them signed out too. */
-  useEffect(() => {
-    appApi<{ reciters: GlobalReciterRow[] }>('/reciters')
-      .then(data => setGlobalReciters(Array.isArray(data.reciters) ? data.reciters : []))
-      .catch(err => console.warn('Global reciters unavailable:', err?.message || String(err)));
+  /**
+   * Push all locally saved sheikhs, profile photos, and background videos from this system
+   * to the cloud database using chunked uploads so phones, tablets, and all users see them.
+   */
+  const syncLocalAssetsToCloud = useCallback(async (onStatus?: (msg: string) => void) => {
+    let syncedPhotos = 0;
+    let syncedVideos = 0;
 
-    // Load global ambient videos & mapping so all devices (including phones) get the video loops!
-    appApi<{ ambientSounds: Record<string, string>; videos?: CustomVideo[]; activeDefaultVideoUrl?: string | null }>('/ambient')
-      .then(data => {
-        if (data?.ambientSounds && Object.keys(data.ambientSounds).length > 0) {
-          setAmbientVideoMapping(prev => ({ ...data.ambientSounds, ...prev }));
+    try {
+      // 1. Sync all local customReciters + reciterOverrides to /api/media and /api/admin/reciters
+      const localReciters = (await localforage.getItem<Reciter[]>('customReciters')) || [];
+      const overrides = (await localforage.getItem<Record<string, Partial<Reciter>>>('reciterOverrides')) || {};
+      let overridesChanged = false;
+      let localRecitersChanged = false;
+
+      // Build combined map of reciters that have local customizations or were created locally
+      const reciterIds = new Set<string>([
+        ...localReciters.map(r => r.id),
+        ...Object.keys(overrides),
+      ]);
+
+      for (const id of reciterIds) {
+        const curated = CURATED_RECITERS.find(c => c.id === id);
+        const localRec = localReciters.find(c => c.id === id);
+        const patch = overrides[id] || {};
+
+        const name = patch.name || localRec?.name || curated?.name || id;
+        const nameArabic = patch.nameArabic || localRec?.nameArabic || curated?.nameArabic;
+        const category = patch.category || localRec?.category || curated?.category;
+        const style = patch.style || localRec?.style || curated?.style || 'Murattal';
+        const bio = patch.bio ?? localRec?.bio ?? curated?.bio;
+        const serverUrl = patch.serverUrl ?? localRec?.serverUrl ?? curated?.serverUrl ?? '';
+        let imageUrl = normalizePortableMediaUrl(patch.imageUrl || localRec?.imageUrl);
+
+        if (imageUrl) {
+          // If imageUrl is a data URL or a local /videos/uploads/ file, upload it to /api/media
+          const isData = imageUrl.startsWith('data:image/');
+          const isLocalUploadFile = imageUrl.startsWith('/videos/uploads/');
+
+          if (isData || isLocalUploadFile) {
+            try {
+              onStatus?.(`Syncing portrait for ${name}...`);
+              let uploadSource: Blob | string = imageUrl;
+              if (isLocalUploadFile) {
+                const resp = await fetch(imageUrl);
+                if (resp.ok) {
+                  uploadSource = await resp.blob();
+                }
+              }
+              const hostedUrl = await uploadMediaToServer(uploadSource, {
+                filename: `sheikh_${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
+                name,
+                type: 'image/jpeg',
+              });
+              if (hostedUrl) {
+                imageUrl = hostedUrl;
+                if (overrides[id]) {
+                  overrides[id] = { ...overrides[id], imageUrl: hostedUrl };
+                  overridesChanged = true;
+                }
+                const idx = localReciters.findIndex(r => r.id === id);
+                if (idx !== -1) {
+                  localReciters[idx] = { ...localReciters[idx], imageUrl: hostedUrl };
+                  localRecitersChanged = true;
+                }
+              }
+            } catch (err) {
+              console.warn('Portrait upload skipped for', id, err);
+            }
+          }
         }
-        if (data?.videos && data.videos.length > 0) {
-          setCustomVideos(prev => {
-            const merged = [...prev];
-            for (const v of data.videos!) {
-              if (!merged.some(m => m.id === v.id)) {
-                merged.push(v);
+
+        // Push reciter metadata + portrait to global_reciters so all users & phones see it
+        try {
+          await appApi('/admin/reciters', {
+            method: 'POST',
+            body: {
+              id,
+              name,
+              nameArabic,
+              style,
+              category,
+              bio,
+              serverUrl,
+              imageUrl: imageUrl || undefined,
+            },
+          });
+          syncedPhotos++;
+        } catch {}
+      }
+
+      if (overridesChanged) {
+        setReciterOverrides({ ...overrides });
+        await localforage.setItem('reciterOverrides', overrides);
+      }
+      if (localRecitersChanged) {
+        setCustomReciters([...localReciters]);
+        await localforage.setItem('customReciters', localReciters);
+      }
+
+      // 2. Sync all local background videos to /api/media (chunked) and /api/admin/ambient
+      const localVideos = (await localforage.getItem<CustomVideo[]>('customVideos_list')) || [];
+      let hasUpdatedVideos = false;
+      const updatedVideos = [...localVideos];
+      const activeSaved = normalizePortableMediaUrl(localStorage.getItem('activeBackgroundVideoId'));
+
+      for (let i = 0; i < updatedVideos.length; i++) {
+        const v = updatedVideos[i];
+        const cleanVidUrl = normalizePortableMediaUrl(v.videoUrl);
+        const isPortableCloudUrl =
+          cleanVidUrl &&
+          (cleanVidUrl.startsWith('/api/media/') ||
+            cleanVidUrl.startsWith('https://') ||
+            cleanVidUrl.startsWith('http://'));
+
+        let blob: Blob | null = null;
+        if (!isPortableCloudUrl) {
+          blob =
+            (await localforage.getItem<Blob>(v.id)) ||
+            (await localforage.getItem<Blob>(`customVideo_blob_${v.id}`)) ||
+            (await mediaStore.getItem<Blob>(v.id));
+
+          // If it was saved to /videos/uploads/ on this computer's disk, fetch the blob from local server
+          if (!blob && cleanVidUrl && cleanVidUrl.startsWith('/videos/uploads/')) {
+            try {
+              const resp = await fetch(cleanVidUrl);
+              if (resp.ok) {
+                blob = await resp.blob();
+              }
+            } catch {}
+          }
+        }
+
+        if (blob) {
+          try {
+            onStatus?.(`Uploading video "${v.name}" to cloud...`);
+            const hostedUrl = await uploadMediaToServer(blob, {
+              filename: `${(v.name || 'video').replace(/[^a-zA-Z0-9._-]/g, '_')}.mp4`,
+              name: v.name || 'Background Video',
+              type: blob.type || 'video/mp4',
+              isDefault: v.isDefault,
+            });
+
+            if (hostedUrl) {
+              updatedVideos[i] = { ...v, videoUrl: hostedUrl };
+              hasUpdatedVideos = true;
+              syncedVideos++;
+
+              const shouldBeDefault =
+                Boolean(v.isDefault) ||
+                activeSaved === v.id ||
+                activeSaved === v.videoUrl ||
+                !activeSaved ||
+                activeSaved === '/videos/cosmos.mp4';
+
+              await appApi('/admin/ambient', {
+                method: 'POST',
+                body: {
+                  action: 'add_video',
+                  id: v.id,
+                  name: v.name,
+                  videoUrl: hostedUrl,
+                  description: v.description,
+                  isDefault: shouldBeDefault,
+                },
+              }).catch(() => {});
+
+              if (shouldBeDefault) {
+                await appApi('/admin/ambient', {
+                  method: 'POST',
+                  body: { action: 'set_default', id: v.id, videoUrl: hostedUrl },
+                }).catch(() => {});
+                setActiveBackgroundVideoId(hostedUrl);
+                localStorage.setItem('activeBackgroundVideoId', hostedUrl);
               }
             }
-            return merged;
-          });
+          } catch (vidErr) {
+            console.warn('Video cloud sync failed for', v.name, vidErr);
+          }
+        } else if (isPortableCloudUrl && cleanVidUrl) {
+          // Ensure already-portable video is registered in global_background_videos
+          await appApi('/admin/ambient', {
+            method: 'POST',
+            body: {
+              action: 'add_video',
+              id: v.id,
+              name: v.name,
+              videoUrl: cleanVidUrl,
+              description: v.description,
+              isDefault: v.isDefault,
+            },
+          }).catch(() => {});
         }
-        if (data?.activeDefaultVideoUrl) {
-          // Admin's global default video is displayed for all users
-          setActiveBackgroundVideoId(data.activeDefaultVideoUrl);
-          localStorage.setItem("activeBackgroundVideoId", data.activeDefaultVideoUrl);
-        }
-      })
-      .catch(err => console.warn('Global ambient unavailable:', err?.message || String(err)));
-  }, []);
+      }
+
+      if (hasUpdatedVideos) {
+        setCustomVideos(updatedVideos);
+        await localforage.setItem('customVideos_list', updatedVideos);
+      }
+
+      await refreshGlobalCatalog();
+    } catch (err) {
+      console.warn('Cross-device sync notice:', err);
+    }
+
+    return { syncedPhotos, syncedVideos };
+  }, [refreshGlobalCatalog]);
 
   // Initialize DB and Load Custom Assets
   useEffect(() => {
     async function loadCustomAssets() {
-      // Always load local first
-      const localReciters = await localforage.getItem<Reciter[]>('customReciters') || [];
-      const videos = await localforage.getItem<CustomVideo[]>('customVideos_list') || [];
+      const localReciters = (await localforage.getItem<Reciter[]>('customReciters')) || [];
+      const videos = (await localforage.getItem<CustomVideo[]>('customVideos_list')) || [];
 
       if (videos.length > 0) {
         setCustomVideos(prev => {
           const map = new Map<string, CustomVideo>();
-          prev.forEach(v => map.set(v.id, v));
           videos.forEach(v => map.set(v.id, v));
+          prev.forEach(v => map.set(v.id, { ...map.get(v.id), ...v }));
           return Array.from(map.values());
         });
       }
 
       if (user) {
-        // Sync reciters from Neon
         try {
           const { reciters: cloudReciters } = await appApi<{ reciters: Reciter[] }>('/me/reciters');
-
-          // Merge local and cloud reciters. A locally stored photo is never erased
-          // by a sync response that carries none, and a newer server photo wins.
           const merged = [...localReciters];
           for (const cr of cloudReciters) {
             const local = merged.find(r => r.id === cr.id);
@@ -295,126 +526,31 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           setCustomReciters(localReciters);
         }
 
-        // Sync active video & ambient video mapping from Neon
         try {
           const { preferences } = await appApi<{ preferences: AppPreferences }>('/me/preferences');
-          if (preferences.activeBackgroundVideoId) {
-            setActiveBackgroundVideoId(preferences.activeBackgroundVideoId);
+          const prefVid = normalizePortableMediaUrl(preferences?.activeBackgroundVideoId);
+          // Only apply user preference if it's a portable URL and not overriding a global admin broadcast with cosmos default
+          if (
+            prefVid &&
+            (prefVid.startsWith('/api/media/') || prefVid.startsWith('http://') || prefVid.startsWith('https://'))
+          ) {
+            setActiveBackgroundVideoId(prefVid);
           }
-          if (preferences.ambientVideoMapping && typeof preferences.ambientVideoMapping === 'object') {
-            setAmbientVideoMapping(prev => ({ ...prev, ...preferences.ambientVideoMapping }));
+          if (preferences?.ambientVideoMapping && typeof preferences.ambientVideoMapping === 'object') {
+            setAmbientVideoMapping(prev => ({ ... preferences.ambientVideoMapping, ...prev }));
           }
         } catch (e) {
           console.error('Failed to sync preferences from cloud', e);
         }
-
       } else {
         setCustomReciters(localReciters);
       }
 
-      // 3. Auto-sync any previously saved sheikh profile pictures and background videos from this device to cloud
-      // This ensures all videos and photos added on this system are immediately visible on phone, tablet, and all devices!
-      try {
-        // Sync sheikh profile photos to server
-        const overrides = await localforage.getItem<Record<string, Partial<Reciter>>>('reciterOverrides') || {};
-        for (const [id, patch] of Object.entries(overrides)) {
-          if (patch.imageUrl && patch.imageUrl.startsWith('data:image/')) {
-            try {
-              const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
-                method: 'POST',
-                body: {
-                  data: patch.imageUrl,
-                  filename: `sheikh_${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.jpg`,
-                  name: patch.name || id,
-                  type: 'image/jpeg',
-                },
-              });
-              const permanentUrl = mediaRes?.url || patch.imageUrl;
-              await appApi('/admin/reciters', {
-                method: 'POST',
-                body: {
-                  id,
-                  name: patch.name || id,
-                  imageUrl: permanentUrl,
-                  bio: patch.bio,
-                  serverUrl: patch.serverUrl || '',
-                },
-              });
-            } catch {}
-          }
-        }
-
-        // Sync background videos to server so phones and tablets can stream them
-        const localVideos = await localforage.getItem<CustomVideo[]>('customVideos_list') || [];
-        let hasUpdatedVideos = false;
-        const updatedVideos = [...localVideos];
-
-        for (let i = 0; i < updatedVideos.length; i++) {
-          const v = updatedVideos[i];
-          const needsUpload = !v.videoUrl || (!v.videoUrl.startsWith('http') && !v.videoUrl.startsWith('/videos/'));
-          if (needsUpload) {
-            let blob = await localforage.getItem<Blob>(v.id);
-            if (!blob) blob = await localforage.getItem<Blob>(`customVideo_blob_${v.id}`);
-
-            if (blob) {
-              try {
-                const reader = new FileReader();
-                const base64Data = await new Promise<string>((resolve, reject) => {
-                  reader.onload = () => resolve(reader.result as string);
-                  reader.onerror = reject;
-                  reader.readAsDataURL(blob);
-                });
-
-                const mediaRes = await appApi<{ ok: boolean; url: string }>('/media', {
-                  method: 'POST',
-                  body: {
-                    data: base64Data,
-                    filename: `${v.name || 'video'}.mp4`,
-                    name: v.name,
-                    type: blob.type || 'video/mp4',
-                    isDefault: v.isDefault,
-                  },
-                });
-
-                if (mediaRes?.url) {
-                  updatedVideos[i] = { ...v, videoUrl: mediaRes.url };
-                  hasUpdatedVideos = true;
-                  await appApi('/admin/ambient', {
-                    method: 'POST',
-                    body: {
-                      action: 'add_video',
-                      name: v.name,
-                      videoUrl: mediaRes.url,
-                      description: v.description,
-                      isDefault: v.isDefault,
-                    },
-                  }).catch(() => {});
-
-                  const activeSaved = localStorage.getItem('activeBackgroundVideoId');
-                  if (v.isDefault || activeSaved === v.id || !activeSaved) {
-                    await appApi('/admin/ambient', {
-                      method: 'POST',
-                      body: { action: 'set_default', videoUrl: mediaRes.url },
-                    }).catch(() => {});
-                    setActiveBackgroundVideoId(mediaRes.url);
-                    localStorage.setItem('activeBackgroundVideoId', mediaRes.url);
-                  }
-                }
-              } catch {}
-            }
-          }
-        }
-
-        if (hasUpdatedVideos) {
-          setCustomVideos(updatedVideos);
-          await localforage.setItem('customVideos_list', updatedVideos);
-        }
-      } catch (migrationErr) {
-        console.warn('Cross-device migration notice:', migrationErr);
-      }
+      // Automatically migrate any local sheikhs, photos, and videos saved on this system to cloud DB
+      await syncLocalAssetsToCloud();
     }
     loadCustomAssets();
-  }, [user]);
+  }, [user, syncLocalAssetsToCloud]);
 
   /** Download a copy quietly so this surah is available offline next time it is opened. */
   const cacheInBackground = useCallback((url: string, cacheKey: string) => {
@@ -1034,6 +1170,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setRecitations,
       reciterOverrides,
       updateReciterOverride,
+      refreshGlobalCatalog,
+      syncLocalAssetsToCloud,
     }}>
       {children}
     </PlayerContext.Provider>
