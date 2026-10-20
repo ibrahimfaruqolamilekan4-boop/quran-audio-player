@@ -646,6 +646,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     ambientAudioRef.current = new Audio();
     ambientAudioRef.current.loop = true;
 
+    try {
+      quranAudioRef.current.setAttribute('playsinline', 'true');
+      quranAudioRef.current.setAttribute('webkit-playsinline', 'true');
+      ambientAudioRef.current.setAttribute('playsinline', 'true');
+      ambientAudioRef.current.setAttribute('webkit-playsinline', 'true');
+    } catch {}
+
     const updateTime = () => setCurrentTime(quranAudioRef.current?.currentTime || 0);
     const updateDuration = () => setDuration(quranAudioRef.current?.duration || 0);
     const handleEnded = () => nextChapterRef.current();
@@ -752,6 +759,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentAmbient, isPlaying, ambientVolume]);
 
+  // Auto-resume audio if browser throttled during background or tab-switch
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden && isPlaying && quranAudioRef.current?.paused) {
+        quranAudioRef.current.play().catch(() => {});
+        if (currentAmbient && ambientAudioRef.current?.paused) {
+          ambientAudioRef.current.play().catch(() => {});
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isPlaying, currentAmbient]);
+
   /**
    * Load one surah for one reciter: the cached copy if we already have it, otherwise the first
    * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens — the whole file
@@ -805,20 +826,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         ? `quran_ayah_${voice.voice}_${chapter.id}_${ayahNumber}`
         : `quran_audio_${reciter.id}_${chapter.id}`;
 
-    let blobUrl: string | null = null;
-    try {
-      // A locally uploaded file is the source of truth, so the mirror cache is skipped.
-      if (!uploadedUrl) {
-        const cached = await localforage.getItem<Blob>(cacheKey);
-        if (cached) blobUrl = URL.createObjectURL(cached);
-      }
-    } catch {
-      /* IndexedDB unavailable — streaming still works */
-    }
-
+    // Critical for background continuous playback: initiate playback synchronously
+    // without awaiting IndexedDB or remote calls, preventing mobile browsers from dropping autoplay privilege on track end.
     attemptRef.current = {
       reciterId: reciter.id,
-      urls: blobUrl ? [blobUrl, ...urls] : urls,
+      urls,
       index: 0,
       cacheKey,
       resumeAt: useAyahStream ? 0 : resumeAt,
@@ -826,10 +838,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       pendingFormat: null,
       playedUrl: null,
     };
-    // Selecting a sheikh and playing in the same click means currentReciter state has not
-    // committed yet, so seed the ref the handlers read from.
     currentReciterRef.current = reciter;
     attemptPlayback(0);
+
+    // Check offline cache in background without delaying immediate audio start
+    if (!uploadedUrl) {
+      localforage.getItem<Blob>(cacheKey).then(cached => {
+        if (cached && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.paused) {
+          const blobUrl = URL.createObjectURL(cached);
+          if (attemptRef.current) {
+            attemptRef.current.urls = [blobUrl, ...urls];
+          }
+        }
+      }).catch(() => {});
+    }
   }, [attemptPlayback]);
 
   const setPlayMode = (mode: 'surah' | 'ayah') => {
@@ -1069,15 +1091,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
       ['play', () => {
-        if (quranAudioRef.current) {
-          quranAudioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-        }
+        togglePlayPause();
       }],
       ['pause', () => {
         if (quranAudioRef.current) {
           quranAudioRef.current.pause();
-          setIsPlaying(false);
         }
+        if (ambientAudioRef.current) {
+          ambientAudioRef.current.pause();
+        }
+        setIsPlaying(false);
       }],
       ['previoustrack', () => {
         playPreviousChapter();
@@ -1101,8 +1124,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       ['stop', () => {
         if (quranAudioRef.current) {
           quranAudioRef.current.pause();
-          setIsPlaying(false);
         }
+        if (ambientAudioRef.current) {
+          ambientAudioRef.current.pause();
+        }
+        setIsPlaying(false);
       }],
     ];
 
