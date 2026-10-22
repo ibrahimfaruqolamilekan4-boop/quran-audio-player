@@ -32,7 +32,7 @@ const handler: Handler = async (req, res) => {
         [hashPassword(password), displayName, row.uid]
       );
       const user = mapUser({ ...row, display_name: displayName });
-      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user.uid), isSecureRequest(req)));
+      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user), isSecureRequest(req)));
       return sendJson(res, 200, { user });
     }
 
@@ -48,7 +48,7 @@ const handler: Handler = async (req, res) => {
     await q('INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING', [uid]);
 
     const user = { uid, email, displayName, photoURL: null, role } as const;
-    res.setHeader('Set-Cookie', sessionCookie(createSessionToken(uid), isSecureRequest(req)));
+    res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user), isSecureRequest(req)));
     return sendJson(res, 201, { user });
   } catch (err) {
     console.error('signup failed:', err);

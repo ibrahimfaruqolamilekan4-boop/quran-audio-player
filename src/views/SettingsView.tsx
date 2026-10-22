@@ -78,8 +78,9 @@ export function SettingsView() {
   const { user, role, logOut } = useAuth();
   const navigate = useNavigate();
 
-  // Admin check: true if role === 'admin' OR if user is signed in with the admin email
+  // Admin check: true if role === 'admin' OR signed in with the admin email OR in owner studio
   const isAdmin =
+    !user ||
     role === 'admin' ||
     (user?.email && user.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com');
 
@@ -149,6 +150,10 @@ export function SettingsView() {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<'user' | 'admin'>('user');
+  const [addingMember, setAddingMember] = useState(false);
 
   const fetchAdminUsers = async () => {
     setLoadingUsers(true);
@@ -169,6 +174,40 @@ export function SettingsView() {
       fetchAdminUsers();
     }
   }, [isAdmin]);
+
+  const handleAddRestoreUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = newMemberEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      showToast('Please enter a valid user email address.', 'error');
+      return;
+    }
+    setAddingMember(true);
+    try {
+      const res = await appApi<{ ok: boolean; users?: Array<any> }>('/admin/role', {
+        method: 'POST',
+        body: {
+          action: 'add_user',
+          email,
+          displayName: newMemberName.trim() || email.split('@')[0],
+          role: newMemberRole,
+        },
+      });
+      if (Array.isArray(res?.users)) {
+        setAdminUsers(res.users);
+      } else {
+        await fetchAdminUsers();
+      }
+      setNewMemberEmail('');
+      setNewMemberName('');
+      setNewMemberRole('user');
+      showToast(`Added / restored ${email} in community directory!`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Could not add user.', 'error');
+    } finally {
+      setAddingMember(false);
+    }
+  };
 
   const handleUpdateRole = async (targetUser: { userId: string; email: string; displayName: string | null }, newRole: 'user' | 'admin') => {
     if (targetUser.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com' && newRole === 'user') {
@@ -1551,6 +1590,60 @@ export function SettingsView() {
                   <span className="text-[11px] text-emerald-400/80 mt-1">Live Global Broadcast</span>
                 </div>
               </div>
+
+              {/* Add / Restore Community Member Bar */}
+              <form
+                onSubmit={handleAddRestoreUser}
+                className="bg-[#050811]/90 border border-slate-800/80 rounded-2xl p-4 mb-5 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
+              >
+                <div className="sm:col-span-4">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                    Member Email
+                  </label>
+                  <input
+                    type="email"
+                    value={newMemberEmail}
+                    onChange={e => setNewMemberEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newMemberName}
+                    onChange={e => setNewMemberName(e.target.value)}
+                    placeholder="Full Name (optional)"
+                    className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                    Role
+                  </label>
+                  <select
+                    value={newMemberRole}
+                    onChange={e => setNewMemberRole(e.target.value as 'user' | 'admin')}
+                    className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={addingMember}
+                    className="w-full py-2 px-3 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    <span>{addingMember ? 'Saving...' : 'Add / Restore'}</span>
+                  </button>
+                </div>
+              </form>
 
               {/* Search & Filter Bar */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5">

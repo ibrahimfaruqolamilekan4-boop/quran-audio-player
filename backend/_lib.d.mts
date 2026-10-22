@@ -17,21 +17,32 @@ export interface QueryResult<T = any> {
 }
 
 export function isDbConfigured(): boolean;
+export function isNeonFallbackActive(): boolean;
+export function getLastDbError(): string | null;
+export function syncStoreFromCloud(force?: boolean): Promise<void>;
 export function getPool(): Promise<{ query: (text: string, params?: unknown[]) => Promise<QueryResult> }>;
 export function q<T = any>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
 export function qWithFallback<T = any>(queries: Array<{ text: string; params?: unknown[] }>): Promise<QueryResult<T>>;
 export function mapUser(row: {
   uid: string;
   email: string;
-  display_name: string | null;
-  photo_url: string | null;
+  display_name?: string | null;
+  displayName?: string | null;
+  photo_url?: string | null;
+  photoURL?: string | null;
   role: 'user' | 'admin';
 }): AppUser;
 
 export function hashPassword(password: string): string;
 export function verifyPassword(password: string, stored: string | null): boolean;
 
-export function createSessionToken(uid: string): string;
+export function createSessionToken(userOrUid: string | {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
+  display_name?: string | null;
+  role?: 'user' | 'admin';
+}): string;
 export function readSessionToken(req: IncomingMessage): string | null;
 export function getAuthUser(req: IncomingMessage): Promise<AppUser | null>;
 export function sessionCookie(token: string, secure: boolean): string;

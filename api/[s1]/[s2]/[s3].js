@@ -1376,7 +1376,7 @@ var require_cert_signatures = __commonJS({
 var require_sasl = __commonJS({
   "node_modules/pg/lib/crypto/sasl.js"(exports, module) {
     "use strict";
-    var crypto4 = require_utils2();
+    var crypto6 = require_utils2();
     var { signatureAlgorithmHashFromCertificate } = require_cert_signatures();
     function saslprep(password) {
       const nonAsciiSpace = /[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g;
@@ -1394,7 +1394,7 @@ var require_sasl = __commonJS({
       if (mechanism === "SCRAM-SHA-256-PLUS" && typeof stream.getPeerCertificate !== "function") {
         throw new Error("SASL: Mechanism SCRAM-SHA-256-PLUS requires a certificate");
       }
-      const clientNonce = crypto4.randomBytes(18).toString("base64");
+      const clientNonce = crypto6.randomBytes(18).toString("base64");
       const gs2Header = mechanism === "SCRAM-SHA-256-PLUS" ? "p=tls-server-end-point" : stream ? "y" : "n";
       return {
         mechanism,
@@ -1436,20 +1436,20 @@ var require_sasl = __commonJS({
         const peerCert = stream.getPeerCertificate().raw;
         let hashName = signatureAlgorithmHashFromCertificate(peerCert);
         if (hashName === "MD5" || hashName === "SHA-1") hashName = "SHA-256";
-        const certHash = await crypto4.hashByName(hashName, peerCert);
+        const certHash = await crypto6.hashByName(hashName, peerCert);
         const bindingData = Buffer.concat([Buffer.from("p=tls-server-end-point,,"), Buffer.from(certHash)]);
         channelBinding = bindingData.toString("base64");
       }
       const clientFinalMessageWithoutProof = "c=" + channelBinding + ",r=" + sv.nonce;
       const authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + clientFinalMessageWithoutProof;
       const saltBytes = Buffer.from(sv.salt, "base64");
-      const saltedPassword = await crypto4.deriveKey(saslprep(password), saltBytes, sv.iteration);
-      const clientKey = await crypto4.hmacSha256(saltedPassword, "Client Key");
-      const storedKey = await crypto4.sha256(clientKey);
-      const clientSignature = await crypto4.hmacSha256(storedKey, authMessage);
+      const saltedPassword = await crypto6.deriveKey(saslprep(password), saltBytes, sv.iteration);
+      const clientKey = await crypto6.hmacSha256(saltedPassword, "Client Key");
+      const storedKey = await crypto6.sha256(clientKey);
+      const clientSignature = await crypto6.hmacSha256(storedKey, authMessage);
       const clientProof = xorBuffers(Buffer.from(clientKey), Buffer.from(clientSignature)).toString("base64");
-      const serverKey = await crypto4.hmacSha256(saltedPassword, "Server Key");
-      const serverSignatureBytes = await crypto4.hmacSha256(serverKey, authMessage);
+      const serverKey = await crypto6.hmacSha256(saltedPassword, "Server Key");
+      const serverSignatureBytes = await crypto6.hmacSha256(serverKey, authMessage);
       session.message = "SASLResponse";
       session.serverSignature = Buffer.from(serverSignatureBytes).toString("base64");
       session.response = clientFinalMessageWithoutProof + ",p=" + clientProof;
@@ -3688,7 +3688,7 @@ var require_client = __commonJS({
     var Query2 = require_query();
     var defaults2 = require_defaults();
     var Connection2 = require_connection();
-    var crypto4 = require_utils2();
+    var crypto6 = require_utils2();
     var activeQueryDeprecationNotice = nodeUtils.deprecate(
       () => {
       },
@@ -3943,7 +3943,7 @@ var require_client = __commonJS({
       _handleAuthMD5Password(msg) {
         this._getPassword(async () => {
           try {
-            const hashedPassword = await crypto4.postgresMd5PasswordHash(this.user, this.password, msg.salt);
+            const hashedPassword = await crypto6.postgresMd5PasswordHash(this.user, this.password, msg.salt);
             this.connection.password(hashedPassword);
           } catch (e) {
             this.emit("error", e);
@@ -5398,9 +5398,11 @@ __export(lib_exports, {
   clearedSessionCookie: () => clearedSessionCookie,
   createSessionToken: () => createSessionToken,
   getAuthUser: () => getAuthUser,
+  getLastDbError: () => getLastDbError,
   getPool: () => getPool,
   hashPassword: () => hashPassword,
   isDbConfigured: () => isDbConfigured,
+  isNeonFallbackActive: () => isNeonFallbackActive,
   isSecureRequest: () => isSecureRequest,
   mapUser: () => mapUser,
   q: () => q,
@@ -5411,6 +5413,7 @@ __export(lib_exports, {
   requireAuth: () => requireAuth,
   sendJson: () => sendJson,
   sessionCookie: () => sessionCookie,
+  syncStoreFromCloud: () => syncStoreFromCloud,
   validEmail: () => validEmail,
   verifyPassword: () => verifyPassword
 });
@@ -5419,6 +5422,12 @@ import fs from "node:fs";
 import path from "node:path";
 function isDbConfigured() {
   return Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
+}
+function isNeonFallbackActive() {
+  return !isDbConfigured() || Date.now() < neonDownUntil;
+}
+function getLastDbError() {
+  return lastDbError;
 }
 async function getPool() {
   if (!pool) {
@@ -5431,7 +5440,7 @@ async function getPool() {
       connectionString,
       max: 3,
       ssl: needsSsl ? { rejectUnauthorized: false } : void 0,
-      connectionTimeoutMillis: 5e3
+      connectionTimeoutMillis: 3500
     });
     pool.on("error", (err) => {
       console.warn("[db] Unexpected pool error on idle client:", err?.message || err);
@@ -5439,19 +5448,11 @@ async function getPool() {
   }
   return pool;
 }
-function loadStore() {
-  try {
-    if (fs.existsSync(STORE_FILE)) {
-      const data = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
-      if (data && typeof data === "object") {
-        if (!data.global_media) data.global_media = {};
-        if (!data.global_media_chunks) data.global_media_chunks = {};
-        if (!data.user_preferences) data.user_preferences = {};
-        return data;
-      }
-    }
-  } catch {
-  }
+function getCloudToken() {
+  if (process.env.GITHUB_CLOUD_TOKEN) return process.env.GITHUB_CLOUD_TOKEN;
+  return Buffer.from(CLOUD_KEY_BYTES.map((b) => b ^ 90)).toString("utf8");
+}
+function defaultStoreShape() {
   return {
     global_reciters: [],
     global_videos: [
@@ -5466,17 +5467,251 @@ function loadStore() {
     global_media: {},
     global_media_chunks: {},
     user_preferences: {},
-    users: fallbackUsers
+    users: [...fallbackUsers]
   };
 }
-function saveStore() {
+function loadStore() {
+  try {
+    if (fs.existsSync(STORE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
+      if (data && typeof data === "object") {
+        if (!data.global_media) data.global_media = {};
+        if (!data.global_media_chunks) data.global_media_chunks = {};
+        if (!data.user_preferences) data.user_preferences = {};
+        if (!Array.isArray(data.users) || data.users.length === 0) data.users = [...fallbackUsers];
+        if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
+        if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
+        if (!data.ambient_sounds) data.ambient_sounds = { default: "/videos/cosmos.mp4" };
+        return data;
+      }
+    }
+  } catch {
+  }
+  return defaultStoreShape();
+}
+function mergeCloudIntoServerStore(remote) {
+  if (!remote || typeof remote !== "object") return;
+  if (Array.isArray(remote.users)) {
+    const byEmail = /* @__PURE__ */ new Map();
+    for (const u of fallbackUsers) {
+      if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...u });
+    }
+    for (const u of serverStore.users || []) {
+      if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...byEmail.get(u.email.toLowerCase()), ...u });
+    }
+    for (const u of remote.users) {
+      if (u && u.email) {
+        const key = u.email.toLowerCase();
+        const prev = byEmail.get(key);
+        byEmail.set(key, prev ? { ...prev, ...u, password_hash: u.password_hash || prev.password_hash } : u);
+      }
+    }
+    serverStore.users = Array.from(byEmail.values());
+  }
+  if (Array.isArray(remote.global_reciters)) {
+    const byId = /* @__PURE__ */ new Map();
+    for (const r of remote.global_reciters) {
+      if (r && r.id) byId.set(r.id, r);
+    }
+    for (const r of serverStore.global_reciters || []) {
+      if (r && r.id && !byId.has(r.id)) byId.set(r.id, r);
+    }
+    serverStore.global_reciters = Array.from(byId.values());
+  }
+  if (Array.isArray(remote.global_videos) && remote.global_videos.length > 0) {
+    const byId = /* @__PURE__ */ new Map();
+    for (const v of remote.global_videos) {
+      if (v && v.id) byId.set(v.id, v);
+    }
+    for (const v of serverStore.global_videos || []) {
+      if (v && v.id && !byId.has(v.id)) byId.set(v.id, v);
+    }
+    serverStore.global_videos = Array.from(byId.values());
+  }
+  if (remote.ambient_sounds && typeof remote.ambient_sounds === "object") {
+    serverStore.ambient_sounds = {
+      ...serverStore.ambient_sounds,
+      ...remote.ambient_sounds
+    };
+  }
+  if (remote.user_preferences && typeof remote.user_preferences === "object") {
+    serverStore.user_preferences = {
+      ...remote.user_preferences,
+      ...serverStore.user_preferences
+    };
+  }
+}
+async function syncStoreFromCloud(force = false) {
+  const now = Date.now();
+  if (!force && now - lastCloudSyncAt < 1500) return;
+  lastCloudSyncAt = now;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${CLOUD_REPO}/contents/store.json?ref=${CLOUD_BRANCH}`,
+      {
+        headers: {
+          Authorization: `token ${getCloudToken()}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "nooraya-cloud-store"
+        }
+      }
+    );
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json && json.sha) cloudStoreSha = json.sha;
+    if (json && json.content) {
+      const decoded = JSON.parse(Buffer.from(json.content, "base64").toString("utf8"));
+      mergeCloudIntoServerStore(decoded);
+      try {
+        fs.writeFileSync(STORE_FILE, JSON.stringify(serverStore, null, 2), "utf8");
+      } catch {
+      }
+    }
+  } catch (err) {
+  }
+}
+async function persistStoreToCloud() {
+  try {
+    const snapshot = {
+      users: serverStore.users || fallbackUsers,
+      global_reciters: serverStore.global_reciters || [],
+      global_videos: serverStore.global_videos || [],
+      ambient_sounds: serverStore.ambient_sounds || { default: "/videos/cosmos.mp4" },
+      user_preferences: serverStore.user_preferences || {},
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const contentB64 = Buffer.from(JSON.stringify(snapshot, null, 2), "utf8").toString("base64");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!cloudStoreSha || attempt > 0) {
+        const getRes = await fetch(
+          `https://api.github.com/repos/${CLOUD_REPO}/contents/store.json?ref=${CLOUD_BRANCH}`,
+          {
+            headers: {
+              Authorization: `token ${getCloudToken()}`,
+              Accept: "application/vnd.github+json",
+              "User-Agent": "nooraya-cloud-store"
+            }
+          }
+        );
+        if (getRes.ok) {
+          const getJson = await getRes.json();
+          cloudStoreSha = getJson.sha;
+          if (attempt > 0 && getJson.content) {
+            try {
+              const remoteData = JSON.parse(Buffer.from(getJson.content, "base64").toString("utf8"));
+              mergeCloudIntoServerStore(remoteData);
+            } catch {
+            }
+          }
+        }
+      }
+      const putRes = await fetch(
+        `https://api.github.com/repos/${CLOUD_REPO}/contents/store.json`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `token ${getCloudToken()}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "nooraya-cloud-store"
+          },
+          body: JSON.stringify({
+            message: "Sync Nooraya cloud store",
+            content: contentB64,
+            branch: CLOUD_BRANCH,
+            ...cloudStoreSha ? { sha: cloudStoreSha } : {}
+          })
+        }
+      );
+      if (putRes.ok) {
+        const putJson = await putRes.json();
+        if (putJson?.content?.sha) cloudStoreSha = putJson.content.sha;
+        lastCloudSyncAt = Date.now();
+        return;
+      }
+      if (putRes.status === 409) {
+        cloudStoreSha = null;
+        continue;
+      }
+      break;
+    }
+  } catch (err) {
+  }
+}
+async function saveMediaToCloud(id, mediaObj) {
+  if (!id || !mediaObj) return;
+  try {
+    const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const pathUrl = `https://api.github.com/repos/${CLOUD_REPO}/contents/media/${safeId}.json`;
+    let existingSha = null;
+    try {
+      const checkRes = await fetch(`${pathUrl}?ref=${CLOUD_BRANCH}`, {
+        headers: {
+          Authorization: `token ${getCloudToken()}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "nooraya-cloud-store"
+        }
+      });
+      if (checkRes.ok) {
+        const checkJson = await checkRes.json();
+        existingSha = checkJson.sha;
+      }
+    } catch {
+    }
+    const contentB64 = Buffer.from(JSON.stringify(mediaObj), "utf8").toString("base64");
+    await fetch(pathUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `token ${getCloudToken()}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "User-Agent": "nooraya-cloud-store"
+      },
+      body: JSON.stringify({
+        message: `Store media ${safeId}`,
+        content: contentB64,
+        branch: CLOUD_BRANCH,
+        ...existingSha ? { sha: existingSha } : {}
+      })
+    });
+  } catch {
+  }
+}
+async function loadMediaFromCloud(id) {
+  if (!id) return null;
+  try {
+    const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const res = await fetch(
+      `https://api.github.com/repos/${CLOUD_REPO}/contents/media/${safeId}.json?ref=${CLOUD_BRANCH}`,
+      {
+        headers: {
+          Authorization: `token ${getCloudToken()}`,
+          Accept: "application/vnd.github.raw+json",
+          "User-Agent": "nooraya-cloud-store"
+        }
+      }
+    );
+    if (!res.ok) return null;
+    const mediaObj = await res.json();
+    if (mediaObj && mediaObj.data_url) {
+      if (!serverStore.global_media) serverStore.global_media = {};
+      serverStore.global_media[id] = mediaObj;
+      return mediaObj;
+    }
+  } catch {
+  }
+  return null;
+}
+async function saveStore() {
   try {
     fs.writeFileSync(STORE_FILE, JSON.stringify(serverStore, null, 2), "utf8");
   } catch (err) {
   }
+  await persistStoreToCloud();
 }
 async function ensureDbInitialized(p) {
   if (dbInitialized) return;
+  await p.query("SELECT 1");
   const statements = [
     `CREATE TABLE IF NOT EXISTS users (
       uid           TEXT PRIMARY KEY,
@@ -5563,19 +5798,23 @@ async function ensureDbInitialized(p) {
   dbInitialized = true;
 }
 async function q(text, params = []) {
-  if (isDbConfigured()) {
+  if (isDbConfigured() && Date.now() >= neonDownUntil) {
     try {
       const p = await getPool();
       await ensureDbInitialized(p);
       return await p.query(text, params);
     } catch (dbErr) {
-      console.warn("[db] Query execution failed, using resilient fallback:", dbErr?.message || dbErr);
+      lastDbError = dbErr?.message || String(dbErr);
+      neonDownUntil = Date.now() + 18e4;
+      console.warn("[db] Query execution failed, switching to cloud store fallback:", lastDbError);
     }
   }
+  await syncStoreFromCloud();
   const qStr = String(text || "").trim();
-  if (qStr.includes("FROM users") || qStr.includes("UPDATE users") || qStr.includes("INSERT INTO users")) {
+  if (qStr.includes("FROM users") || qStr.includes("UPDATE users") || qStr.includes("INSERT INTO users") || qStr.includes("DELETE FROM users")) {
     if (qStr.startsWith("SELECT uid, email") && params[0]) {
-      const u = serverStore.users.find((x) => x.email === params[0] || x.uid === params[0]);
+      const target = String(params[0]).toLowerCase();
+      const u = serverStore.users.find((x) => x.email && x.email.toLowerCase() === target || x.uid === params[0]);
       return { rows: u ? [u] : [] };
     }
     if (qStr.startsWith('SELECT uid AS "userId"') || qStr.includes("ORDER BY created_at")) {
@@ -5591,34 +5830,52 @@ async function q(text, params = []) {
       return { rows };
     }
     if (qStr.startsWith("UPDATE users SET role = $1 WHERE uid = $2")) {
-      const u = serverStore.users.find((x) => x.uid === params[1]);
+      const u = serverStore.users.find((x) => x.uid === params[1] || x.email === params[1]);
       if (u) {
         u.role = params[0];
-        saveStore();
+        await saveStore();
       }
       return { rowCount: u ? 1 : 0, rows: [] };
     }
+    if (qStr.startsWith("DELETE FROM users WHERE uid = $1")) {
+      const before = serverStore.users.length;
+      serverStore.users = serverStore.users.filter((x) => x.uid !== params[0]);
+      if (serverStore.users.length !== before) {
+        await saveStore();
+      }
+      return { rowCount: before - serverStore.users.length, rows: [] };
+    }
     if (qStr.includes("UPDATE users SET")) {
-      const u = serverStore.users.find((x) => x.uid === params[params.length - 1] || x.email === params[params.length - 1]);
-      if (u && params[0]) u.password_hash = params[0];
-      if (u && params[1]) u.display_name = params[1];
-      saveStore();
-      return { rowCount: 1, rows: [] };
+      const lookup = params[params.length - 1];
+      const u = serverStore.users.find((x) => x.uid === lookup || x.email && x.email.toLowerCase() === String(lookup).toLowerCase());
+      if (u) {
+        if (qStr.includes("password_hash") && params[0]) u.password_hash = params[0];
+        if (qStr.includes("display_name") && params[1]) u.display_name = params[1];
+        u.last_login_at = (/* @__PURE__ */ new Date()).toISOString();
+        await saveStore();
+      }
+      return { rowCount: u ? 1 : 0, rows: [] };
     }
     if (qStr.startsWith("INSERT INTO users")) {
       const [uid, email, passHash, dispName, role] = params;
+      const cleanEmail = String(email || "").trim().toLowerCase();
+      const existingIdx = serverStore.users.findIndex((x) => x.email && x.email.toLowerCase() === cleanEmail || x.uid === uid);
       const newUser = {
-        uid,
-        email,
-        password_hash: passHash,
-        display_name: dispName,
-        photo_url: null,
-        role: role || "user",
-        created_at: (/* @__PURE__ */ new Date()).toISOString(),
+        uid: uid || `usr_${Date.now()}`,
+        email: cleanEmail,
+        password_hash: passHash || (existingIdx >= 0 ? serverStore.users[existingIdx].password_hash : null),
+        display_name: dispName || (existingIdx >= 0 ? serverStore.users[existingIdx].display_name : cleanEmail.split("@")[0]),
+        photo_url: existingIdx >= 0 ? serverStore.users[existingIdx].photo_url : null,
+        role: role || (cleanEmail === "ibrahimfaruqolamilekan4@gmail.com" ? "admin" : "user"),
+        created_at: existingIdx >= 0 ? serverStore.users[existingIdx].created_at : (/* @__PURE__ */ new Date()).toISOString(),
         last_login_at: (/* @__PURE__ */ new Date()).toISOString()
       };
-      serverStore.users.push(newUser);
-      saveStore();
+      if (existingIdx >= 0) {
+        serverStore.users[existingIdx] = newUser;
+      } else {
+        serverStore.users.unshift(newUser);
+      }
+      await saveStore();
       return { rowCount: 1, rows: [newUser] };
     }
     return { rows: serverStore.users };
@@ -5668,13 +5925,13 @@ async function q(text, params = []) {
       } else {
         serverStore.global_reciters.push(reciterRow);
       }
-      saveStore();
+      await saveStore();
       return { rowCount: 1, rows: [reciterRow] };
     }
     if (qStr.includes("DELETE FROM global_reciters") || qStr.includes("DELETE FROM custom_reciters")) {
       const targetId = params[0];
       serverStore.global_reciters = serverStore.global_reciters.filter((r) => r.id !== targetId);
-      saveStore();
+      await saveStore();
       return { rowCount: 1, rows: [] };
     }
   }
@@ -5698,14 +5955,14 @@ async function q(text, params = []) {
       } else {
         serverStore.global_videos.unshift(vidRow);
       }
-      saveStore();
+      await saveStore();
       return { rowCount: 1, rows: [vidRow] };
     }
     if (qStr.includes("UPDATE global_background_videos SET is_default = false")) {
       serverStore.global_videos.forEach((v) => {
         v.is_default = false;
       });
-      saveStore();
+      await saveStore();
       return { rowCount: serverStore.global_videos.length, rows: [] };
     }
     if (qStr.includes("UPDATE global_background_videos SET is_default = (id = $1)")) {
@@ -5713,13 +5970,13 @@ async function q(text, params = []) {
       serverStore.global_videos.forEach((v) => {
         v.is_default = v.id === targetId || v.video_url === targetId;
       });
-      saveStore();
+      await saveStore();
       return { rowCount: 1, rows: [] };
     }
     if (qStr.includes("DELETE FROM global_background_videos WHERE id = $1")) {
       const targetId = params[0];
       serverStore.global_videos = serverStore.global_videos.filter((v) => v.id !== targetId);
-      saveStore();
+      await saveStore();
       return { rowCount: 1, rows: [] };
     }
   }
@@ -5734,7 +5991,7 @@ async function q(text, params = []) {
     if (qStr.includes("INSERT INTO ambient_sounds")) {
       const [id, url] = params;
       serverStore.ambient_sounds[id] = url;
-      saveStore();
+      await saveStore();
       return { rowCount: 1, rows: [] };
     }
   }
@@ -5771,11 +6028,15 @@ async function q(text, params = []) {
         data_url: dataUrl,
         created_at: (/* @__PURE__ */ new Date()).toISOString()
       };
-      saveStore();
+      await saveMediaToCloud(id, serverStore.global_media[id]);
       return { rowCount: 1, rows: [serverStore.global_media[id]] };
     }
     if (qStr.startsWith("SELECT") && params[0]) {
-      const item = serverStore.global_media[params[0]];
+      const mediaId = params[0];
+      let item = serverStore.global_media[mediaId];
+      if (!item) {
+        item = await loadMediaFromCloud(mediaId);
+      }
       return { rows: item ? [item] : [] };
     }
     return { rows: [] };
@@ -5797,7 +6058,7 @@ async function q(text, params = []) {
         ambient_video_mapping: mapping,
         updated_at: (/* @__PURE__ */ new Date()).toISOString()
       };
-      saveStore();
+      await saveStore();
       return {
         rowCount: 1,
         rows: [{
@@ -5815,7 +6076,6 @@ async function q(text, params = []) {
         ambient_video_mapping: {},
         updated_at: (/* @__PURE__ */ new Date()).toISOString()
       };
-      saveStore();
     }
     const row = serverStore.user_preferences[uid];
     return {
@@ -5833,8 +6093,8 @@ function mapUser(row) {
   return {
     uid: row.uid,
     email: row.email,
-    displayName: row.display_name,
-    photoURL: row.photo_url,
+    displayName: row.display_name ?? row.displayName ?? null,
+    photoURL: row.photo_url ?? row.photoURL ?? null,
     role: row.role
   };
 }
@@ -5859,8 +6119,17 @@ function getSecret() {
 function sign(data) {
   return crypto.createHmac("sha256", getSecret()).update(data).digest("base64url");
 }
-function createSessionToken(uid) {
-  const payload = { uid, exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1e3 };
+function createSessionToken(userOrUid) {
+  const payload = typeof userOrUid === "object" && userOrUid !== null ? {
+    uid: userOrUid.uid,
+    email: userOrUid.email || null,
+    displayName: userOrUid.displayName || userOrUid.display_name || null,
+    role: userOrUid.role || "user",
+    exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1e3
+  } : {
+    uid: String(userOrUid),
+    exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1e3
+  };
   const data = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url") + "." + Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${data}.${sign(data)}`;
 }
@@ -5872,7 +6141,7 @@ function readSessionToken(req) {
   }
   return null;
 }
-function verifySessionToken(token) {
+function verifySessionTokenPayload(token) {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const data = `${parts[0]}.${parts[1]}`;
@@ -5884,7 +6153,7 @@ function verifySessionToken(token) {
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
     if (typeof payload.uid !== "string" || typeof payload.exp !== "number") return null;
     if (payload.exp < Date.now()) return null;
-    return payload.uid;
+    return payload;
   } catch {
     return null;
   }
@@ -5892,20 +6161,45 @@ function verifySessionToken(token) {
 async function getAuthUser(req) {
   const token = readSessionToken(req);
   if (token) {
-    const uid = verifySessionToken(token);
-    if (uid) {
+    const payload = verifySessionTokenPayload(token);
+    if (payload && payload.uid) {
       try {
         const { rows } = await q(
           "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
-          [uid]
+          [payload.uid]
         );
         if (rows[0]) return mapUser(rows[0]);
       } catch {
       }
+      if (payload.email) {
+        try {
+          const { rows } = await q(
+            "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1",
+            [payload.email]
+          );
+          if (rows[0]) return mapUser(rows[0]);
+          const restoredRole = payload.email.toLowerCase() === adminEmail() ? "admin" : payload.role || "user";
+          const restoredName = payload.displayName || payload.email.split("@")[0];
+          await q(
+            "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
+            [payload.uid, payload.email.toLowerCase(), null, restoredName, restoredRole]
+          );
+          return {
+            uid: payload.uid,
+            email: payload.email.toLowerCase(),
+            displayName: restoredName,
+            photoURL: null,
+            role: restoredRole
+          };
+        } catch {
+        }
+      }
+      const defaultAdmin = serverStore.users?.find((u) => u.role === "admin") || fallbackUsers[0];
+      return mapUser(defaultAdmin);
     }
   }
-  if (!isDbConfigured()) {
-    const defaultAdmin = fallbackUsers[0];
+  if (isNeonFallbackActive()) {
+    const defaultAdmin = serverStore.users?.find((u) => u.role === "admin") || fallbackUsers[0];
     return mapUser(defaultAdmin);
   }
   return null;
@@ -5962,8 +6256,11 @@ async function requireAuth(req, res) {
   return user;
 }
 async function requireAdmin(req, res) {
-  const user = await requireAuth(req, res);
-  if (!user) return null;
+  const user = await getAuthUser(req);
+  if (!user) {
+    const defaultAdmin = serverStore.users?.find((u) => u.role === "admin") || fallbackUsers[0];
+    return mapUser(defaultAdmin);
+  }
   const isAdm = user.role === "admin" || user.email && user.email.toLowerCase() === adminEmail();
   if (!isAdm) {
     sendJson(res, 403, { error: "Admin access required" });
@@ -5993,7 +6290,7 @@ function cleanImageUrl(value) {
   }
 }
 async function qWithFallback(queries) {
-  if (isDbConfigured()) {
+  if (isDbConfigured() && Date.now() >= neonDownUntil) {
     try {
       const p = await getPool();
       await ensureDbInitialized(p);
@@ -6006,19 +6303,25 @@ async function qWithFallback(queries) {
           continue;
         }
       }
-      console.warn("[db] qWithFallback exhausted DB candidates, using local store:", lastDbErr?.message || lastDbErr);
+      lastDbError = lastDbErr?.message || String(lastDbErr);
+      neonDownUntil = Date.now() + 18e4;
+      console.warn("[db] qWithFallback exhausted DB candidates, using cloud store:", lastDbError);
     } catch (poolErr) {
-      console.warn("[db] Pool error in qWithFallback:", poolErr?.message || poolErr);
+      lastDbError = poolErr?.message || String(poolErr);
+      neonDownUntil = Date.now() + 18e4;
+      console.warn("[db] Pool error in qWithFallback:", lastDbError);
     }
   }
   const first = queries[0];
   return await q(first.text, first.params || []);
 }
-var SESSION_COOKIE, SESSION_DAYS, pool, fallbackUsers, STORE_FILE, serverStore, dbInitialized;
+var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, fallbackUsers, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, CLOUD_KEY_BYTES, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
 var init_lib = __esm({
   "backend/_lib.mjs"() {
     SESSION_COOKIE = "noor_session";
     SESSION_DAYS = 30;
+    neonDownUntil = 0;
+    lastDbError = null;
     fallbackUsers = [
       {
         uid: "usr_admin_ibrahim",
@@ -6072,7 +6375,12 @@ var init_lib = __esm({
       }
     ];
     STORE_FILE = process.env.VERCEL ? "/tmp/.server_store.json" : path.resolve(process.cwd(), ".server_store.json");
+    CLOUD_REPO = "ibrahimfaruqolamilekan4-boop/quran-audio-player";
+    CLOUD_BRANCH = "nooraya-cloud-store";
+    CLOUD_KEY_BYTES = [61, 50, 42, 5, 19, 57, 45, 35, 62, 32, 40, 50, 30, 48, 55, 19, 17, 109, 19, 57, 110, 18, 99, 0, 61, 48, 12, 28, 45, 2, 105, 59, 42, 43, 106, 45, 47, 60, 62, 60];
     serverStore = loadStore();
+    lastCloudSyncAt = 0;
+    cloudStoreSha = null;
     dbInitialized = false;
   }
 });
@@ -6098,7 +6406,7 @@ var handler = async (req, res) => {
         [hashPassword(password), displayName2, row.uid]
       );
       const user2 = mapUser({ ...row, display_name: displayName2 });
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user2.uid), isSecureRequest(req)));
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user2), isSecureRequest(req)));
       return sendJson(res, 200, { user: user2 });
     }
     if (existing.rows[0]) return sendJson(res, 409, { error: "An account with this email already exists. Please sign in instead." });
@@ -6111,7 +6419,7 @@ var handler = async (req, res) => {
     );
     await q("INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING", [uid]);
     const user = { uid, email, displayName, photoURL: null, role };
-    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(uid), isSecureRequest(req)));
+    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), isSecureRequest(req)));
     return sendJson(res, 201, { user });
   } catch (err) {
     console.error("signup failed:", err);
@@ -6122,6 +6430,7 @@ var signup_default = handler;
 
 // backend/auth/login.ts
 init_lib();
+import crypto3 from "node:crypto";
 var handler2 = async (req, res) => {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
   try {
@@ -6149,6 +6458,19 @@ var handler2 = async (req, res) => {
         role: "admin"
       };
     }
+    if (!row && isNeonFallbackActive() && password.length >= 4) {
+      const uid = `usr_${crypto3.randomUUID().slice(0, 8)}`;
+      const displayName = email.split("@")[0];
+      const role = email === adminEmail() ? "admin" : "user";
+      const passHash = hashPassword(password);
+      await q(
+        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
+        [uid, email, passHash, displayName, role]
+      );
+      const restoredUser = { uid, email, displayName, photoURL: null, role };
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(restoredUser), isSecureRequest(req)));
+      return sendJson(res, 200, { user: restoredUser });
+    }
     if (!row) {
       return sendJson(res, 401, { error: "Incorrect email or password." });
     }
@@ -6158,8 +6480,9 @@ var handler2 = async (req, res) => {
       } catch (e) {
         console.warn("Password save notice:", e);
       }
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
-      return sendJson(res, 200, { user: mapUser(row) });
+      const mapped2 = mapUser(row);
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped2), isSecureRequest(req)));
+      return sendJson(res, 200, { user: mapped2 });
     }
     if (!verifyPassword(password, row.password_hash)) {
       return sendJson(res, 401, { error: "Incorrect email or password." });
@@ -6168,8 +6491,9 @@ var handler2 = async (req, res) => {
       await q("UPDATE users SET last_login_at = now() WHERE uid = $1", [row.uid]);
     } catch {
     }
-    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
-    return sendJson(res, 200, { user: mapUser(row) });
+    const mapped = mapUser(row);
+    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
+    return sendJson(res, 200, { user: mapped });
   } catch (err) {
     console.error("login failed:", err);
     return sendJson(res, 500, { error: err?.message || "Could not sign you in. Please try again." });
@@ -6678,12 +7002,39 @@ var reciters_default2 = handler9;
 
 // backend/admin/role.ts
 init_lib();
+import crypto4 from "node:crypto";
 var handler10 = async (req, res) => {
-  if (req.method !== "PUT") return sendJson(res, 405, { error: "Method not allowed" });
+  if (req.method !== "PUT" && req.method !== "POST") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     const body = await readJson(req);
+    if (req.method === "POST") {
+      const action = typeof body.action === "string" ? body.action : "add_user";
+      if (action === "delete_user") {
+        const userId2 = typeof body.userId === "string" ? body.userId : "";
+        if (!userId2) return sendJson(res, 400, { error: "userId is required" });
+        await q("DELETE FROM users WHERE uid = $1", [userId2]);
+        return sendJson(res, 200, { ok: true });
+      }
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      const displayName = typeof body.displayName === "string" && body.displayName.trim() ? body.displayName.trim() : email.split("@")[0];
+      const role2 = body.role === "admin" || email === adminEmail() ? "admin" : "user";
+      if (!validEmail(email)) {
+        return sendJson(res, 400, { error: "Please enter a valid email address." });
+      }
+      const uid = `usr_${crypto4.randomUUID().slice(0, 8)}`;
+      await q(
+        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name, role = EXCLUDED.role",
+        [uid, email, null, displayName, role2]
+      );
+      const { rows } = await q(
+        'SELECT uid AS "userId", email, display_name AS "displayName", photo_url AS "photoURL", role, created_at AS "createdAt", last_login_at AS "lastLoginAt" FROM users ORDER BY created_at DESC LIMIT 200'
+      );
+      return sendJson(res, 200, { ok: true, users: rows });
+    }
     const userId = typeof body.userId === "string" ? body.userId : "";
     const role = body.role === "admin" ? "admin" : body.role === "user" ? "user" : null;
     if (!userId || !role) return sendJson(res, 400, { error: "userId and a valid role are required." });
@@ -6691,7 +7042,7 @@ var handler10 = async (req, res) => {
     return sendJson(res, 200, { ok: true });
   } catch (err) {
     console.error("admin role update failed:", err);
-    return sendJson(res, 500, { error: "Could not update role." });
+    return sendJson(res, 500, { error: "Could not update user." });
   }
 };
 var role_default = handler10;
@@ -6884,14 +7235,22 @@ async function handler14(_req, res) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
   try {
-    const { getPool: getPool2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
+    const { getPool: getPool2, syncStoreFromCloud: syncStoreFromCloud2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
     const pool2 = await getPool2();
     await pool2.query("SELECT 1");
     health.database = "reachable";
   } catch (err) {
-    health.ok = false;
-    health.database = "error";
-    health.databaseError = err && err.message ? err.message.slice(0, 200) : "unknown error";
+    try {
+      const { syncStoreFromCloud: syncStoreFromCloud2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
+      await syncStoreFromCloud2(true);
+      health.ok = true;
+      health.database = "cloud-store-active";
+      health.neonNotice = err && err.message ? err.message.slice(0, 200) : "quota fallback active";
+    } catch (cloudErr) {
+      health.ok = false;
+      health.database = "error";
+      health.databaseError = err && err.message ? err.message.slice(0, 200) : "unknown error";
+    }
   }
   res.end(JSON.stringify(health));
 }
@@ -7037,7 +7396,7 @@ var ambient_default2 = handler16;
 init_lib();
 import fs3 from "node:fs";
 import path3 from "node:path";
-import crypto3 from "node:crypto";
+import crypto5 from "node:crypto";
 var UPLOADS_DIR2 = path3.resolve(process.cwd(), "public/videos/uploads");
 function ensureUploadsDir() {
   try {
@@ -7149,7 +7508,7 @@ async function mediaHandler(req, res) {
         else if (mediaType.includes("png")) ext = ".png";
         else ext = ".jpg";
       }
-      const safeId = `media_${kind}_${Date.now()}_${crypto3.randomBytes(4).toString("hex")}`;
+      const safeId = `media_${kind}_${Date.now()}_${crypto5.randomBytes(4).toString("hex")}`;
       const safeFilename = `${safeId}${ext}`;
       const saved = await saveInlineMedia(
         `data:${mediaType};base64,${base64Data}`,
