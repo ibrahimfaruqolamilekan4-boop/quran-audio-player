@@ -108,6 +108,7 @@ function loadStore() {
       if (data && typeof data === 'object') {
         if (!data.global_media) data.global_media = {};
         if (!data.global_media_chunks) data.global_media_chunks = {};
+        if (!data.user_preferences) data.user_preferences = {};
         return data;
       }
     }
@@ -125,6 +126,7 @@ function loadStore() {
     },
     global_media: {},
     global_media_chunks: {},
+    user_preferences: {},
     users: fallbackUsers,
   };
 }
@@ -142,69 +144,92 @@ function saveStore() {
 let dbInitialized = false;
 async function ensureDbInitialized(p) {
   if (dbInitialized) return;
-  try {
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        uid           TEXT PRIMARY KEY,
-        email         TEXT UNIQUE NOT NULL,
-        password_hash TEXT,
-        display_name  TEXT,
-        photo_url     TEXT,
-        role          TEXT NOT NULL DEFAULT 'user',
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_login_at TIMESTAMPTZ
-      );
-      CREATE TABLE IF NOT EXISTS global_reciters (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        name_arabic TEXT,
-        style       TEXT,
-        category    TEXT,
-        bio         TEXT,
-        server_url  TEXT,
-        image_url   TEXT,
-        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT;
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT;
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT;
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
-      CREATE TABLE IF NOT EXISTS global_background_videos (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        video_url   TEXT NOT NULL,
-        description TEXT,
-        is_default  BOOLEAN NOT NULL DEFAULT false,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE TABLE IF NOT EXISTS ambient_sounds (
-        id         TEXT PRIMARY KEY,
-        name       TEXT,
-        video_url  TEXT,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE TABLE IF NOT EXISTS global_media (
-        id         TEXT PRIMARY KEY,
-        kind       TEXT NOT NULL,
-        mime_type  TEXT NOT NULL,
-        data_url   TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE TABLE IF NOT EXISTS global_media_chunks (
-        upload_id   TEXT NOT NULL,
-        chunk_index INT NOT NULL,
-        chunk_data  TEXT NOT NULL,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (upload_id, chunk_index)
-      );
-      INSERT INTO users (uid, email, display_name, role)
-      VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
-      ON CONFLICT (email) DO NOTHING;
-    `);
-    dbInitialized = true;
-  } catch (err) {
-    console.warn('[db] Auto-schema initialization notice:', err?.message || err);
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS users (
+      uid           TEXT PRIMARY KEY,
+      email         TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      display_name  TEXT,
+      photo_url     TEXT,
+      role          TEXT NOT NULL DEFAULT 'user',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_login_at TIMESTAMPTZ
+    )`,
+    `CREATE TABLE IF NOT EXISTS user_preferences (
+      user_uid                   TEXT PRIMARY KEY,
+      theme                      TEXT NOT NULL DEFAULT 'midnight-scholar',
+      active_background_video_id TEXT,
+      ambient_video_mapping      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS custom_reciters (
+      id         TEXT PRIMARY KEY,
+      user_uid   TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      style      TEXT,
+      server_url TEXT,
+      image_url  TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `ALTER TABLE custom_reciters ALTER COLUMN server_url DROP NOT NULL`,
+    `ALTER TABLE custom_reciters ADD COLUMN IF NOT EXISTS image_url TEXT`,
+    `CREATE TABLE IF NOT EXISTS global_reciters (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      name_arabic TEXT,
+      style       TEXT,
+      category    TEXT,
+      bio         TEXT,
+      server_url  TEXT,
+      image_url   TEXT,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `ALTER TABLE global_reciters ALTER COLUMN server_url DROP NOT NULL`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT`,
+    `CREATE TABLE IF NOT EXISTS global_background_videos (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      video_url   TEXT NOT NULL,
+      description TEXT,
+      is_default  BOOLEAN NOT NULL DEFAULT false,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS ambient_sounds (
+      id         TEXT PRIMARY KEY,
+      name       TEXT,
+      video_url  TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS global_media (
+      id         TEXT PRIMARY KEY,
+      kind       TEXT NOT NULL,
+      mime_type  TEXT NOT NULL,
+      data_url   TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS global_media_chunks (
+      upload_id   TEXT NOT NULL,
+      chunk_index INT NOT NULL,
+      chunk_data  TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (upload_id, chunk_index)
+    )`,
+    `INSERT INTO users (uid, email, display_name, role)
+     VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
+     ON CONFLICT (email) DO UPDATE SET role = 'admin'`,
+  ];
+
+  for (const stmt of statements) {
+    try {
+      await p.query(stmt);
+    } catch (err) {
+      // Continue applying remaining migrations even if one statement fails
+    }
   }
+  dbInitialized = true;
 }
 
 export async function q(text, params = []) {
@@ -445,7 +470,53 @@ export async function q(text, params = []) {
   }
 
   if (qStr.includes('user_preferences')) {
-    return { rowCount: 1, rows: [] };
+    if (!serverStore.user_preferences) serverStore.user_preferences = {};
+    const uid = params[0] || 'default';
+
+    if (qStr.startsWith('INSERT INTO user_preferences (user_uid, theme')) {
+      const [, theme, activeVideoId, mappingVal] = params;
+      let mapping = {};
+      try {
+        mapping = typeof mappingVal === 'string' ? JSON.parse(mappingVal) : (mappingVal || {});
+      } catch {}
+      serverStore.user_preferences[uid] = {
+        user_uid: uid,
+        theme: theme || 'midnight-scholar',
+        active_background_video_id: activeVideoId || null,
+        ambient_video_mapping: mapping,
+        updated_at: new Date().toISOString(),
+      };
+      saveStore();
+      return {
+        rowCount: 1,
+        rows: [{
+          theme: serverStore.user_preferences[uid].theme,
+          active_background_video_id: serverStore.user_preferences[uid].active_background_video_id,
+          ambient_video_mapping: serverStore.user_preferences[uid].ambient_video_mapping,
+        }],
+      };
+    }
+
+    if (!serverStore.user_preferences[uid]) {
+      serverStore.user_preferences[uid] = {
+        user_uid: uid,
+        theme: 'midnight-scholar',
+        active_background_video_id: null,
+        ambient_video_mapping: {},
+        updated_at: new Date().toISOString(),
+      };
+      saveStore();
+    }
+
+    const row = serverStore.user_preferences[uid];
+    return {
+      rowCount: 1,
+      rows: [{
+        theme: row.theme || 'midnight-scholar',
+        active_background_video_id: row.active_background_video_id ?? null,
+        ambient_video_mapping: row.ambient_video_mapping ?? {},
+      }],
+    };
   }
 
   return { rows: [] };
@@ -660,17 +731,24 @@ export function cleanImageUrl(value) {
  * is used instead. Without this, a pending migration would break reciter sync.
  */
 export async function qWithFallback(queries) {
-  let lastError;
-  for (const { text, params } of queries) {
+  if (isDbConfigured()) {
     try {
-      return await q(text, params);
-    } catch (err) {
-      if (err && err.code === '42703') {
-        lastError = err;
-        continue;
+      const p = await getPool();
+      await ensureDbInitialized(p);
+      let lastDbErr;
+      for (const { text, params = [] } of queries) {
+        try {
+          return await p.query(text, params);
+        } catch (err) {
+          lastDbErr = err;
+          continue;
+        }
       }
-      throw err;
+      console.warn('[db] qWithFallback exhausted DB candidates, using local store:', lastDbErr?.message || lastDbErr);
+    } catch (poolErr) {
+      console.warn('[db] Pool error in qWithFallback:', poolErr?.message || poolErr);
     }
   }
-  throw lastError;
+  const first = queries[0];
+  return await q(first.text, first.params || []);
 }

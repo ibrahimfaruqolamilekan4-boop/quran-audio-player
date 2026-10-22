@@ -559,7 +559,6 @@ export function QuranicPremiumBackground({
         autoPlay
         loop
         muted
-        defaultMuted
         playsInline
         preload="auto"
         disablePictureInPicture
@@ -597,7 +596,6 @@ export function QuranicPremiumBackground({
         autoPlay
         loop
         muted
-        defaultMuted
         playsInline
         preload="auto"
         disablePictureInPicture

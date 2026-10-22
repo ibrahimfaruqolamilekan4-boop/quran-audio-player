@@ -1652,15 +1652,15 @@ var require_pg_connection_string = __commonJS({
       if (config.sslnegotiation === "direct" && config.ssl === void 0) {
         config.ssl = true;
       }
-      const fs6 = config.sslcert || config.sslkey || config.sslrootcert ? __require("fs") : null;
+      const fs4 = config.sslcert || config.sslkey || config.sslrootcert ? __require("fs") : null;
       if (config.sslcert) {
-        config.ssl.cert = fs6.readFileSync(config.sslcert).toString();
+        config.ssl.cert = fs4.readFileSync(config.sslcert).toString();
       }
       if (config.sslkey) {
-        config.ssl.key = fs6.readFileSync(config.sslkey).toString();
+        config.ssl.key = fs4.readFileSync(config.sslkey).toString();
       }
       if (config.sslrootcert) {
-        config.ssl.ca = fs6.readFileSync(config.sslrootcert).toString();
+        config.ssl.ca = fs4.readFileSync(config.sslrootcert).toString();
       }
       if (options.useLibpqCompat && config.uselibpqcompat) {
         throw new Error("Both useLibpqCompat and uselibpqcompat are set. Please use only one of them.");
@@ -3488,7 +3488,7 @@ var require_split2 = __commonJS({
 var require_helper = __commonJS({
   "node_modules/pgpass/lib/helper.js"(exports, module) {
     "use strict";
-    var path6 = __require("path");
+    var path4 = __require("path");
     var Stream = __require("stream").Stream;
     var split = require_split2();
     var util = __require("util");
@@ -3527,7 +3527,7 @@ var require_helper = __commonJS({
     };
     module.exports.getFileName = function(rawEnv) {
       var env = rawEnv || process.env;
-      var file = env.PGPASSFILE || (isWin ? path6.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path6.join(env.HOME || "./", ".pgpass"));
+      var file = env.PGPASSFILE || (isWin ? path4.join(env.APPDATA || "./", "postgresql", "pgpass.conf") : path4.join(env.HOME || "./", ".pgpass"));
       return file;
     };
     module.exports.usePgPass = function(stats, fname) {
@@ -3659,16 +3659,16 @@ var require_helper = __commonJS({
 var require_lib = __commonJS({
   "node_modules/pgpass/lib/index.js"(exports, module) {
     "use strict";
-    var path6 = __require("path");
-    var fs6 = __require("fs");
+    var path4 = __require("path");
+    var fs4 = __require("fs");
     var helper = require_helper();
     module.exports = function(connInfo, cb) {
       var file = helper.getFileName();
-      fs6.stat(file, function(err, stat) {
+      fs4.stat(file, function(err, stat) {
         if (err || !helper.usePgPass(stat, file)) {
           return cb(void 0);
         }
-        var st = fs6.createReadStream(file);
+        var st = fs4.createReadStream(file);
         helper.getPassword(connInfo, st, cb);
       });
     };
@@ -5446,6 +5446,7 @@ function loadStore() {
       if (data && typeof data === "object") {
         if (!data.global_media) data.global_media = {};
         if (!data.global_media_chunks) data.global_media_chunks = {};
+        if (!data.user_preferences) data.user_preferences = {};
         return data;
       }
     }
@@ -5464,6 +5465,7 @@ function loadStore() {
     },
     global_media: {},
     global_media_chunks: {},
+    user_preferences: {},
     users: fallbackUsers
   };
 }
@@ -5475,69 +5477,90 @@ function saveStore() {
 }
 async function ensureDbInitialized(p) {
   if (dbInitialized) return;
-  try {
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        uid           TEXT PRIMARY KEY,
-        email         TEXT UNIQUE NOT NULL,
-        password_hash TEXT,
-        display_name  TEXT,
-        photo_url     TEXT,
-        role          TEXT NOT NULL DEFAULT 'user',
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_login_at TIMESTAMPTZ
-      );
-      CREATE TABLE IF NOT EXISTS global_reciters (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        name_arabic TEXT,
-        style       TEXT,
-        category    TEXT,
-        bio         TEXT,
-        server_url  TEXT,
-        image_url   TEXT,
-        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT;
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT;
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT;
-      ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
-      CREATE TABLE IF NOT EXISTS global_background_videos (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        video_url   TEXT NOT NULL,
-        description TEXT,
-        is_default  BOOLEAN NOT NULL DEFAULT false,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE TABLE IF NOT EXISTS ambient_sounds (
-        id         TEXT PRIMARY KEY,
-        name       TEXT,
-        video_url  TEXT,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE TABLE IF NOT EXISTS global_media (
-        id         TEXT PRIMARY KEY,
-        kind       TEXT NOT NULL,
-        mime_type  TEXT NOT NULL,
-        data_url   TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE TABLE IF NOT EXISTS global_media_chunks (
-        upload_id   TEXT NOT NULL,
-        chunk_index INT NOT NULL,
-        chunk_data  TEXT NOT NULL,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (upload_id, chunk_index)
-      );
-      INSERT INTO users (uid, email, display_name, role)
-      VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
-      ON CONFLICT (email) DO NOTHING;
-    `);
-    dbInitialized = true;
-  } catch (err) {
-    console.warn("[db] Auto-schema initialization notice:", err?.message || err);
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS users (
+      uid           TEXT PRIMARY KEY,
+      email         TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      display_name  TEXT,
+      photo_url     TEXT,
+      role          TEXT NOT NULL DEFAULT 'user',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_login_at TIMESTAMPTZ
+    )`,
+    `CREATE TABLE IF NOT EXISTS user_preferences (
+      user_uid                   TEXT PRIMARY KEY,
+      theme                      TEXT NOT NULL DEFAULT 'midnight-scholar',
+      active_background_video_id TEXT,
+      ambient_video_mapping      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS custom_reciters (
+      id         TEXT PRIMARY KEY,
+      user_uid   TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      style      TEXT,
+      server_url TEXT,
+      image_url  TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `ALTER TABLE custom_reciters ALTER COLUMN server_url DROP NOT NULL`,
+    `ALTER TABLE custom_reciters ADD COLUMN IF NOT EXISTS image_url TEXT`,
+    `CREATE TABLE IF NOT EXISTS global_reciters (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      name_arabic TEXT,
+      style       TEXT,
+      category    TEXT,
+      bio         TEXT,
+      server_url  TEXT,
+      image_url   TEXT,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `ALTER TABLE global_reciters ALTER COLUMN server_url DROP NOT NULL`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT`,
+    `ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT`,
+    `CREATE TABLE IF NOT EXISTS global_background_videos (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      video_url   TEXT NOT NULL,
+      description TEXT,
+      is_default  BOOLEAN NOT NULL DEFAULT false,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS ambient_sounds (
+      id         TEXT PRIMARY KEY,
+      name       TEXT,
+      video_url  TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS global_media (
+      id         TEXT PRIMARY KEY,
+      kind       TEXT NOT NULL,
+      mime_type  TEXT NOT NULL,
+      data_url   TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS global_media_chunks (
+      upload_id   TEXT NOT NULL,
+      chunk_index INT NOT NULL,
+      chunk_data  TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (upload_id, chunk_index)
+    )`,
+    `INSERT INTO users (uid, email, display_name, role)
+     VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
+     ON CONFLICT (email) DO UPDATE SET role = 'admin'`
+  ];
+  for (const stmt of statements) {
+    try {
+      await p.query(stmt);
+    } catch (err) {
+    }
   }
+  dbInitialized = true;
 }
 async function q(text, params = []) {
   if (isDbConfigured()) {
@@ -5758,7 +5781,51 @@ async function q(text, params = []) {
     return { rows: [] };
   }
   if (qStr.includes("user_preferences")) {
-    return { rowCount: 1, rows: [] };
+    if (!serverStore.user_preferences) serverStore.user_preferences = {};
+    const uid = params[0] || "default";
+    if (qStr.startsWith("INSERT INTO user_preferences (user_uid, theme")) {
+      const [, theme, activeVideoId, mappingVal] = params;
+      let mapping = {};
+      try {
+        mapping = typeof mappingVal === "string" ? JSON.parse(mappingVal) : mappingVal || {};
+      } catch {
+      }
+      serverStore.user_preferences[uid] = {
+        user_uid: uid,
+        theme: theme || "midnight-scholar",
+        active_background_video_id: activeVideoId || null,
+        ambient_video_mapping: mapping,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      saveStore();
+      return {
+        rowCount: 1,
+        rows: [{
+          theme: serverStore.user_preferences[uid].theme,
+          active_background_video_id: serverStore.user_preferences[uid].active_background_video_id,
+          ambient_video_mapping: serverStore.user_preferences[uid].ambient_video_mapping
+        }]
+      };
+    }
+    if (!serverStore.user_preferences[uid]) {
+      serverStore.user_preferences[uid] = {
+        user_uid: uid,
+        theme: "midnight-scholar",
+        active_background_video_id: null,
+        ambient_video_mapping: {},
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      saveStore();
+    }
+    const row = serverStore.user_preferences[uid];
+    return {
+      rowCount: 1,
+      rows: [{
+        theme: row.theme || "midnight-scholar",
+        active_background_video_id: row.active_background_video_id ?? null,
+        ambient_video_mapping: row.ambient_video_mapping ?? {}
+      }]
+    };
   }
   return { rows: [] };
 }
@@ -5926,19 +5993,26 @@ function cleanImageUrl(value) {
   }
 }
 async function qWithFallback(queries) {
-  let lastError;
-  for (const { text, params } of queries) {
+  if (isDbConfigured()) {
     try {
-      return await q(text, params);
-    } catch (err) {
-      if (err && err.code === "42703") {
-        lastError = err;
-        continue;
+      const p = await getPool();
+      await ensureDbInitialized(p);
+      let lastDbErr;
+      for (const { text, params = [] } of queries) {
+        try {
+          return await p.query(text, params);
+        } catch (err) {
+          lastDbErr = err;
+          continue;
+        }
       }
-      throw err;
+      console.warn("[db] qWithFallback exhausted DB candidates, using local store:", lastDbErr?.message || lastDbErr);
+    } catch (poolErr) {
+      console.warn("[db] Pool error in qWithFallback:", poolErr?.message || poolErr);
     }
   }
-  throw lastError;
+  const first = queries[0];
+  return await q(first.text, first.params || []);
 }
 var SESSION_COOKIE, SESSION_DAYS, pool, fallbackUsers, STORE_FILE, serverStore, dbInitialized;
 var init_lib = __esm({
@@ -6128,52 +6202,99 @@ var me_default = handler4;
 
 // backend/me/preferences.ts
 init_lib();
+var DEFAULT_PREFERENCES = {
+  theme: "midnight-scholar",
+  activeBackgroundVideoId: null,
+  ambientVideoMapping: {}
+};
+function parseMapping(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object" && raw !== null) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+    }
+  }
+  return {};
+}
 var handler5 = async (req, res) => {
   try {
     const user = await requireAuth(req, res);
     if (!user) return;
     if (req.method === "GET") {
-      const { rows } = await q(
-        `INSERT INTO user_preferences (user_uid) VALUES ($1)
-         ON CONFLICT (user_uid) DO UPDATE SET user_uid = EXCLUDED.user_uid
-         RETURNING theme, active_background_video_id, ambient_video_mapping`,
-        [user.uid]
-      );
-      const r = rows[0];
+      let r;
+      try {
+        const { rows } = await q(
+          `INSERT INTO user_preferences (user_uid) VALUES ($1)
+           ON CONFLICT (user_uid) DO UPDATE SET user_uid = EXCLUDED.user_uid
+           RETURNING theme, active_background_video_id, ambient_video_mapping`,
+          [user.uid]
+        );
+        r = rows?.[0];
+      } catch (dbErr) {
+        console.warn("Could not query user_preferences with INSERT RETURNING, trying SELECT:", dbErr);
+        try {
+          const { rows } = await q(
+            "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
+            [user.uid]
+          );
+          r = rows?.[0];
+        } catch {
+        }
+      }
+      const theme = r?.theme || DEFAULT_PREFERENCES.theme;
+      const activeBackgroundVideoId = r?.active_background_video_id ?? DEFAULT_PREFERENCES.activeBackgroundVideoId;
+      const ambientVideoMapping = parseMapping(r?.ambient_video_mapping);
       return sendJson(res, 200, {
         preferences: {
-          theme: r.theme,
-          activeBackgroundVideoId: r.active_background_video_id,
-          ambientVideoMapping: r.ambient_video_mapping ?? {}
+          theme,
+          activeBackgroundVideoId,
+          ambientVideoMapping
         }
       });
     }
     if (req.method === "PUT" || req.method === "POST") {
-      const body = await readJson(req);
-      const { rows: current } = await q(
-        "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
-        [user.uid]
-      );
-      const base = current[0] ?? { theme: "midnight-scholar", active_background_video_id: null, ambient_video_mapping: {} };
-      const theme = typeof body.theme === "string" ? body.theme : base.theme;
-      const activeVideoId = "activeBackgroundVideoId" in body ? typeof body.activeBackgroundVideoId === "string" ? body.activeBackgroundVideoId : null : base.active_background_video_id;
-      const mapping = "ambientVideoMapping" in body && typeof body.ambientVideoMapping === "object" && body.ambientVideoMapping ? body.ambientVideoMapping : base.ambient_video_mapping;
-      await q(
-        `INSERT INTO user_preferences (user_uid, theme, active_background_video_id, ambient_video_mapping, updated_at)
-         VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT (user_uid)
-         DO UPDATE SET theme = EXCLUDED.theme,
-                       active_background_video_id = EXCLUDED.active_background_video_id,
-                       ambient_video_mapping = EXCLUDED.ambient_video_mapping,
-                       updated_at = now()`,
-        [user.uid, theme, activeVideoId, JSON.stringify(mapping)]
-      );
-      return sendJson(res, 200, { preferences: { theme, activeBackgroundVideoId: activeVideoId, ambientVideoMapping: mapping } });
+      const body = await readJson(req) || {};
+      let base = {};
+      try {
+        const { rows: current } = await q(
+          "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
+          [user.uid]
+        );
+        base = current?.[0] || {};
+      } catch {
+      }
+      const theme = typeof body.theme === "string" ? body.theme : base.theme || DEFAULT_PREFERENCES.theme;
+      const activeVideoId = "activeBackgroundVideoId" in body ? typeof body.activeBackgroundVideoId === "string" ? body.activeBackgroundVideoId : null : base.active_background_video_id ?? null;
+      const mapping = "ambientVideoMapping" in body && typeof body.ambientVideoMapping === "object" && body.ambientVideoMapping ? body.ambientVideoMapping : parseMapping(base.ambient_video_mapping);
+      try {
+        await q(
+          `INSERT INTO user_preferences (user_uid, theme, active_background_video_id, ambient_video_mapping, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (user_uid)
+           DO UPDATE SET theme = EXCLUDED.theme,
+                         active_background_video_id = EXCLUDED.active_background_video_id,
+                         ambient_video_mapping = EXCLUDED.ambient_video_mapping,
+                         updated_at = now()`,
+          [user.uid, theme, activeVideoId, JSON.stringify(mapping)]
+        );
+      } catch (saveErr) {
+        console.warn("Failed to persist preferences to db:", saveErr);
+      }
+      return sendJson(res, 200, {
+        preferences: {
+          theme,
+          activeBackgroundVideoId: activeVideoId,
+          ambientVideoMapping: mapping
+        }
+      });
     }
     return sendJson(res, 405, { error: "Method not allowed" });
   } catch (err) {
-    console.error("preferences failed:", err);
-    return sendJson(res, 500, { error: "Could not load preferences." });
+    console.error("preferences handler error:", err);
+    return sendJson(res, 200, { preferences: DEFAULT_PREFERENCES });
   }
 };
 var preferences_default = handler5;
@@ -6777,16 +6898,10 @@ async function handler14(_req, res) {
 
 // backend/reciters.ts
 init_lib();
-import fs3 from "node:fs";
-import path3 from "node:path";
 function sanitizePublicImageUrl(url) {
   if (!url || typeof url !== "string") return void 0;
   const trimmed = url.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
   if (!trimmed) return void 0;
-  if (trimmed.startsWith("/videos/uploads/")) {
-    const fileOnDisk = path3.resolve(process.cwd(), "public", trimmed.replace(/^\//, ""));
-    if (!fs3.existsSync(fileOnDisk)) return void 0;
-  }
   return trimmed;
 }
 var handler15 = async (_req, res) => {
@@ -6820,8 +6935,6 @@ var reciters_default3 = handler15;
 
 // backend/ambient.ts
 init_lib();
-import fs4 from "node:fs";
-import path4 from "node:path";
 var CURATED_DEFAULT_VIDEOS = [
   {
     id: "curated_stars",
@@ -6852,22 +6965,11 @@ var CURATED_DEFAULT_VIDEOS = [
     isDefault: false
   }
 ];
-function isPlayablePublicVideoUrl(rawUrl) {
+function normalizeStoredVideoUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== "string") return null;
   const url = rawUrl.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
-  if (!url) return null;
-  if (url.startsWith("blob:") || url.startsWith("custom_vid_") || url.startsWith("upload_")) {
-    return null;
-  }
-  if (url.startsWith("/videos/uploads/")) {
-    const diskPath = path4.resolve(process.cwd(), "public", url.replace(/^\//, ""));
-    if (!fs4.existsSync(diskPath)) return null;
-    return url;
-  }
-  if (url.startsWith("/api/media/") || url.startsWith("/videos/") || url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:video/")) {
-    return url;
-  }
-  return null;
+  if (!url || url.startsWith("blob:")) return null;
+  return url;
 }
 var handler16 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
@@ -6878,7 +6980,7 @@ var handler16 = async (req, res) => {
     const ambientSounds = {};
     let activeDefaultVideoUrl = null;
     for (const row of ambient.rows) {
-      const validUrl = isPlayablePublicVideoUrl(row.video_url);
+      const validUrl = normalizeStoredVideoUrl(row.video_url);
       if (validUrl) {
         ambientSounds[row.id] = validUrl;
         if (row.id === "default" || row.id === "active" || row.id === "global") {
@@ -6892,7 +6994,7 @@ var handler16 = async (req, res) => {
         "SELECT id, name, video_url, description, is_default FROM global_background_videos ORDER BY is_default DESC, created_at DESC"
       );
       for (const r of vidRes.rows) {
-        const validUrl = isPlayablePublicVideoUrl(r.video_url);
+        const validUrl = normalizeStoredVideoUrl(r.video_url);
         if (validUrl) {
           videos.push({
             id: r.id,
@@ -6903,11 +7005,12 @@ var handler16 = async (req, res) => {
           });
         }
       }
-      const defVid = videos.find((v) => v.isDefault);
-      if (defVid && !activeDefaultVideoUrl) {
+      const customVideosInDb = videos.filter((v) => !v.id.startsWith("curated_"));
+      const defVid = customVideosInDb.find((v) => v.isDefault) || videos.find((v) => v.isDefault);
+      if (defVid && (!activeDefaultVideoUrl || activeDefaultVideoUrl === "/videos/cosmos.mp4")) {
         activeDefaultVideoUrl = defVid.videoUrl;
-      } else if (!activeDefaultVideoUrl && videos.length > 0) {
-        activeDefaultVideoUrl = videos[0].videoUrl;
+      } else if ((!activeDefaultVideoUrl || activeDefaultVideoUrl === "/videos/cosmos.mp4") && customVideosInDb.length > 0) {
+        activeDefaultVideoUrl = customVideosInDb[0].videoUrl;
       }
     } catch {
     }
@@ -6919,15 +7022,12 @@ var handler16 = async (req, res) => {
         });
       }
     }
-    if (!activeDefaultVideoUrl) {
-      activeDefaultVideoUrl = CURATED_DEFAULT_VIDEOS[0].videoUrl;
-    }
     return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
   } catch (err) {
     return sendJson(res, 200, {
       ambientSounds: {},
       videos: CURATED_DEFAULT_VIDEOS,
-      activeDefaultVideoUrl: CURATED_DEFAULT_VIDEOS[0].videoUrl
+      activeDefaultVideoUrl: null
     });
   }
 };
@@ -6935,14 +7035,14 @@ var ambient_default2 = handler16;
 
 // backend/media.ts
 init_lib();
-import fs5 from "node:fs";
-import path5 from "node:path";
+import fs3 from "node:fs";
+import path3 from "node:path";
 import crypto3 from "node:crypto";
-var UPLOADS_DIR2 = path5.resolve(process.cwd(), "public/videos/uploads");
+var UPLOADS_DIR2 = path3.resolve(process.cwd(), "public/videos/uploads");
 function ensureUploadsDir() {
   try {
-    if (!fs5.existsSync(UPLOADS_DIR2)) {
-      fs5.mkdirSync(UPLOADS_DIR2, { recursive: true });
+    if (!fs3.existsSync(UPLOADS_DIR2)) {
+      fs3.mkdirSync(UPLOADS_DIR2, { recursive: true });
     }
     return true;
   } catch {
@@ -7033,7 +7133,7 @@ async function mediaHandler(req, res) {
         const cleanUrl = dataStr.replace(/^https?:\/\/localhost(:\d+)?/, "");
         return sendJson(res, 200, {
           ok: true,
-          id: path5.basename(cleanUrl),
+          id: path3.basename(cleanUrl),
           url: cleanUrl,
           name,
           size: 0,
@@ -7042,7 +7142,7 @@ async function mediaHandler(req, res) {
       }
       const base64Data = dataStr.includes("base64,") ? dataStr.split("base64,")[1] : dataStr;
       const buffer = Buffer.from(base64Data, "base64");
-      let ext = path5.extname(filename).toLowerCase();
+      let ext = path3.extname(filename).toLowerCase();
       if (!ext) {
         if (mediaType.includes("mp4")) ext = ".mp4";
         else if (mediaType.includes("webm")) ext = ".webm";
@@ -7059,7 +7159,7 @@ async function mediaHandler(req, res) {
       const publicUrl = `/api/media/${saved.id}`;
       if (ensureUploadsDir()) {
         try {
-          fs5.writeFileSync(path5.join(UPLOADS_DIR2, safeFilename), buffer);
+          fs3.writeFileSync(path3.join(UPLOADS_DIR2, safeFilename), buffer);
         } catch {
         }
       }
@@ -7096,18 +7196,18 @@ async function mediaHandler(req, res) {
     } catch (err) {
       console.warn("DB media lookup fallback:", err);
     }
-    const safeFilename = path5.basename(fileParam);
-    let filePath = path5.join(UPLOADS_DIR2, safeFilename);
-    if (!fs5.existsSync(filePath)) {
-      const publicVideosPath = path5.resolve(process.cwd(), "public/videos", safeFilename);
-      if (fs5.existsSync(publicVideosPath)) {
+    const safeFilename = path3.basename(fileParam);
+    let filePath = path3.join(UPLOADS_DIR2, safeFilename);
+    if (!fs3.existsSync(filePath)) {
+      const publicVideosPath = path3.resolve(process.cwd(), "public/videos", safeFilename);
+      if (fs3.existsSync(publicVideosPath)) {
         filePath = publicVideosPath;
       } else {
         return sendJson(res, 404, { error: "File not found" });
       }
     }
-    const buffer = fs5.readFileSync(filePath);
-    const ext = path5.extname(safeFilename).toLowerCase();
+    const buffer = fs3.readFileSync(filePath);
+    const ext = path3.extname(safeFilename).toLowerCase();
     const contentType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".png" ? "image/png" : "image/jpeg";
     streamBufferWithRange(req, res, buffer, contentType);
     return;

@@ -2,8 +2,6 @@
 //
 // Public (no session required): these are the admin-managed global reciters and portraits,
 // identical for every visitor, and the landing page shows some of them.
-import fs from 'node:fs';
-import path from 'node:path';
 import { type Handler, qWithFallback, sendJson } from './_lib.mjs';
 
 interface GlobalRow {
@@ -21,11 +19,6 @@ function sanitizePublicImageUrl(url: string | null | undefined): string | undefi
   if (!url || typeof url !== 'string') return undefined;
   const trimmed = url.trim().replace(/^https?:\/\/localhost(:\d+)?/, '');
   if (!trimmed) return undefined;
-  // If it points to a local disk upload /videos/uploads/..., verify it exists on disk
-  if (trimmed.startsWith('/videos/uploads/')) {
-    const fileOnDisk = path.resolve(process.cwd(), 'public', trimmed.replace(/^\//, ''));
-    if (!fs.existsSync(fileOnDisk)) return undefined;
-  }
   return trimmed;
 }
 
