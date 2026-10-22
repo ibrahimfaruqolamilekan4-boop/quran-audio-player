@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS users (
   display_name  TEXT,
   photo_url     TEXT,
   role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  is_premium    BOOLEAN NOT NULL DEFAULT false,
+  subscription_plan TEXT NOT NULL DEFAULT 'free' CHECK (subscription_plan IN ('free', 'monthly', 'yearly', 'lifetime')),
+  flw_transaction_id TEXT,
+  premium_expires_at TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_login_at TIMESTAMPTZ
 );
@@ -67,3 +71,7 @@ CREATE TABLE IF NOT EXISTS global_background_videos (
 -- column added later must also be ALTERed here. Safe to re-run.
 ALTER TABLE custom_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
 ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_expires_at TIMESTAMPTZ;

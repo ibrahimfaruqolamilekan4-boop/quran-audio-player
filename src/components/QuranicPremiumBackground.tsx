@@ -373,7 +373,7 @@ export function QuranicPremiumBackground({
   ambientVolume = 0.6,
 }: QuranicPremiumBackgroundProps) {
   const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['midnight-scholar'];
-  const { activeBackgroundVideoId, customVideos } = usePlayer();
+  const { activeBackgroundVideoId, customVideos, isPlaying } = usePlayer();
 
   // Initial video loop: default to Cosmos star loop immediately to eliminate any blank frame
   const initialVideo = useMemo(() => {
@@ -513,13 +513,23 @@ export function QuranicPremiumBackground({
     window.addEventListener('pointerdown', unblock, { once: true, passive: true });
     window.addEventListener('click', unblock, { once: true, passive: true });
     window.addEventListener('keydown', unblock, { once: true, passive: true });
+    window.addEventListener('quran-play-gesture', unblock);
     return () => {
       window.removeEventListener('touchstart', unblock);
       window.removeEventListener('pointerdown', unblock);
       window.removeEventListener('click', unblock);
       window.removeEventListener('keydown', unblock);
+      window.removeEventListener('quran-play-gesture', unblock);
     };
   }, [slotAUrl, slotBUrl]);
+
+  // Programmatic fallback hook: when Quran audio is playing, ensure background video is also running
+  useEffect(() => {
+    if (isPlaying) {
+      if (activeSlot === 'A' && videoRefA.current) playVideoSafe(videoRefA.current);
+      if (activeSlot === 'B' && videoRefB.current) playVideoSafe(videoRefB.current);
+    }
+  }, [isPlaying, activeSlot]);
 
   return (
     <div 
@@ -556,11 +566,12 @@ export function QuranicPremiumBackground({
       <video
         ref={videoRefA}
         src={slotAUrl || undefined}
-        autoPlay
-        loop
-        muted
-        defaultMuted
-        playsInline
+        autoPlay={true}
+        loop={true}
+        muted={true}
+        defaultMuted={true}
+        playsInline={true}
+        {...{ 'webkit-playsinline': 'true', 'x5-playsinline': 'true' }}
         preload="auto"
         disablePictureInPicture
         aria-hidden="true"
@@ -594,11 +605,12 @@ export function QuranicPremiumBackground({
       <video
         ref={videoRefB}
         src={slotBUrl || undefined}
-        autoPlay
-        loop
-        muted
-        defaultMuted
-        playsInline
+        autoPlay={true}
+        loop={true}
+        muted={true}
+        defaultMuted={true}
+        playsInline={true}
+        {...{ 'webkit-playsinline': 'true', 'x5-playsinline': 'true' }}
         preload="auto"
         disablePictureInPicture
         aria-hidden="true"

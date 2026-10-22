@@ -15,6 +15,7 @@ import {
 } from '../lib/recitations';
 import { mediaStore, uploadMediaToServer } from '../lib/upload';
 import { ALL_SURAHS } from '../lib/surahs';
+import { getOfflineAudioUrl } from '../lib/offlineManager';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -212,13 +213,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Load ambient mapping from local storage and refresh global catalog on mount
+  // Load ambient mapping from local storage and refresh global catalog on mount + on window focus
   useEffect(() => {
     localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
       if (mapping) setAmbientVideoMapping(prev => ({ ...mapping, ...prev }));
     }).catch(() => {});
 
     refreshGlobalCatalog();
+
+    const handleFocus = () => {
+      refreshGlobalCatalog().catch(() => {});
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [refreshGlobalCatalog]);
 
   // Update active background video when ambient track changes
@@ -841,7 +848,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     currentReciterRef.current = reciter;
     attemptPlayback(0);
 
-    // Check offline cache in background without delaying immediate audio start
+    // Check offline CacheStorage & IndexedDB downloads for instant offline playback (Airplane Mode)
+    getOfflineAudioUrl(chapter.id, reciter.id).then(offlineUrl => {
+      if (offlineUrl && attemptRef.current?.cacheKey === cacheKey) {
+        if (quranAudioRef.current && (quranAudioRef.current.paused || !quranAudioRef.current.src)) {
+          attemptRef.current.urls = [offlineUrl, ...urls];
+          attemptPlayback(0);
+        } else if (attemptRef.current) {
+          attemptRef.current.urls = [offlineUrl, ...urls];
+        }
+      }
+    }).catch(() => {});
+
+    // Check mirror cache in background without delaying immediate audio start
     if (!uploadedUrl) {
       localforage.getItem<Blob>(cacheKey).then(cached => {
         if (cached && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.paused) {
@@ -878,6 +897,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
     // Any view-level play opens the full-screen player; auto-advance and prev/next
     // navigate through startChapter directly and leave the surface as it is.
+    if (typeof window !== 'undefined') {
+      try { window.dispatchEvent(new CustomEvent('quran-play-gesture')); } catch {}
+    }
     setNowPlayingOpen(true);
     await startChapter(chapter, reciter);
   };
@@ -906,6 +928,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     setPlaybackError(null);
+    if (typeof window !== 'undefined') {
+      try { window.dispatchEvent(new CustomEvent('quran-play-gesture')); } catch {}
+    }
     audio
       .play()
       .then(() => {

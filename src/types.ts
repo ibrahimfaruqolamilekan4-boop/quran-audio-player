@@ -39,6 +39,16 @@ export interface AmbientTrack {
   icon: any; 
 }
 
+export interface Background {
+  id: string;
+  name: string;
+  videoUrl: string;
+  ambientUrl?: string;
+  thumbnailUrl?: string;
+  sizeBytes?: number;
+  createdAt?: number;
+}
+
 export interface CustomVideo {
   id: string;
   name: string;
@@ -49,3 +59,4 @@ export interface CustomVideo {
   sizeBytes?: number;
   createdAt?: number;
 }
+

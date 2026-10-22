@@ -1,0 +1,26 @@
+/* src/components/player.module.css */
+/* Glassmorphism player card */
+.player-card {
+  @apply w-full max-w-md rounded-2xl bg-white/5 backdrop-blur-xl backdrop-saturate-150 border border-white/10 p-6 shadow-lg;
+}
+
+/* Progress bar */
+.progress-bar {
+  @apply relative h-2 bg-gray-700 rounded cursor-pointer;
+}
+.progress-filled {
+  @apply absolute inset-y-0 left-0 bg-green-400 rounded;
+}
+
+/* Controls */
+.control-btn {
+  @apply p-2 rounded-full hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400;
+}
+.control-btn-primary {
+  @apply p-3 rounded-full bg-green-600 hover:bg-green-500 text-white;
+}
+
+/* Volume slider */
+.volume-slider {
+  @apply w-32 ml-2;
+}

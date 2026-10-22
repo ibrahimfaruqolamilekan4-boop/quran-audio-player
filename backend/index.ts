@@ -35,6 +35,8 @@ import health from './health.mjs';
 import publicReciters from './reciters';
 import publicAmbient from './ambient';
 import media from './media';
+import verifyFlutterwave from './payments/verify';
+import flwWebhook from './payments/webhook';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -57,6 +59,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
+  [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

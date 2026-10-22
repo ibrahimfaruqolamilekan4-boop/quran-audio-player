@@ -10,6 +10,10 @@ export interface AppUser {
   displayName: string | null;
   photoURL: string | null;
   role: 'user' | 'admin';
+  is_premium: boolean;
+  subscription_plan: 'free' | 'monthly' | 'yearly' | 'lifetime';
+  flw_transaction_id?: string | null;
+  premium_expires_at?: string | null;
 }
 
 export interface QueryResult<T = any> {

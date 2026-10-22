@@ -32,6 +32,34 @@ const CURATED_DEFAULT_VIDEOS = [
     description: 'Peaceful nature breeze',
     isDefault: false,
   },
+  {
+    id: 'curated_clouds',
+    name: 'Serene Clouds & Sky',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4',
+    description: 'Sunlit gentle cloud movement',
+    isDefault: false,
+  },
+  {
+    id: 'curated_mountains',
+    name: 'Mountain Mist & Rain',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-mountain-range-under-a-gloomy-sky-40436-large.mp4',
+    description: 'Moody mountain peaks with mist',
+    isDefault: false,
+  },
+  {
+    id: 'curated_night_stars',
+    name: 'Midnight Galaxy',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-the-night-sky-22920-large.mp4',
+    description: 'Deep cosmic starscape',
+    isDefault: false,
+  },
+  {
+    id: 'curated_sunset',
+    name: 'Golden Ocean Sunset',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-sun-setting-over-the-ocean-1224-large.mp4',
+    description: 'Golden reflection over calm waters',
+    isDefault: false,
+  },
 ];
 
 /**

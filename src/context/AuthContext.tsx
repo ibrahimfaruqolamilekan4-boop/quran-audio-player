@@ -8,6 +8,8 @@ interface AuthContextType {
   login: (email: string, pass: string) => Promise<void>;
   signup: (email: string, pass: string, name: string) => Promise<void>;
   logOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  setUser: React.Dispatch<React.SetStateAction<AppUser | null>>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -15,6 +17,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const refreshUser = async () => {
+    try {
+      const data = await appApi<{ user: AppUser | null }>('/auth/me');
+      setUser(data.user);
+    } catch (e) {
+      console.warn('Failed to refresh user:', e);
+    }
+  };
 
   // Restore the session from the httpOnly cookie on first load.
   useEffect(() => {
@@ -45,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, role: user?.role ?? null, loading, login, signup, logOut }}>
+    <AuthContext.Provider value={{ user, role: user?.role ?? null, loading, login, signup, logOut, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );

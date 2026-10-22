@@ -132,48 +132,46 @@ export function BackgroundsAdmin({
       setBgProgress(15);
 
       let videoUrl: string | undefined = undefined;
-      try {
-        videoUrl = await uploadMediaToServer(
-          file,
-          {
-            filename: file.name,
-            name,
-            type: file.type || 'video/mp4',
-            isDefault: bgSetDefault,
-          },
-          pct => setBgProgress(15 + Math.round(pct * 0.7))
-        );
-      } catch (mediaErr) {
-        console.warn('Could not stream to /api/media:', mediaErr);
+      videoUrl = await uploadMediaToServer(
+        file,
+        {
+          filename: file.name,
+          name,
+          type: file.type || 'video/mp4',
+          isDefault: bgSetDefault,
+        },
+        pct => setBgProgress(15 + Math.round(pct * 0.7))
+      );
+
+      if (!videoUrl) {
+        throw new Error('Failed to upload video to cloud media storage. Please check connection and try again.');
       }
 
       setBgProgress(90);
 
-      if (videoUrl) {
+      await appApi('/admin/ambient', {
+        method: 'POST',
+        body: {
+          action: 'add_video',
+          id,
+          name,
+          videoUrl,
+          description: bgDescription.trim() || undefined,
+          isDefault: bgSetDefault,
+        },
+      });
+
+      if (bgSetDefault) {
         await appApi('/admin/ambient', {
           method: 'POST',
-          body: {
-            action: 'add_video',
-            id,
-            name,
-            videoUrl,
-            description: bgDescription.trim() || undefined,
-            isDefault: bgSetDefault,
-          },
+          body: { action: 'set_default', id, videoUrl },
         }).catch(() => {});
-
-        if (bgSetDefault) {
-          await appApi('/admin/ambient', {
-            method: 'POST',
-            body: { action: 'set_default', id, videoUrl },
-          }).catch(() => {});
-        }
       }
 
       const entry: CustomVideo = {
         id,
         name,
-        videoUrl: videoUrl || id,
+        videoUrl,
         description: bgDescription.trim() || undefined,
         sizeBytes: file.size,
         isDefault: bgSetDefault,
@@ -182,7 +180,7 @@ export function BackgroundsAdmin({
       await persistVideos([entry, ...customVideos]);
 
       if (bgSetDefault || !activeBackgroundVideoId) {
-        setActiveBackgroundVideoId(videoUrl || id);
+        setActiveBackgroundVideoId(videoUrl);
       }
 
       await refreshGlobalCatalog();
@@ -333,6 +331,7 @@ export function BackgroundsAdmin({
             },
           }).catch(() => {});
 
+          await refreshGlobalCatalog();
           showToast('Background deleted.', 'success');
         } catch {
           showToast('Failed to delete background.', 'error');

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
+import { FullPlayerPage } from './components/FullPlayerPage';
 import { NowPlayingOverlay } from './components/NowPlayingOverlay';
 import { Sidebar } from './components/Sidebar';
 import { QuranicPremiumBackground, THEME_LIBRARY } from './components/QuranicPremiumBackground';
@@ -13,6 +14,7 @@ import { AdminView } from './views/AdminView';
 import { useAuth } from './context/AuthContext';
 import { HubView } from './views/HubView';
 import { SurahLibraryView } from './views/SurahLibraryView';
+import { OfflineLibraryView } from './views/OfflineLibraryView';
 import { RecitersHubView } from './views/RecitersHubView';
 import { InsightsView } from './views/InsightsView';
 import { SettingsView } from './views/SettingsView';
@@ -91,9 +93,11 @@ function DashboardLayout() {
             <Route path="qibla" element={<QiblaView />} />
             <Route path="hub" element={<HubView />} />
             <Route path="library" element={<SurahLibraryView />} />
+            <Route path="offline" element={<OfflineLibraryView />} />
             <Route path="reciters" element={<RecitersHubView />} />
             <Route path="insights" element={<InsightsView />} />
             <Route path="settings" element={<SettingsView />} />
+            <Route path="player" element={<FullPlayerPage />} />
           </Routes>
         </div>
       </main>

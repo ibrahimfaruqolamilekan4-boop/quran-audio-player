@@ -25,9 +25,13 @@ import {
   Share2,
   Sparkles,
   Sliders,
-  Maximize2
+  Maximize2,
+  Download
 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
+import { useAuth } from '../context/AuthContext';
+import { isSurahDownloaded, downloadSurah } from '../lib/offlineManager';
+import { SubscriptionModal } from './SubscriptionModal';
 import { AMBIENT_TRACKS, SOUNDSCAPE_VIDEOS } from '../lib/constants';
 import { ReciterAvatar } from './ReciterAvatar';
 import type { AmbientTrack, Chapter, Reciter } from '../types';
@@ -96,6 +100,13 @@ export function NowPlayingOverlay() {
   // Favorites state
   const [isFavorite, setIsFavorite] = useState(false);
   
+  // Offline download & subscription state
+  const { user } = useAuth();
+  const [showSubModal, setShowSubModal] = useState(false);
+  const [isCurrentDownloaded, setIsCurrentDownloaded] = useState(false);
+  const [isDownloadingCurrent, setIsDownloadingCurrent] = useState(false);
+  const [currentDownloadPct, setCurrentDownloadPct] = useState(0);
+
   // Arabic Quran reader modal
   const [showAyahReader, setShowAyahReader] = useState(false);
 

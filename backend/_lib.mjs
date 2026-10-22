@@ -51,6 +51,10 @@ const fallbackUsers = [
     display_name: 'Ibrahim Faruq (Admin)',
     photo_url: null,
     role: 'admin',
+    is_premium: true,
+    subscription_plan: 'lifetime',
+    flw_transaction_id: 'flw_admin_permanent',
+    premium_expires_at: null,
     created_at: '2026-03-01T12:00:00Z',
     last_login_at: '2026-10-10T08:00:00Z',
   },
@@ -61,6 +65,10 @@ const fallbackUsers = [
     display_name: 'Omar Zaid',
     photo_url: null,
     role: 'user',
+    is_premium: false,
+    subscription_plan: 'free',
+    flw_transaction_id: null,
+    premium_expires_at: null,
     created_at: '2026-04-12T14:30:00Z',
     last_login_at: '2026-10-09T18:20:00Z',
   },
@@ -71,6 +79,10 @@ const fallbackUsers = [
     display_name: 'Ahmed Al-Banna',
     photo_url: null,
     role: 'user',
+    is_premium: false,
+    subscription_plan: 'free',
+    flw_transaction_id: null,
+    premium_expires_at: null,
     created_at: '2026-05-20T09:15:00Z',
     last_login_at: '2026-10-10T05:40:00Z',
   },
@@ -81,6 +93,10 @@ const fallbackUsers = [
     display_name: 'Mariam Khalid',
     photo_url: null,
     role: 'user',
+    is_premium: false,
+    subscription_plan: 'free',
+    flw_transaction_id: null,
+    premium_expires_at: null,
     created_at: '2026-06-18T16:00:00Z',
     last_login_at: '2026-10-08T21:10:00Z',
   },
@@ -91,6 +107,10 @@ const fallbackUsers = [
     display_name: 'Yusuf Mansour',
     photo_url: null,
     role: 'user',
+    is_premium: false,
+    subscription_plan: 'free',
+    flw_transaction_id: null,
+    premium_expires_at: null,
     created_at: '2026-08-05T11:45:00Z',
     last_login_at: '2026-10-09T12:05:00Z',
   },
@@ -119,6 +139,10 @@ function loadStore() {
       { id: 'curated_rain', name: 'Rain on Water', video_url: '/videos/rain.mp4', description: 'Gentle raindrops rippling on water surface', is_default: false },
       { id: 'curated_ocean', name: 'Ocean Waves', video_url: '/videos/ocean.mp4', description: 'Gentle rolling ocean waves', is_default: false },
       { id: 'curated_nature', name: 'Sacred Nature', video_url: '/videos/nature.mp4', description: 'Peaceful nature breeze', is_default: false },
+      { id: 'curated_clouds', name: 'Serene Clouds & Sky', video_url: 'https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4', description: 'Sunlit gentle cloud movement', is_default: false },
+      { id: 'curated_mountains', name: 'Mountain Mist & Rain', video_url: 'https://assets.mixkit.co/videos/preview/mixkit-mountain-range-under-a-gloomy-sky-40436-large.mp4', description: 'Moody mountain peaks with mist', is_default: false },
+      { id: 'curated_night_stars', name: 'Midnight Galaxy', video_url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-the-night-sky-22920-large.mp4', description: 'Deep cosmic starscape', is_default: false },
+      { id: 'curated_sunset', name: 'Golden Ocean Sunset', video_url: 'https://assets.mixkit.co/videos/preview/mixkit-sun-setting-over-the-ocean-1224-large.mp4', description: 'Golden reflection over calm waters', is_default: false },
     ],
     ambient_sounds: {
       default: '/videos/cosmos.mp4',
@@ -151,9 +175,17 @@ async function ensureDbInitialized(p) {
         display_name  TEXT,
         photo_url     TEXT,
         role          TEXT NOT NULL DEFAULT 'user',
+        is_premium    BOOLEAN NOT NULL DEFAULT false,
+        subscription_plan TEXT NOT NULL DEFAULT 'free',
+        flw_transaction_id TEXT,
+        premium_expires_at TIMESTAMPTZ,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
         last_login_at TIMESTAMPTZ
       );
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT NOT NULL DEFAULT 'free';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_expires_at TIMESTAMPTZ;
       CREATE TABLE IF NOT EXISTS global_reciters (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL,
@@ -197,9 +229,9 @@ async function ensureDbInitialized(p) {
         created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (upload_id, chunk_index)
       );
-      INSERT INTO users (uid, email, display_name, role)
-      VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin')
-      ON CONFLICT (email) DO NOTHING;
+      INSERT INTO users (uid, email, display_name, role, is_premium, subscription_plan)
+      VALUES ('usr_admin_ibrahim', 'ibrahimfaruqolamilekan4@gmail.com', 'Ibrahim Faruq (Admin)', 'admin', true, 'lifetime')
+      ON CONFLICT (email) DO UPDATE SET is_premium = true, subscription_plan = 'lifetime';
     `);
     dbInitialized = true;
   } catch (err) {
@@ -246,6 +278,17 @@ export async function q(text, params = []) {
         saveStore();
       }
       return { rowCount: u ? 1 : 0, rows: [] };
+    }
+    if (qStr.includes('UPDATE users SET is_premium')) {
+      const u = serverStore.users.find(x => x.uid === params[params.length - 1] || x.email === params[params.length - 1]);
+      if (u) {
+        u.is_premium = true;
+        u.subscription_plan = params[0];
+        u.flw_transaction_id = params[1];
+        u.premium_expires_at = params[2];
+        saveStore();
+      }
+      return { rowCount: u ? 1 : 0, rows: u ? [u] : [] };
     }
     if (qStr.includes('UPDATE users SET')) {
       const u = serverStore.users.find(x => x.uid === params[params.length - 1] || x.email === params[params.length - 1]);
@@ -458,6 +501,9 @@ export function mapUser(row) {
     displayName: row.display_name,
     photoURL: row.photo_url,
     role: row.role,
+    is_premium: Boolean(row.is_premium),
+    subscription_plan: row.subscription_plan || 'free',
+    premium_expires_at: row.premium_expires_at ? new Date(row.premium_expires_at).toISOString() : null,
   };
 }
 
@@ -534,7 +580,7 @@ export async function getAuthUser(req) {
     if (uid) {
       try {
         const { rows } = await q(
-          'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
+          'SELECT uid, email, password_hash, display_name, photo_url, role, is_premium, subscription_plan, premium_expires_at FROM users WHERE uid = $1',
           [uid]
         );
         if (rows[0]) return mapUser(rows[0]);

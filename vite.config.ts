@@ -24,6 +24,8 @@ import health from './backend/health.mjs';
 import publicReciters from './backend/reciters';
 import publicAmbient from './backend/ambient';
 import media from './backend/media';
+import verifyFlutterwave from './backend/payments/verify';
+import flwWebhook from './backend/payments/webhook';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +82,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
+  [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

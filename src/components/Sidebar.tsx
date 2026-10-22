@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon, Clock, Sparkles, Sun } from 'lucide-react';
+import { BookOpen, Headphones, Disc3, Compass, BarChart2, Settings, Shield, LogOut, User as UserIcon, Clock, Sparkles, Sun, WifiOff, Crown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -18,6 +18,7 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
     { id: 'qibla', label: 'Qibla', icon: Compass },
     { id: 'hub', label: 'Focus Space', icon: Headphones },
     { id: 'library', label: 'Surahs', icon: BookOpen },
+    { id: 'offline', label: 'Offline', icon: WifiOff },
     { id: 'reciters', label: 'Reciters', icon: Disc3 },
     { id: 'insights', label: 'Activity', icon: BarChart2 },
   ];
