@@ -1,0 +1,89 @@
+{
+  "global_reciters": [],
+  "global_videos": [
+    {
+      "id": "curated_stars",
+      "name": "Night Sky & Cosmos",
+      "video_url": "/videos/cosmos.mp4",
+      "description": "Serene star-filled night sky loop",
+      "is_default": true
+    },
+    {
+      "id": "curated_rain",
+      "name": "Rain on Water",
+      "video_url": "/videos/rain.mp4",
+      "description": "Gentle raindrops rippling on water surface",
+      "is_default": false
+    },
+    {
+      "id": "curated_ocean",
+      "name": "Ocean Waves",
+      "video_url": "/videos/ocean.mp4",
+      "description": "Gentle rolling ocean waves",
+      "is_default": false
+    },
+    {
+      "id": "curated_nature",
+      "name": "Sacred Nature",
+      "video_url": "/videos/nature.mp4",
+      "description": "Peaceful nature breeze",
+      "is_default": false
+    }
+  ],
+  "ambient_sounds": {
+    "default": "/videos/cosmos.mp4"
+  },
+  "user_preferences": {},
+  "users": [
+    {
+      "uid": "usr_admin_ibrahim",
+      "email": "ibrahimfaruqolamilekan4@gmail.com",
+      "password_hash": null,
+      "display_name": "Ibrahim Faruq (Admin)",
+      "photo_url": null,
+      "role": "admin",
+      "created_at": "2026-03-01T12:00:00Z",
+      "last_login_at": "2026-10-22T14:02:47.047Z"
+    },
+    {
+      "uid": "usr_member_omar",
+      "email": "omar.zaid@nooraya.app",
+      "password_hash": null,
+      "display_name": "Omar Zaid",
+      "photo_url": null,
+      "role": "user",
+      "created_at": "2026-04-12T14:30:00Z",
+      "last_login_at": "2026-10-09T18:20:00Z"
+    },
+    {
+      "uid": "usr_member_ahmed",
+      "email": "hafiz.ahmed@example.com",
+      "password_hash": null,
+      "display_name": "Ahmed Al-Banna",
+      "photo_url": null,
+      "role": "user",
+      "created_at": "2026-05-20T09:15:00Z",
+      "last_login_at": "2026-10-10T05:40:00Z"
+    },
+    {
+      "uid": "usr_member_mariam",
+      "email": "mariam.khalid@example.com",
+      "password_hash": null,
+      "display_name": "Mariam Khalid",
+      "photo_url": null,
+      "role": "user",
+      "created_at": "2026-06-18T16:00:00Z",
+      "last_login_at": "2026-10-08T21:10:00Z"
+    },
+    {
+      "uid": "usr_member_yusuf",
+      "email": "yusuf.mansour@example.com",
+      "password_hash": null,
+      "display_name": "Yusuf Mansour",
+      "photo_url": null,
+      "role": "user",
+      "created_at": "2026-08-05T11:45:00Z",
+      "last_login_at": "2026-10-09T12:05:00Z"
+    }
+  ]
+}
