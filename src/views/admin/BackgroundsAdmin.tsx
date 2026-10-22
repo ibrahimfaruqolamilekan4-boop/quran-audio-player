@@ -98,7 +98,7 @@ export function BackgroundsAdmin({
       await persistVideos([entry, ...customVideos]);
 
       if (bgSetDefault || !activeBackgroundVideoId) {
-        setActiveBackgroundVideoId(url);
+        setActiveBackgroundVideoId(id);
       }
 
       await refreshGlobalCatalog();
@@ -180,7 +180,7 @@ export function BackgroundsAdmin({
       await persistVideos([entry, ...customVideos]);
 
       if (bgSetDefault || !activeBackgroundVideoId) {
-        setActiveBackgroundVideoId(videoUrl);
+        setActiveBackgroundVideoId(id);
       }
 
       await refreshGlobalCatalog();
