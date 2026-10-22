@@ -34,6 +34,7 @@ export interface AppPreferences {
 export async function appApi<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method: options.method ?? 'GET',
+    cache: 'no-store',
     credentials: 'same-origin',
     headers: options.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,

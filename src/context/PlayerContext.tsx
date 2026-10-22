@@ -234,13 +234,30 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Load ambient mapping from local storage and refresh global catalog on mount
+  // Load ambient mapping from local storage and revalidate global catalog on mount, focus, online, visibility, and 60s interval
   useEffect(() => {
     localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
       if (mapping) setAmbientVideoMapping(prev => ({ ...mapping, ...prev }));
     }).catch(() => {});
 
-    refreshGlobalCatalog();
+    const revalidate = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshGlobalCatalog();
+      }
+    };
+
+    void refreshGlobalCatalog();
+    window.addEventListener('focus', revalidate);
+    window.addEventListener('online', revalidate);
+    document.addEventListener('visibilitychange', revalidate);
+    const intervalId = window.setInterval(revalidate, 60000);
+
+    return () => {
+      window.removeEventListener('focus', revalidate);
+      window.removeEventListener('online', revalidate);
+      document.removeEventListener('visibilitychange', revalidate);
+      window.clearInterval(intervalId);
+    };
   }, [refreshGlobalCatalog]);
 
   // Update active background video when ambient track changes
@@ -1049,6 +1066,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [startChapter]);
 
   nextChapterRef.current = playNextChapter;
+  const prevChapterRef = useRef<() => void>(() => {});
+  prevChapterRef.current = playPreviousChapter;
+  const seekRef = useRef<(time: number) => void>(() => {});
+  seekRef.current = seekTo;
 
   // Switching sheikh mid-surah used to leave the old recitation playing, because the audio
   // element kept its src. Re-open the same surah from the new mirror, keeping the position.
@@ -1131,13 +1152,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentTime, duration, playbackRate, currentChapter]);
 
-  // MediaSession action handlers (next, prev, play, pause, seek)
+  // MediaSession action handlers (next, prev, play, pause, seek) — registered once via refs
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
     const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
       ['play', () => {
-        togglePlayPause();
+        const audio = quranAudioRef.current;
+        if (!audio) return;
+        audio
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+            if (ambientAudioRef.current && ambientAudioRef.current.src) {
+              ambientAudioRef.current.play().catch(() => {});
+            }
+            try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+          })
+          .catch(() => {
+            try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
+            window.setTimeout(() => {
+              const retry = quranAudioRef.current;
+              if (!retry) return;
+              retry
+                .play()
+                .then(() => {
+                  setIsPlaying(true);
+                  try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+                })
+                .catch(() => {});
+            }, 250);
+          });
       }],
       ['pause', () => {
         if (quranAudioRef.current) {
@@ -1147,24 +1192,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           ambientAudioRef.current.pause();
         }
         setIsPlaying(false);
+        try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
       }],
       ['previoustrack', () => {
-        playPreviousChapter();
+        prevChapterRef.current();
       }],
       ['nexttrack', () => {
-        playNextChapter();
+        nextChapterRef.current();
       }],
       ['seekbackward', (details) => {
         const skip = details.seekOffset || 10;
-        seekTo(Math.max(currentTime - skip, 0));
+        seekRef.current(Math.max((quranAudioRef.current?.currentTime || 0) - skip, 0));
       }],
       ['seekforward', (details) => {
         const skip = details.seekOffset || 10;
-        seekTo(Math.min(currentTime + skip, duration || 0));
+        seekRef.current(Math.min((quranAudioRef.current?.currentTime || 0) + skip, quranAudioRef.current?.duration || 0));
       }],
       ['seekto', (details) => {
         if (details.seekTime !== undefined && details.seekTime !== null) {
-          seekTo(details.seekTime);
+          seekRef.current(details.seekTime);
         }
       }],
       ['stop', () => {
@@ -1175,6 +1221,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           ambientAudioRef.current.pause();
         }
         setIsPlaying(false);
+        try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
       }],
     ];
 
@@ -1185,17 +1232,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         /* Some actions not supported on all devices */
       }
     }
-
-    return () => {
-      for (const [action] of actionHandlers) {
-        try {
-          navigator.mediaSession.setActionHandler(action, null);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, [currentTime, duration, playNextChapter, playPreviousChapter, seekTo]);
+  }, []);
 
   return (
     <PlayerContext.Provider value={{
