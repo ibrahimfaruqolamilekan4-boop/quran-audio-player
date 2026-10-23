@@ -151,6 +151,16 @@
       "bio": "Born in Jeddah, Saudi Arabia. Well known Islamic preacher, speaker, and Quran reciter who has led prayers in various mosques in Saudi Arabia and the UAE. Famous for his expressive, heartfelt recitation style and moving sermons.",
       "server_url": "https://server14.mp3quran.net/mansor/",
       "image_url": "/api/media/media_image_1792779848376_beb65886"
+    },
+    {
+      "id": "okasha",
+      "name": "Okasha Kameny",
+      "name_arabic": "عكاشة كميني",
+      "style": "Custom Global",
+      "category": "Sweet Voices",
+      "bio": "Born in Kumasi, Ghana and studied Islamic sciences in Medina. Serves as an imam and educator in the United States. Widely renowned for his mastery of the ten Qira’at, especially the Riwayah of Al-Bazzi from Ibn Kathir.",
+      "server_url": "https://server16.mp3quran.net/okasha/Rewayat-Albizi-A-n-Ibn-Katheer/",
+      "image_url": "/api/media/media_image_1792779867928_f2b5a9d4"
     }
   ],
   "global_videos": [
@@ -195,5 +205,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-23T18:24:10.719Z"
+  "updated_at": "2026-10-23T18:24:29.614Z"
 }
