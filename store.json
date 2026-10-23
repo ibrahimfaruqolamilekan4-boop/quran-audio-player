@@ -61,6 +61,16 @@
       "bio": "Born in Al-Farajab, North Kordofan, Sudan in 1982. Served as the chief imam of the Grand Mosque of Khartoum and Al-Sayyida Sanhouri Mosque. Celebrated worldwide for his soulful, traditional African pentatonic chanting in the recitation of Al-Duri 'an Abi 'Amr until his passing in 2020.",
       "server_url": "https://server16.mp3quran.net/nourin_siddig/Rewayat-Aldori-A-n-Abi-Amr/",
       "image_url": "/api/media/media_image_1792779641106_4442159a"
+    },
+    {
+      "id": "ahmad_huth",
+      "name": "Ahmad Al-Hudhaify",
+      "name_arabic": "أحمد بن علي الحذيفي",
+      "style": "Custom Global",
+      "category": "Madinah (Prophet's Mosque)",
+      "bio": "Born in Medina, Saudi Arabia, son of Chief Imam Sheikh Ali Al-Hudhaify. Serves as Imam and Khateeb of Quba Mosque and has been appointed to lead prayers at the Prophet's Mosque in Medina. Recites with a disciplined, calming cadence strongly echoing the classic Medinan style.",
+      "server_url": "https://server8.mp3quran.net/ahmad_huth/",
+      "image_url": "/api/media/media_image_1792779669761_cfb70ab5"
     }
   ],
   "global_videos": [
@@ -97,5 +107,5 @@
     "default": "/videos/cosmos.mp4"
   },
   "user_preferences": {},
-  "updated_at": "2026-10-23T18:20:43.176Z"
+  "updated_at": "2026-10-23T18:21:11.977Z"
 }
