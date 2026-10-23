@@ -131,6 +131,26 @@
       "bio": "Born in Aden, Yemen and obtained a bachelor's degree in Islamic studies from the University of Science and Technology in Sana'a. Has led Taraweeh and Qiyam prayers at prominent mosques in Kuwait and Dubai. Known for his soothing, calm melodic style and clear tajweed.",
       "server_url": "https://server6.mp3quran.net/wdee3/",
       "image_url": "/api/media/media_image_1792779806998_85ec1736"
+    },
+    {
+      "id": "ar.alafasy",
+      "name": "Mishary Rashid Alafasy",
+      "name_arabic": "",
+      "style": "Custom Global",
+      "category": "",
+      "bio": "",
+      "server_url": "https://server8.mp3quran.net/afs",
+      "image_url": "https://images.unsplash.com/photo-1591604466107-ec97de577aff?w=500&auto=format&fit=crop"
+    },
+    {
+      "id": "mansor",
+      "name": "Mansoor Al-Salemi",
+      "name_arabic": "منصور السالمي",
+      "style": "Custom Global",
+      "category": "Sweet Voices",
+      "bio": "Born in Jeddah, Saudi Arabia. Well known Islamic preacher, speaker, and Quran reciter who has led prayers in various mosques in Saudi Arabia and the UAE. Famous for his expressive, heartfelt recitation style and moving sermons.",
+      "server_url": "https://server14.mp3quran.net/mansor/",
+      "image_url": "/api/media/media_image_1792779848376_beb65886"
     }
   ],
   "global_videos": [
@@ -166,6 +186,14 @@
   "ambient_sounds": {
     "default": "/videos/cosmos.mp4"
   },
-  "user_preferences": {},
-  "updated_at": "2026-10-23T18:23:28.915Z"
+  "user_preferences": {
+    "usr_admin_ibrahim": {
+      "user_uid": "usr_admin_ibrahim",
+      "theme": "midnight-scholar",
+      "active_background_video_id": null,
+      "ambient_video_mapping": {},
+      "updated_at": "2026-10-22T15:24:59.249Z"
+    }
+  },
+  "updated_at": "2026-10-23T18:24:10.719Z"
 }
