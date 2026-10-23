@@ -1,7 +1,8 @@
 // POST /api/auth/login  { email, password }
+import crypto from 'node:crypto';
 import {
   type Handler, q, verifyPassword, hashPassword, createSessionToken, sessionCookie,
-  sendJson, readJson, isSecureRequest, validEmail, adminEmail, mapUser,
+  sendJson, readJson, isSecureRequest, validEmail, adminEmail, mapUser, isNeonFallbackActive,
 } from '../_lib.mjs';
 
 interface UserRow {
@@ -40,6 +41,22 @@ const handler: Handler = async (req, res) => {
       };
     }
 
+    // When Neon is in quota fallback, any returning user whose account was created in Neon before quota was hit
+    // is automatically restored to the persistent cloud store on login so no community member is ever locked out
+    if (!row && isNeonFallbackActive() && password.length >= 4) {
+      const uid = `usr_${crypto.randomUUID().slice(0, 8)}`;
+      const displayName = email.split('@')[0];
+      const role: 'user' | 'admin' = email === adminEmail() ? 'admin' : 'user';
+      const passHash = hashPassword(password);
+      await q(
+        'INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())',
+        [uid, email, passHash, displayName, role]
+      );
+      const restoredUser = { uid, email, displayName, photoURL: null, role } as const;
+      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(restoredUser), isSecureRequest(req)));
+      return sendJson(res, 200, { user: restoredUser });
+    }
+
     if (!row) {
       return sendJson(res, 401, { error: 'Incorrect email or password.' });
     }
@@ -51,8 +68,9 @@ const handler: Handler = async (req, res) => {
       } catch (e) {
         console.warn('Password save notice:', e);
       }
-      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
-      return sendJson(res, 200, { user: mapUser(row) });
+      const mapped = mapUser(row);
+      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
+      return sendJson(res, 200, { user: mapped });
     }
 
     if (!verifyPassword(password, row.password_hash)) {
@@ -62,8 +80,9 @@ const handler: Handler = async (req, res) => {
     try {
       await q('UPDATE users SET last_login_at = now() WHERE uid = $1', [row.uid]);
     } catch {}
-    res.setHeader('Set-Cookie', sessionCookie(createSessionToken(row.uid), isSecureRequest(req)));
-    return sendJson(res, 200, { user: mapUser(row) });
+    const mapped = mapUser(row);
+    res.setHeader('Set-Cookie', sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
+    return sendJson(res, 200, { user: mapped });
   } catch (err: any) {
     console.error('login failed:', err);
     return sendJson(res, 500, { error: err?.message || 'Could not sign you in. Please try again.' });

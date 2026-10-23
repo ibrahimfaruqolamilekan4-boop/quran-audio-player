@@ -99,6 +99,10 @@ export function AdminView() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'user' | 'admin'>('user');
+  const [addingUser, setAddingUser] = useState(false);
 
   const showToast: Toast = (message, type = 'success') => {
     setToast({ message, type });
@@ -323,6 +327,40 @@ export function AdminView() {
   };
 
   // Users tab
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = newUserEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      showToast('Please enter a valid email address.', 'error');
+      return;
+    }
+    setAddingUser(true);
+    try {
+      const res = await appApi<{ ok: boolean; users?: any[] }>('/admin/role', {
+        method: 'POST',
+        body: {
+          action: 'add_user',
+          email,
+          displayName: newUserName.trim() || email.split('@')[0],
+          role: newUserRole,
+        },
+      });
+      if (Array.isArray(res?.users)) {
+        setUsers(res.users);
+      } else {
+        await fetchAdminData();
+      }
+      setNewUserEmail('');
+      setNewUserName('');
+      setNewUserRole('user');
+      showToast(`Added / restored ${email} in user directory!`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to add user.', 'error');
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
   const handleRoleToggle = (userId: string, currentRole: string) => {
     const newRole = currentRole === 'admin' ? 'user' : 'admin';
     askConfirm('Change User Role', `Change user role to ${newRole.toUpperCase()}?`, async () => {
@@ -682,11 +720,73 @@ export function AdminView() {
       {/* TAB: USERS */}
       {activeTab === 'users' && (
         <section className="bg-[#0A0F1C]/80 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-8 shadow-xl animate-in fade-in duration-200">
-          <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-            <Users className="text-teal-400" size={20} />
-            User Roles Management ({users.length})
-          </h2>
-          <p className="text-xs text-slate-400 mb-6">Assign Administrator privileges to designated users.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Users className="text-teal-400" size={20} />
+                User Roles & Community Management ({users.length})
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">View all registered users, restore accounts, or assign Administrator privileges.</p>
+            </div>
+            <button
+              onClick={fetchAdminData}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-teal-500/40 text-xs font-semibold text-slate-300 hover:text-white transition-all"
+            >
+              <RefreshCw size={13} /> Refresh Users
+            </button>
+          </div>
+
+          <form
+            onSubmit={handleAddUser}
+            className="bg-[#050811]/90 border border-slate-800/80 rounded-2xl p-4 mb-6 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
+          >
+            <div className="sm:col-span-4">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                Member Email
+              </label>
+              <input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                placeholder="user@example.com"
+                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+              />
+            </div>
+            <div className="sm:col-span-4">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                Display Name
+              </label>
+              <input
+                type="text"
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                placeholder="Full Name (optional)"
+                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                Role
+              </label>
+              <select
+                value={newUserRole}
+                onChange={(e) => setNewUserRole(e.target.value as 'user' | 'admin')}
+                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <button
+                type="submit"
+                disabled={addingUser}
+                className="w-full py-2 px-3 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+              >
+                <span>{addingUser ? 'Saving...' : 'Add / Restore'}</span>
+              </button>
+            </div>
+          </form>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">

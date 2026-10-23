@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS, SOUNDSCAPE_VIDEOS } from '../lib/constants';
@@ -141,9 +141,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return merged.map(reciter => {
       const override = reciterOverrides[reciter.id];
       if (!override) return reciter;
-      // Prefer a hosted /api/media/ or https:// URL from globalReciters over a stale local override if global has one
-      const imageUrl = override.imageUrl || reciter.imageUrl;
-      return { ...reciter, ...override, imageUrl, imageCredit: undefined };
+      const cleanPatch: Partial<Reciter> = {};
+      for (const [k, v] of Object.entries(override)) {
+        if (v !== undefined && v !== null && v !== '') {
+          (cleanPatch as any)[k] = v;
+        }
+      }
+      // Prefer a hosted /api/media/ or https:// URL from globalReciters over a stale or missing local override
+      const globalHasHostedImg =
+        reciter.imageUrl &&
+        (reciter.imageUrl.startsWith('/api/media/') ||
+          reciter.imageUrl.startsWith('https://') ||
+          reciter.imageUrl.startsWith('http://'));
+      const imageUrl =
+        cleanPatch.imageUrl && cleanPatch.imageUrl.startsWith('/api/media/')
+          ? cleanPatch.imageUrl
+          : globalHasHostedImg
+          ? reciter.imageUrl
+          : cleanPatch.imageUrl || reciter.imageUrl;
+      return { ...reciter, ...cleanPatch, imageUrl, imageCredit: undefined };
     });
   }, [customReciters, globalReciters, reciterOverrides]);
 
@@ -151,10 +167,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => {
     const saved = normalizePortableMediaUrl(localStorage.getItem('activeBackgroundVideoId'));
-    if (saved && (saved.startsWith('/') || saved.startsWith('http://') || saved.startsWith('https://'))) {
-      return saved;
-    }
-    return '/videos/cosmos.mp4';
+    return saved || '/videos/cosmos.mp4';
   });
 
   const refreshGlobalCatalog = useCallback(async () => {
@@ -204,8 +217,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (data?.activeDefaultVideoUrl) {
         const cleanDefault = normalizePortableMediaUrl(data.activeDefaultVideoUrl);
         if (cleanDefault) {
-          setActiveBackgroundVideoId(cleanDefault);
-          localStorage.setItem('activeBackgroundVideoId', cleanDefault);
+          setActiveBackgroundVideoId(prev => {
+            const prevIsCustom =
+              prev &&
+              prev !== '/videos/cosmos.mp4' &&
+              !prev.startsWith('curated_');
+            if (cleanDefault === '/videos/cosmos.mp4' && prevIsCustom) {
+              return prev;
+            }
+            localStorage.setItem('activeBackgroundVideoId', cleanDefault);
+            return cleanDefault;
+          });
         }
       }
     } catch (err: any) {
@@ -213,19 +235,30 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Load ambient mapping from local storage and refresh global catalog on mount + on window focus
+  // Load ambient mapping from local storage and revalidate global catalog on mount, focus, online, visibility, and 60s interval
   useEffect(() => {
     localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
       if (mapping) setAmbientVideoMapping(prev => ({ ...mapping, ...prev }));
     }).catch(() => {});
 
-    refreshGlobalCatalog();
-
-    const handleFocus = () => {
-      refreshGlobalCatalog().catch(() => {});
+    const revalidate = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshGlobalCatalog();
+      }
     };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+
+    void refreshGlobalCatalog();
+    window.addEventListener('focus', revalidate);
+    window.addEventListener('online', revalidate);
+    document.addEventListener('visibilitychange', revalidate);
+    const intervalId = window.setInterval(revalidate, 60000);
+
+    return () => {
+      window.removeEventListener('focus', revalidate);
+      window.removeEventListener('online', revalidate);
+      document.removeEventListener('visibilitychange', revalidate);
+      window.clearInterval(intervalId);
+    };
   }, [refreshGlobalCatalog]);
 
   // Update active background video when ambient track changes
@@ -396,9 +429,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       let hasUpdatedVideos = false;
       const updatedVideos = [...localVideos];
       const activeSaved = normalizePortableMediaUrl(localStorage.getItem('activeBackgroundVideoId'));
+      let defaultAssigned = false;
 
       for (let i = 0; i < updatedVideos.length; i++) {
         const v = updatedVideos[i];
+        if (v.id.startsWith('curated_')) continue;
         const cleanVidUrl = normalizePortableMediaUrl(v.videoUrl);
         const isPortableCloudUrl =
           cleanVidUrl &&
@@ -424,6 +459,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
+        const shouldBeDefault =
+          !defaultAssigned &&
+          (Boolean(v.isDefault) ||
+            activeSaved === v.id ||
+            activeSaved === v.videoUrl ||
+            !activeSaved ||
+            activeSaved === '/videos/cosmos.mp4');
+
         if (blob) {
           try {
             onStatus?.(`Uploading video "${v.name}" to cloud...`);
@@ -431,20 +474,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
               filename: `${(v.name || 'video').replace(/[^a-zA-Z0-9._-]/g, '_')}.mp4`,
               name: v.name || 'Background Video',
               type: blob.type || 'video/mp4',
-              isDefault: v.isDefault,
+              isDefault: shouldBeDefault,
             });
 
             if (hostedUrl) {
-              updatedVideos[i] = { ...v, videoUrl: hostedUrl };
+              updatedVideos[i] = { ...v, videoUrl: hostedUrl, isDefault: shouldBeDefault || v.isDefault };
               hasUpdatedVideos = true;
               syncedVideos++;
-
-              const shouldBeDefault =
-                Boolean(v.isDefault) ||
-                activeSaved === v.id ||
-                activeSaved === v.videoUrl ||
-                !activeSaved ||
-                activeSaved === '/videos/cosmos.mp4';
 
               await appApi('/admin/ambient', {
                 method: 'POST',
@@ -459,6 +495,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
               }).catch(() => {});
 
               if (shouldBeDefault) {
+                defaultAssigned = true;
                 await appApi('/admin/ambient', {
                   method: 'POST',
                   body: { action: 'set_default', id: v.id, videoUrl: hostedUrl },
@@ -471,6 +508,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             console.warn('Video cloud sync failed for', v.name, vidErr);
           }
         } else if (isPortableCloudUrl && cleanVidUrl) {
+          if (shouldBeDefault) {
+            defaultAssigned = true;
+          }
           // Ensure already-portable video is registered in global_background_videos
           await appApi('/admin/ambient', {
             method: 'POST',
@@ -480,7 +520,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
               name: v.name,
               videoUrl: cleanVidUrl,
               description: v.description,
-              isDefault: v.isDefault,
+              isDefault: shouldBeDefault || v.isDefault,
             },
           }).catch(() => {});
         }
@@ -512,6 +552,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           prev.forEach(v => map.set(v.id, { ...map.get(v.id), ...v }));
           return Array.from(map.values());
         });
+
+        // Restore user's saved custom background video if activeBackgroundVideoId was reset to cosmos default
+        const userCustomVideos = videos.filter(
+          v => !v.id.startsWith('curated_') && v.videoUrl !== '/videos/cosmos.mp4'
+        );
+        if (userCustomVideos.length > 0) {
+          const preferredVid = userCustomVideos.find(v => v.isDefault) || userCustomVideos[0];
+          const preferredTarget = normalizePortableMediaUrl(preferredVid.videoUrl) || preferredVid.id;
+          setActiveBackgroundVideoId(prev => {
+            if (!prev || prev === '/videos/cosmos.mp4') {
+              localStorage.setItem('activeBackgroundVideoId', preferredTarget);
+              return preferredTarget;
+            }
+            return prev;
+          });
+        }
       }
 
       if (user) {
@@ -536,15 +592,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         try {
           const { preferences } = await appApi<{ preferences: AppPreferences }>('/me/preferences');
           const prefVid = normalizePortableMediaUrl(preferences?.activeBackgroundVideoId);
-          // Only apply user preference if it's a portable URL and not overriding a global admin broadcast with cosmos default
+          // Only apply user preference if it's a portable custom URL and not overriding with cosmos default
           if (
             prefVid &&
+            prefVid !== '/videos/cosmos.mp4' &&
             (prefVid.startsWith('/api/media/') || prefVid.startsWith('http://') || prefVid.startsWith('https://'))
           ) {
             setActiveBackgroundVideoId(prefVid);
           }
           if (preferences?.ambientVideoMapping && typeof preferences.ambientVideoMapping === 'object') {
-            setAmbientVideoMapping(prev => ({ ... preferences.ambientVideoMapping, ...prev }));
+            setAmbientVideoMapping(prev => ({ ...preferences.ambientVideoMapping, ...prev }));
           }
         } catch (e) {
           console.error('Failed to sync preferences from cloud', e);
@@ -848,19 +905,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     currentReciterRef.current = reciter;
     attemptPlayback(0);
 
-    // Check offline CacheStorage & IndexedDB downloads for instant offline playback (Airplane Mode)
-    getOfflineAudioUrl(chapter.id, reciter.id).then(offlineUrl => {
-      if (offlineUrl && attemptRef.current?.cacheKey === cacheKey) {
-        if (quranAudioRef.current && (quranAudioRef.current.paused || !quranAudioRef.current.src)) {
-          attemptRef.current.urls = [offlineUrl, ...urls];
-          attemptPlayback(0);
-        } else if (attemptRef.current) {
-          attemptRef.current.urls = [offlineUrl, ...urls];
-        }
-      }
-    }).catch(() => {});
-
-    // Check mirror cache in background without delaying immediate audio start
+    // Check offline cache in background without delaying immediate audio start
     if (!uploadedUrl) {
       localforage.getItem<Blob>(cacheKey).then(cached => {
         if (cached && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.paused) {
@@ -1028,6 +1073,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [startChapter]);
 
   nextChapterRef.current = playNextChapter;
+  const prevChapterRef = useRef<() => void>(() => {});
+  prevChapterRef.current = playPreviousChapter;
+  const seekRef = useRef<(time: number) => void>(() => {});
+  seekRef.current = seekTo;
 
   // Switching sheikh mid-surah used to leave the old recitation playing, because the audio
   // element kept its src. Re-open the same surah from the new mirror, keeping the position.
@@ -1110,13 +1159,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentTime, duration, playbackRate, currentChapter]);
 
-  // MediaSession action handlers (next, prev, play, pause, seek)
+  // MediaSession action handlers (next, prev, play, pause, seek) — registered once via refs
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
     const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
       ['play', () => {
-        togglePlayPause();
+        const audio = quranAudioRef.current;
+        if (!audio) return;
+        audio
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+            if (ambientAudioRef.current && ambientAudioRef.current.src) {
+              ambientAudioRef.current.play().catch(() => {});
+            }
+            try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+          })
+          .catch(() => {
+            try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
+            window.setTimeout(() => {
+              const retry = quranAudioRef.current;
+              if (!retry) return;
+              retry
+                .play()
+                .then(() => {
+                  setIsPlaying(true);
+                  try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+                })
+                .catch(() => {});
+            }, 250);
+          });
       }],
       ['pause', () => {
         if (quranAudioRef.current) {
@@ -1126,24 +1199,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           ambientAudioRef.current.pause();
         }
         setIsPlaying(false);
+        try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
       }],
       ['previoustrack', () => {
-        playPreviousChapter();
+        prevChapterRef.current();
       }],
       ['nexttrack', () => {
-        playNextChapter();
+        nextChapterRef.current();
       }],
       ['seekbackward', (details) => {
         const skip = details.seekOffset || 10;
-        seekTo(Math.max(currentTime - skip, 0));
+        seekRef.current(Math.max((quranAudioRef.current?.currentTime || 0) - skip, 0));
       }],
       ['seekforward', (details) => {
         const skip = details.seekOffset || 10;
-        seekTo(Math.min(currentTime + skip, duration || 0));
+        seekRef.current(Math.min((quranAudioRef.current?.currentTime || 0) + skip, quranAudioRef.current?.duration || 0));
       }],
       ['seekto', (details) => {
         if (details.seekTime !== undefined && details.seekTime !== null) {
-          seekTo(details.seekTime);
+          seekRef.current(details.seekTime);
         }
       }],
       ['stop', () => {
@@ -1154,6 +1228,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           ambientAudioRef.current.pause();
         }
         setIsPlaying(false);
+        try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
       }],
     ];
 
@@ -1164,17 +1239,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         /* Some actions not supported on all devices */
       }
     }
-
-    return () => {
-      for (const [action] of actionHandlers) {
-        try {
-          navigator.mediaSession.setActionHandler(action, null);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, [currentTime, duration, playNextChapter, playPreviousChapter, seekTo]);
+  }, []);
 
   return (
     <PlayerContext.Provider value={{
