@@ -101,6 +101,16 @@
       "bio": "Imam and reciter in Medina, Saudi Arabia. Known for leading Taraweeh and Tahajjud prayers in mosques across the holy city of Medina. Recites with a gentle, humble rhythm deeply rooted in the Medinan tradition.",
       "server_url": "https://server16.mp3quran.net/a_alqrafi/Rewayat-Hafs-A-n-Assem/",
       "image_url": "/api/media/media_image_1792779715489_7c8c6980"
+    },
+    {
+      "id": "shatri",
+      "name": "Abu Bakr Ash-Shatri",
+      "name_arabic": "شيخ أبو بكر الشاطري",
+      "style": "Custom Global",
+      "category": "Classic Masters",
+      "bio": "Born in Jeddah, Saudi Arabia in 1970 and received ijazah in Quran recitation under Sheikh Ayman Suwayd. Has led prayers in major mosques across Jeddah, Riyadh, Dubai, and Bahrain. Celebrated across the Muslim world for his warm, smooth, and easily followed murattal style.",
+      "server_url": "https://server11.mp3quran.net/shatri/",
+      "image_url": "/api/media/media_image_1792779766226_3c6b5a9e"
     }
   ],
   "global_videos": [
@@ -137,5 +147,5 @@
     "default": "/videos/cosmos.mp4"
   },
   "user_preferences": {},
-  "updated_at": "2026-10-23T18:21:57.165Z"
+  "updated_at": "2026-10-23T18:22:47.998Z"
 }
