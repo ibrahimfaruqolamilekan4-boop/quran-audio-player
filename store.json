@@ -96,14 +96,6 @@
   "ambient_sounds": {
     "default": "/videos/cosmos.mp4"
   },
-  "user_preferences": {
-    "usr_admin_ibrahim": {
-      "user_uid": "usr_admin_ibrahim",
-      "theme": "midnight-scholar",
-      "active_background_video_id": null,
-      "ambient_video_mapping": {},
-      "updated_at": "2026-10-22T15:24:59.249Z"
-    }
-  },
-  "updated_at": "2026-10-22T16:32:32.063Z"
+  "user_preferences": {},
+  "updated_at": "2026-10-23T05:46:46.283Z"
 }
