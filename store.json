@@ -53,6 +53,16 @@
   ],
   "global_reciters": [
     {
+      "id": "ar.alafasy",
+      "name": "Mishary Rashid Alafasy",
+      "name_arabic": "",
+      "style": "Custom Global",
+      "category": "",
+      "bio": "",
+      "server_url": "https://server8.mp3quran.net/afs",
+      "image_url": "https://images.unsplash.com/photo-1591604466107-ec97de577aff?w=500&auto=format&fit=crop"
+    },
+    {
       "id": "noreen",
       "name": "Noreen Muhammad Siddiq",
       "name_arabic": "نورين محمد صديق",
@@ -133,16 +143,6 @@
       "image_url": "/api/media/media_image_1792779806998_85ec1736"
     },
     {
-      "id": "ar.alafasy",
-      "name": "Mishary Rashid Alafasy",
-      "name_arabic": "",
-      "style": "Custom Global",
-      "category": "",
-      "bio": "",
-      "server_url": "https://server8.mp3quran.net/afs",
-      "image_url": "https://images.unsplash.com/photo-1591604466107-ec97de577aff?w=500&auto=format&fit=crop"
-    },
-    {
       "id": "mansor",
       "name": "Mansoor Al-Salemi",
       "name_arabic": "منصور السالمي",
@@ -215,5 +215,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-23T23:39:09.411Z"
+  "updated_at": "2026-10-23T23:39:11.535Z"
 }
