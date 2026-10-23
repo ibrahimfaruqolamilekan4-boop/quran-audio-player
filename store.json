@@ -161,6 +161,16 @@
       "bio": "Born in Kumasi, Ghana and studied Islamic sciences in Medina. Serves as an imam and educator in the United States. Widely renowned for his mastery of the ten Qira’at, especially the Riwayah of Al-Bazzi from Ibn Kathir.",
       "server_url": "https://server16.mp3quran.net/okasha/Rewayat-Albizi-A-n-Ibn-Katheer/",
       "image_url": "/api/media/media_image_1792779867928_f2b5a9d4"
+    },
+    {
+      "id": "lhdan",
+      "name": "Muhammad Al-Luhaidan",
+      "name_arabic": "محمد بن إبراهيم اللحيدان",
+      "style": "Custom Global",
+      "category": "Sweet Voices",
+      "bio": "Born in Riyadh, Saudi Arabia and serves as a judge and former imam of Al-Nasir Mosque in Riyadh. Celebrated across the Muslim world for his emotional, tearful recitation style that resonates deeply with audiences during Qiyam al-Layl.",
+      "server_url": "https://server8.mp3quran.net/lhdan/",
+      "image_url": "/api/media/media_image_1792779892194_46926b33"
     }
   ],
   "global_videos": [
@@ -205,5 +215,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-23T18:24:29.614Z"
+  "updated_at": "2026-10-23T18:24:53.914Z"
 }
