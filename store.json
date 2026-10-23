@@ -53,14 +53,14 @@
   ],
   "global_reciters": [
     {
-      "id": "ar.alafasy",
-      "name": "Mishary Rashid Alafasy",
-      "name_arabic": "",
+      "id": "noreen",
+      "name": "Noreen Muhammad Siddiq",
+      "name_arabic": "نورين محمد صديق",
       "style": "Custom Global",
-      "category": "",
-      "bio": "",
-      "server_url": "https://server8.mp3quran.net/afs",
-      "image_url": "https://images.unsplash.com/photo-1591604466107-ec97de577aff?w=500&auto=format&fit=crop"
+      "category": "Sweet Voices",
+      "bio": "Born in Al-Farajab, North Kordofan, Sudan in 1982. Served as the chief imam of the Grand Mosque of Khartoum and Al-Sayyida Sanhouri Mosque. Celebrated worldwide for his soulful, traditional African pentatonic chanting in the recitation of Al-Duri 'an Abi 'Amr until his passing in 2020.",
+      "server_url": "https://server16.mp3quran.net/nourin_siddig/Rewayat-Aldori-A-n-Abi-Amr/",
+      "image_url": "/api/media/media_image_1792779641106_4442159a"
     }
   ],
   "global_videos": [
@@ -96,14 +96,6 @@
   "ambient_sounds": {
     "default": "/videos/cosmos.mp4"
   },
-  "user_preferences": {
-    "usr_admin_ibrahim": {
-      "user_uid": "usr_admin_ibrahim",
-      "theme": "midnight-scholar",
-      "active_background_video_id": null,
-      "ambient_video_mapping": {},
-      "updated_at": "2026-10-22T15:24:59.249Z"
-    }
-  },
-  "updated_at": "2026-10-23T05:46:47.599Z"
+  "user_preferences": {},
+  "updated_at": "2026-10-23T18:20:43.176Z"
 }
