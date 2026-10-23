@@ -121,6 +121,16 @@
       "bio": "Born in Jeddah, Saudi Arabia in 1974. Memorized the Quran by age twelve and studied under prominent scholars. Served as the Imam of the Al-Anani Mosque in Jeddah and personal reciter in the Royal Court. Celebrated for his deeply moving, heartfelt recitations that resonate with millions of listeners worldwide.",
       "server_url": "https://cdn.mp3quran.net/audio/hani-rifai/r1/",
       "image_url": "/api/media/media_image_1792779794796_e231f26d"
+    },
+    {
+      "id": "wadee",
+      "name": "Wadee Hammadi Al-Yamani",
+      "name_arabic": "وديع حمادي اليمني",
+      "style": "Custom Global",
+      "category": "Sweet Voices",
+      "bio": "Born in Aden, Yemen and obtained a bachelor's degree in Islamic studies from the University of Science and Technology in Sana'a. Has led Taraweeh and Qiyam prayers at prominent mosques in Kuwait and Dubai. Known for his soothing, calm melodic style and clear tajweed.",
+      "server_url": "https://server6.mp3quran.net/wdee3/",
+      "image_url": "/api/media/media_image_1792779806998_85ec1736"
     }
   ],
   "global_videos": [
@@ -157,5 +167,5 @@
     "default": "/videos/cosmos.mp4"
   },
   "user_preferences": {},
-  "updated_at": "2026-10-23T18:23:16.935Z"
+  "updated_at": "2026-10-23T18:23:28.915Z"
 }
