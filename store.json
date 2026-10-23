@@ -111,6 +111,16 @@
       "bio": "Born in Jeddah, Saudi Arabia in 1970 and received ijazah in Quran recitation under Sheikh Ayman Suwayd. Has led prayers in major mosques across Jeddah, Riyadh, Dubai, and Bahrain. Celebrated across the Muslim world for his warm, smooth, and easily followed murattal style.",
       "server_url": "https://server11.mp3quran.net/shatri/",
       "image_url": "/api/media/media_image_1792779766226_3c6b5a9e"
+    },
+    {
+      "id": "rifai",
+      "name": "Hani Ar-Rifai",
+      "name_arabic": "هاني بن عبدالرحيم الرفاعي",
+      "style": "Custom Global",
+      "category": "Sweet Voices",
+      "bio": "Born in Jeddah, Saudi Arabia in 1974. Memorized the Quran by age twelve and studied under prominent scholars. Served as the Imam of the Al-Anani Mosque in Jeddah and personal reciter in the Royal Court. Celebrated for his deeply moving, heartfelt recitations that resonate with millions of listeners worldwide.",
+      "server_url": "https://cdn.mp3quran.net/audio/hani-rifai/r1/",
+      "image_url": "/api/media/media_image_1792779794796_e231f26d"
     }
   ],
   "global_videos": [
@@ -147,5 +157,5 @@
     "default": "/videos/cosmos.mp4"
   },
   "user_preferences": {},
-  "updated_at": "2026-10-23T18:22:47.998Z"
+  "updated_at": "2026-10-23T18:23:16.935Z"
 }
