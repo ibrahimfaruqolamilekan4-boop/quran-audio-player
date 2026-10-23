@@ -91,6 +91,16 @@
       "bio": "Prominent Quran reciter based in Medina, Saudi Arabia. Regularly leads prayers in Medina and participates in Quranic teaching circles. Characterized by a warm, contemplative recitation following the Hafs 'an 'Asim riwayah.",
       "server_url": "https://server16.mp3quran.net/M_Burhaji/Rewayat-Hafs-A-n-Assem/",
       "image_url": "/api/media/media_image_1792779700239_a2ccd77d"
+    },
+    {
+      "id": "qarafi",
+      "name": "Abdullah Al-Qarafi",
+      "name_arabic": "عبدالله القرافي",
+      "style": "Custom Global",
+      "category": "Madinah (Prophet's Mosque)",
+      "bio": "Imam and reciter in Medina, Saudi Arabia. Known for leading Taraweeh and Tahajjud prayers in mosques across the holy city of Medina. Recites with a gentle, humble rhythm deeply rooted in the Medinan tradition.",
+      "server_url": "https://server16.mp3quran.net/a_alqrafi/Rewayat-Hafs-A-n-Assem/",
+      "image_url": "/api/media/media_image_1792779715489_7c8c6980"
     }
   ],
   "global_videos": [
@@ -127,5 +137,5 @@
     "default": "/videos/cosmos.mp4"
   },
   "user_preferences": {},
-  "updated_at": "2026-10-23T18:21:42.195Z"
+  "updated_at": "2026-10-23T18:21:57.165Z"
 }
