@@ -1,13 +1,45 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Video, Upload, Trash2, Save, RefreshCw, Play, X, Film, Globe, Star, Check } from 'lucide-react';
+import {
+  Video,
+  Upload,
+  Trash2,
+  Save,
+  RefreshCw,
+  Play,
+  X,
+  Film,
+  Globe,
+  Star,
+  Check,
+  Sparkles,
+  CloudUpload,
+  AlertTriangle,
+  FolderSync,
+  Layers,
+  ArrowUp,
+  ArrowDown,
+  Eye,
+  Flame,
+  CloudRain,
+  Waves,
+  Trees,
+  Moon,
+  Compass,
+} from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useBackgroundVideoSrc } from '../../lib/backgrounds';
-import { validateFile, uploadMediaToServer, mediaStore } from '../../lib/upload';
-import { AMBIENT_TRACKS } from '../../lib/constants';
+import {
+  validateAmbientVideo,
+  extractVideoPoster,
+  uploadToSupabaseStorage,
+  fetchActiveBackgrounds,
+  type BackgroundRow,
+} from '../../lib/supabase';
 import { formatBytes } from '../../lib/recitations';
 import { appApi } from '../../lib/api';
 import localforage from 'localforage';
+import { mediaStore } from '../../lib/upload';
 import type { CustomVideo } from '../../types';
 
 type Toast = (message: string, type?: 'success' | 'error') => void;
@@ -22,12 +54,24 @@ interface Props {
   savingAmbient: boolean;
 }
 
-/**
- * Ambient background management: upload looping videos from the device or
- * add hosted video URLs (e.g. MP4/WebM from Cloudinary, Google Drive, Archive.org,
- * YouTube direct, or any CDN). Videos saved here sync across all devices,
- * including mobile PWAs, and play behind the recitation on a loop.
- */
+interface LocalDetectedItem {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  blob?: Blob;
+  videoUrl?: string;
+}
+
+const CATEGORIES = [
+  { id: 'all', label: 'All', icon: Layers },
+  { id: 'fireplace', label: 'Fireplace', icon: Flame },
+  { id: 'rain', label: 'Rain', icon: CloudRain },
+  { id: 'ocean', label: 'Ocean', icon: Waves },
+  { id: 'forest', label: 'Forest', icon: Trees },
+  { id: 'cosmos', label: 'Cosmos', icon: Compass },
+  { id: 'night', label: 'Night', icon: Moon },
+];
+
 export function BackgroundsAdmin({
   showToast,
   askConfirm,
@@ -36,619 +80,986 @@ export function BackgroundsAdmin({
   onSaveAmbient,
   savingAmbient,
 }: Props) {
-  const { customVideos, setCustomVideos, activeBackgroundVideoId, setActiveBackgroundVideoId, refreshGlobalCatalog } = usePlayer();
+  const {
+    customVideos,
+    setCustomVideos,
+    activeBackgroundVideoId,
+    setActiveBackgroundVideoId,
+    refreshGlobalCatalog,
+  } = usePlayer();
 
-  const [bgName, setBgName] = useState('');
-  const [bgDescription, setBgDescription] = useState('');
-  const [bgUrl, setBgUrl] = useState('');
-  const [bgSetDefault, setBgSetDefault] = useState(false);
-  const [bgProgress, setBgProgress] = useState(0);
+  // Cloud Backgrounds from Supabase / Postgres
+  const [cloudBackgrounds, setCloudBackgrounds] = useState<BackgroundRow[]>([]);
+  const [loadingCloud, setLoadingCloud] = useState(false);
+  const [activeCategory, setActiveCategory] = useState('all');
+
+  // Local laptop detected backgrounds
+  const [detectedLocal, setDetectedLocal] = useState<LocalDetectedItem[]>([]);
+  const [scanningLocal, setScanningLocal] = useState(false);
+  const [migratingId, setMigratingId] = useState<string | null>(null);
+  const [isMigratingAll, setIsMigratingAll] = useState(false);
+
+  // Upload new background form state
+  const [bgNameEn, setBgNameEn] = useState('');
+  const [bgNameAr, setBgNameAr] = useState('');
+  const [bgCategory, setBgCategory] = useState('fireplace');
+  const [bgVideoUrl, setBgVideoUrl] = useState('');
+  const [bgPosterUrl, setBgPosterUrl] = useState('');
+  const [bgIsPremium, setBgIsPremium] = useState(false);
+  const [bgSortOrder, setBgSortOrder] = useState(0);
+
   const [bgUploading, setBgUploading] = useState(false);
+  const [bgProgress, setBgProgress] = useState(0);
+  const [bgValidationWarning, setBgValidationWarning] = useState<string | null>(null);
   const [bgError, setBgError] = useState('');
-  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
-  const [replacingId, setReplacingId] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const replaceRef = useRef<HTMLInputElement>(null);
 
-  const persistVideos = async (updated: CustomVideo[]) => {
-    setCustomVideos(updated);
-    await localforage.setItem('customVideos_list', updated);
+  // Editing modal
+  const [editingBg, setEditingBg] = useState<BackgroundRow | null>(null);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // 1. Load cloud backgrounds
+  const loadCloudCatalog = async () => {
+    setLoadingCloud(true);
+    try {
+      const res = await fetch('/api/admin/supabase-backgrounds');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.backgrounds)) {
+          setCloudBackgrounds(data.backgrounds);
+          return;
+        }
+      }
+      // Fallback
+      const fallback = await fetchActiveBackgrounds(true);
+      setCloudBackgrounds(fallback);
+    } catch (err: any) {
+      console.warn('Could not fetch cloud backgrounds:', err);
+    } finally {
+      setLoadingCloud(false);
+    }
   };
 
-  const handleAddVideoUrl = async () => {
-    setBgError('');
-    const name = bgName.trim();
-    const url = bgUrl.trim();
-    if (!name) {
-      setBgError('Give this background a name (e.g. Kaaba Evening, Rain on Water).');
-      return;
-    }
-    if (!url || (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('/'))) {
-      setBgError('Please enter a valid video link starting with https:// or /');
-      return;
-    }
+  useEffect(() => {
+    loadCloudCatalog();
+    scanLaptopBackgrounds();
+  }, []);
 
-    setBgUploading(true);
+  // 2. Scan laptop storage (IndexedDB, localforage, mediaStore) for saved backgrounds
+  const scanLaptopBackgrounds = async () => {
+    setScanningLocal(true);
     try {
-      const id = `bg_vid_${Date.now()}`;
-      // Save to cloud Postgres database so all devices and phone PWAs load it
-      await appApi('/admin/ambient', {
-        method: 'POST',
-        body: {
-          action: 'add_video',
-          id,
-          name,
-          videoUrl: url,
-          description: bgDescription.trim() || undefined,
-          isDefault: bgSetDefault,
-        },
-      }).catch(err => {
-        console.warn('Cloud video sync note:', err?.message);
-      });
+      const detected: LocalDetectedItem[] = [];
+      const seenIds = new Set<string>();
 
-      const entry: CustomVideo = {
-        id,
-        name,
-        videoUrl: url,
-        description: bgDescription.trim() || undefined,
-        isDefault: bgSetDefault,
-        createdAt: Date.now(),
-      };
-
-      await persistVideos([entry, ...customVideos]);
-
-      if (bgSetDefault || !activeBackgroundVideoId) {
-        setActiveBackgroundVideoId(id);
+      // Check localforage 'customVideos_list'
+      const list = await localforage.getItem<CustomVideo[]>('customVideos_list');
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            // check if blob exists
+            let blob = await localforage.getItem<Blob>(item.id);
+            if (!blob) blob = await localforage.getItem<Blob>(`customVideo_blob_${item.id}`);
+            detected.push({
+              id: item.id,
+              name: item.name || 'Custom Background',
+              sizeBytes: item.sizeBytes || (blob ? blob.size : 0),
+              blob: blob || undefined,
+              videoUrl: item.videoUrl,
+            });
+          }
+        }
       }
 
-      await refreshGlobalCatalog();
-      showToast(`Added background “${name}” for all devices.`, 'success');
-      setBgName('');
-      setBgDescription('');
-      setBgUrl('');
-      setBgSetDefault(false);
-    } catch (err: any) {
-      setBgError(err?.message || 'Failed to add video.');
-      showToast(err?.message || 'Failed to add video.', 'error');
+      // Check mediaStore ('NoorayaMediaStorage')
+      try {
+        await mediaStore.iterate((val: any, key: string) => {
+          if (val && !seenIds.has(key) && (val.type === 'video' || val.mimeType?.startsWith('video'))) {
+            seenIds.add(key);
+            detected.push({
+              id: key,
+              name: val.name || key,
+              sizeBytes: val.sizeBytes || val.blob?.size || 0,
+              blob: val.blob instanceof Blob ? val.blob : undefined,
+              videoUrl: val.url,
+            });
+          }
+        });
+      } catch {}
+
+      // Check all localforage keys for customVideo_blob_*
+      try {
+        const keys = await localforage.keys();
+        for (const k of keys) {
+          if (k.startsWith('customVideo_blob_') || k.startsWith('custom_vid_')) {
+            const rawId = k.replace('customVideo_blob_', '');
+            if (!seenIds.has(rawId)) {
+              seenIds.add(rawId);
+              const blob = await localforage.getItem<Blob>(k);
+              if (blob instanceof Blob) {
+                detected.push({
+                  id: rawId,
+                  name: rawId.includes('fireplace') ? 'Fireplace Ambient' : `Laptop Video (${rawId.slice(0, 8)})`,
+                  sizeBytes: blob.size,
+                  blob,
+                });
+              }
+            }
+          }
+        }
+      } catch {}
+
+      setDetectedLocal(detected);
+    } catch (err) {
+      console.warn('Error scanning laptop backgrounds:', err);
     } finally {
-      setBgUploading(false);
+      setScanningLocal(false);
     }
   };
 
-  const handleUploadBackground = async (file: File) => {
-    setBgError('');
-    const name = bgName.trim() || file.name.replace(/\.[^/.]+$/, '');
-    setBgUploading(true);
-    setBgProgress(5);
+  // 3. Migrate a single laptop background to Supabase Cloud
+  const handleMigrateLaptopItem = async (item: LocalDetectedItem) => {
+    setMigratingId(item.id);
     try {
-      const check = validateFile(file, 'video');
-      if (!check.valid) throw new Error(check.error || 'Invalid video file.');
-      const id = `custom_vid_${Date.now()}`;
-      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'video/mp4' });
+      let videoBlob = item.blob;
+      if (!videoBlob) {
+        videoBlob =
+          (await localforage.getItem<Blob>(item.id)) ||
+          (await localforage.getItem<Blob>(`customVideo_blob_${item.id}`)) ||
+          (await mediaStore.getItem<Blob>(item.id));
+      }
 
-      // Store blob locally in localforage for instant offline cache
-      await localforage.setItem(`customVideo_blob_${id}`, blob);
-      await localforage.setItem(id, blob);
-      setBgProgress(15);
+      if (!videoBlob && item.videoUrl?.startsWith('http')) {
+        // Already hosted
+        showToast(`"${item.name}" is already available via URL. Adding to cloud catalog...`, 'success');
+        await appApi('/admin/supabase-backgrounds', {
+          method: 'POST',
+          body: {
+            action: 'add',
+            id: item.id,
+            name_en: item.name,
+            category: item.name.toLowerCase().includes('fire') ? 'fireplace' : 'general',
+            video_url: item.videoUrl,
+            size_bytes: item.sizeBytes,
+            is_active: true,
+          },
+        });
+        await loadCloudCatalog();
+        return;
+      }
 
-      let videoUrl: string | undefined = undefined;
-      videoUrl = await uploadMediaToServer(
-        file,
-        {
-          filename: file.name,
-          name,
-          type: file.type || 'video/mp4',
-          isDefault: bgSetDefault,
-        },
-        pct => setBgProgress(15 + Math.round(pct * 0.7))
+      if (!videoBlob) {
+        throw new Error(`Video data not found in laptop storage for "${item.name}".`);
+      }
+
+      // Generate unique cloud filename: e.g. fireplace-a8f9c2.mp4
+      const safeBase = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24);
+      const hash = Math.random().toString(36).substring(2, 8);
+      const videoFilename = `${safeBase}_${hash}.mp4`;
+      const posterFilename = `${safeBase}_${hash}_poster.jpg`;
+
+      // Extract poster thumbnail
+      let posterBlob: Blob | null = null;
+      try {
+        posterBlob = await extractVideoPoster(videoBlob);
+      } catch (posterErr) {
+        console.warn('Poster generation fallback:', posterErr);
+      }
+
+      // Upload video to Supabase Storage
+      const uploadedVideoUrl = await uploadToSupabaseStorage(
+        videoBlob,
+        `videos/${videoFilename}`,
+        'video/mp4'
       );
 
-      if (!videoUrl) {
-        throw new Error('Failed to upload video to cloud media storage. Please check connection and try again.');
+      // Upload poster if available
+      let uploadedPosterUrl: string | null = null;
+      if (posterBlob) {
+        try {
+          uploadedPosterUrl = await uploadToSupabaseStorage(
+            posterBlob,
+            `posters/${posterFilename}`,
+            'image/jpeg'
+          );
+        } catch {}
+      }
+
+      // Insert row into 'backgrounds' table
+      const category = item.name.toLowerCase().includes('fire')
+        ? 'fireplace'
+        : item.name.toLowerCase().includes('rain')
+        ? 'rain'
+        : item.name.toLowerCase().includes('ocean')
+        ? 'ocean'
+        : item.name.toLowerCase().includes('forest')
+        ? 'forest'
+        : 'general';
+
+      await appApi('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'add',
+          id: `bg_${safeBase}_${hash}`,
+          name_en: item.name,
+          category,
+          video_url: uploadedVideoUrl,
+          poster_url: uploadedPosterUrl,
+          size_bytes: videoBlob.size,
+          is_active: true,
+          is_premium: false,
+        },
+      });
+
+      showToast(`Migrated "${item.name}" to cloud! Now playable on all phones & tablets.`, 'success');
+      await loadCloudCatalog();
+      await refreshGlobalCatalog();
+    } catch (err: any) {
+      showToast(err?.message || 'Migration failed.', 'error');
+    } finally {
+      setMigratingId(null);
+    }
+  };
+
+  // 4. Migrate ALL detected laptop backgrounds
+  const handleMigrateAllLaptop = async () => {
+    if (detectedLocal.length === 0) return;
+    setIsMigratingAll(true);
+    let successCount = 0;
+    try {
+      for (const item of detectedLocal) {
+        try {
+          await handleMigrateLaptopItem(item);
+          successCount++;
+        } catch (e) {
+          console.error('Failed to migrate', item.name, e);
+        }
+      }
+      showToast(`Successfully migrated ${successCount} backgrounds to cloud for all devices!`, 'success');
+      await scanLaptopBackgrounds();
+    } finally {
+      setIsMigratingAll(false);
+    }
+  };
+
+  // 5. Upload new background from file
+  const handleUploadNewFile = async (file: File) => {
+    setBgError('');
+    setBgValidationWarning(null);
+    setBgUploading(true);
+    setBgProgress(10);
+
+    try {
+      // Validate video constraints
+      const validation = await validateAmbientVideo(file);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'Video validation failed.');
+      }
+      if (validation.warning) {
+        setBgValidationWarning(validation.warning);
+      }
+
+      setBgProgress(30);
+
+      // Extract poster
+      let posterBlob: Blob | null = null;
+      try {
+        posterBlob = await extractVideoPoster(file);
+      } catch (pErr) {
+        console.warn('Poster extraction note:', pErr);
+      }
+
+      setBgProgress(50);
+
+      // Upload to Supabase Storage
+      const safeName = (bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, ''))
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_');
+      const hash = Math.random().toString(36).substring(2, 8);
+      const videoFilename = `${safeName}_${hash}.mp4`;
+      const posterFilename = `${safeName}_${hash}_poster.jpg`;
+
+      const videoUrl = await uploadToSupabaseStorage(file, `videos/${videoFilename}`, 'video/mp4');
+      setBgProgress(80);
+
+      let posterUrl: string | null = null;
+      if (posterBlob) {
+        try {
+          posterUrl = await uploadToSupabaseStorage(posterBlob, `posters/${posterFilename}`, 'image/jpeg');
+        } catch {}
       }
 
       setBgProgress(90);
 
-      await appApi('/admin/ambient', {
+      // Save row to 'backgrounds' table
+      const id = `bg_${safeName}_${hash}`;
+      await appApi('/admin/supabase-backgrounds', {
         method: 'POST',
         body: {
-          action: 'add_video',
+          action: 'add',
           id,
-          name,
-          videoUrl,
-          description: bgDescription.trim() || undefined,
-          isDefault: bgSetDefault,
+          name_en: bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, ''),
+          name_ar: bgNameAr.trim() || null,
+          category: bgCategory,
+          video_url: videoUrl,
+          poster_url: posterUrl,
+          size_bytes: file.size,
+          sort_order: bgSortOrder,
+          is_active: true,
+          is_premium: bgIsPremium,
         },
       });
 
-      if (bgSetDefault) {
-        await appApi('/admin/ambient', {
-          method: 'POST',
-          body: { action: 'set_default', id, videoUrl },
-        }).catch(() => {});
-      }
-
-      const entry: CustomVideo = {
-        id,
-        name,
-        videoUrl,
-        description: bgDescription.trim() || undefined,
-        sizeBytes: file.size,
-        isDefault: bgSetDefault,
-        createdAt: Date.now(),
-      };
-      await persistVideos([entry, ...customVideos]);
-
-      if (bgSetDefault || !activeBackgroundVideoId) {
-        setActiveBackgroundVideoId(id);
-      }
-
-      await refreshGlobalCatalog();
       setBgProgress(100);
-      showToast(`Added background “${name}” and synced to cloud for phones & tablets!`, 'success');
-      setBgName('');
-      setBgDescription('');
-      setBgUrl('');
-      setBgSetDefault(false);
+      showToast(`Added background "${bgNameEn || file.name}" to cloud for all devices!`, 'success');
+
+      // Reset form
+      setBgNameEn('');
+      setBgNameAr('');
+      setBgVideoUrl('');
+      setBgPosterUrl('');
+      setBgSortOrder(0);
+      setBgIsPremium(false);
+      if (fileRef.current) fileRef.current.value = '';
+
+      await loadCloudCatalog();
+      await refreshGlobalCatalog();
     } catch (err: any) {
-      setBgError(err?.message || 'Upload failed.');
-      showToast(err?.message || 'Upload failed.', 'error');
+      setBgError(err?.message || 'Upload failed');
+      showToast(err?.message || 'Upload failed', 'error');
     } finally {
       setBgUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
-  const handleSetGlobalDefault = async (video: CustomVideo) => {
-    try {
-      let targetUrl = video.videoUrl || video.id;
-      const isPortable =
-        targetUrl.startsWith('/api/media/') ||
-        targetUrl.startsWith('https://') ||
-        targetUrl.startsWith('http://');
-
-      // If this video was only stored locally on this system, upload it to cloud first so phones & tablets can play it!
-      if (!isPortable) {
-        const blob =
-          (await localforage.getItem<Blob>(video.id)) ||
-          (await localforage.getItem<Blob>(`customVideo_blob_${video.id}`)) ||
-          (await mediaStore.getItem<Blob>(video.id));
-        if (blob) {
-          showToast(`Syncing “${video.name}” to cloud for mobile & tablet playback...`, 'success');
-          const hostedUrl = await uploadMediaToServer(blob, {
-            filename: `${video.name || 'video'}.mp4`,
-            name: video.name,
-            type: blob.type || 'video/mp4',
-            isDefault: true,
-          });
-          if (hostedUrl) {
-            targetUrl = hostedUrl;
-          }
-        }
-      }
-
-      setActiveBackgroundVideoId(targetUrl);
-
-      await appApi('/admin/ambient', {
-        method: 'POST',
-        body: {
-          action: 'add_video',
-          id: video.id,
-          name: video.name,
-          videoUrl: targetUrl,
-          description: video.description,
-          isDefault: true,
-        },
-      }).catch(() => {});
-
-      await appApi('/admin/ambient', {
-        method: 'POST',
-        body: {
-          action: 'set_default',
-          id: video.id,
-          videoUrl: targetUrl,
-        },
-      }).catch(() => {});
-
-      const updated = customVideos.map(v => ({
-        ...v,
-        videoUrl: v.id === video.id ? targetUrl : v.videoUrl,
-        isDefault: v.id === video.id,
-      }));
-      await persistVideos(updated);
-
-      showToast(`“${video.name}” is now the default background on all phones, tablets, and computers!`, 'success');
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to set global default.', 'error');
-    }
-  };
-
-  const handleActivateThisDevice = (video: CustomVideo) => {
-    setActiveBackgroundVideoId(video.videoUrl || video.id);
-    showToast(`“${video.name}” activated on this device.`, 'success');
-  };
-
-  const handleReplaceVideo = async (id: string, file: File) => {
-    try {
-      const check = validateFile(file, 'video');
-      if (!check.valid) throw new Error(check.error || 'Invalid video file.');
-      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'video/mp4' });
-      await localforage.setItem(`customVideo_blob_${id}`, blob);
-      await localforage.setItem(id, blob);
-
-      const existing = customVideos.find(v => v.id === id);
-      let newUrl = existing?.videoUrl;
-      try {
-        newUrl = await uploadMediaToServer(file, {
-          filename: file.name,
-          name: existing?.name || file.name,
-          type: file.type || 'video/mp4',
-          isDefault: existing?.isDefault,
-        });
-        if (newUrl && existing) {
-          await appApi('/admin/ambient', {
-            method: 'POST',
-            body: {
-              action: 'add_video',
-              id,
-              name: existing.name,
-              videoUrl: newUrl,
-              description: existing.description,
-              isDefault: existing.isDefault,
-            },
-          }).catch(() => {});
-        }
-      } catch {}
-
-      await persistVideos(
-        customVideos.map((v) => (v.id === id ? { ...v, sizeBytes: file.size, videoUrl: newUrl || v.videoUrl } : v))
-      );
-      showToast('Background video replaced and synced across all devices.', 'success');
-    } catch (err: any) {
-      showToast(err?.message || 'Replace failed.', 'error');
-    } finally {
-      setReplacingId(null);
-    }
-  };
-
-  const handleDeleteVideo = (video: CustomVideo) => {
+  // 6. Delete background
+  const handleDeleteBackground = (id: string, name: string) => {
     askConfirm(
-      'Delete Background',
-      `Delete “${video.name}”? It will be removed from all devices.`,
+      'Delete Ambient Background',
+      `Are you sure you want to delete "${name}"? It will no longer play on user devices.`,
       async () => {
         try {
-          if (activeBackgroundVideoId === video.id || (video.videoUrl && activeBackgroundVideoId === video.videoUrl)) {
-            setActiveBackgroundVideoId(null);
-          }
-          await persistVideos(customVideos.filter((v) => v.id !== video.id));
-          await localforage.removeItem(`customVideo_blob_${video.id}`);
-
-          await appApi('/admin/ambient', {
+          await appApi('/admin/supabase-backgrounds', {
             method: 'POST',
-            body: {
-              action: 'delete_video',
-              id: video.id,
-            },
-          }).catch(() => {});
-
+            body: { action: 'delete', id },
+          });
+          showToast(`Deleted "${name}".`, 'success');
+          await loadCloudCatalog();
           await refreshGlobalCatalog();
-          showToast('Background deleted.', 'success');
-        } catch {
-          showToast('Failed to delete background.', 'error');
+        } catch (err: any) {
+          showToast(err?.message || 'Delete failed', 'error');
         }
       }
     );
   };
 
+  // 7. Toggle active / inactive
+  const handleToggleActive = async (bg: BackgroundRow) => {
+    try {
+      await appApi('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'update',
+          id: bg.id,
+          is_active: !bg.is_active,
+        },
+      });
+      showToast(`"${bg.name_en}" is now ${!bg.is_active ? 'active' : 'inactive'}.`, 'success');
+      await loadCloudCatalog();
+      await refreshGlobalCatalog();
+    } catch (err: any) {
+      showToast(err?.message || 'Update failed', 'error');
+    }
+  };
+
+  // 8. Move sort order
+  const handleReorder = async (bg: BackgroundRow, direction: 'up' | 'down') => {
+    const newOrder = direction === 'up' ? Math.max(0, bg.sort_order - 1) : bg.sort_order + 1;
+    try {
+      await appApi('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'update',
+          id: bg.id,
+          sort_order: newOrder,
+        },
+      });
+      await loadCloudCatalog();
+    } catch (err: any) {
+      showToast(err?.message || 'Reorder failed', 'error');
+    }
+  };
+
+  // 9. Save Edit Modal
+  const handleSaveEdit = async () => {
+    if (!editingBg) return;
+    try {
+      await appApi('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'update',
+          id: editingBg.id,
+          name_en: editingBg.name_en,
+          name_ar: editingBg.name_ar,
+          category: editingBg.category,
+          video_url: editingBg.video_url,
+          poster_url: editingBg.poster_url,
+          sort_order: editingBg.sort_order,
+          is_active: editingBg.is_active,
+          is_premium: editingBg.is_premium,
+        },
+      });
+      showToast('Background metadata updated.', 'success');
+      setEditingBg(null);
+      await loadCloudCatalog();
+      await refreshGlobalCatalog();
+    } catch (err: any) {
+      showToast(err?.message || 'Save failed', 'error');
+    }
+  };
+
+  // Filtered backgrounds
+  const filteredBackgrounds = cloudBackgrounds.filter(b => {
+    if (activeCategory === 'all') return true;
+    return b.category.toLowerCase() === activeCategory.toLowerCase();
+  });
+
   return (
-    <>
-      <section className="bg-[#0A0F1C]/80 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-8 shadow-xl animate-in fade-in duration-200 mb-8">
-        <div className="mb-6">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Video className="text-teal-400" size={20} />
-            Ambient Background Video Library
+    <div className="space-y-8 max-w-6xl mx-auto pb-16">
+      {/* HEADER */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-emerald-900/30 pb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Video className="text-emerald-400" size={26} />
+            Ambient Backgrounds (Cloud Source of Truth)
           </h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Add looping video backgrounds from your computer or provide a hosted video link.
-            Videos added here sync to the cloud so they play automatically on your phone PWA and for all users!
+          <p className="text-xs text-emerald-200/70 mt-1 max-w-2xl">
+            All backgrounds stored in Supabase Storage and database table. Synced in real-time across all devices,
+            including iPhone, iPad, Android PWAs, and desktop browsers with battery-saving background decoupling.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            loadCloudCatalog();
+            scanLaptopBackgrounds();
+          }}
+          disabled={loadingCloud || scanningLocal}
+          className="px-4 py-2 rounded-xl bg-emerald-900/30 border border-emerald-700/40 text-xs font-semibold text-emerald-200 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
+        >
+          <RefreshCw size={14} className={loadingCloud || scanningLocal ? 'animate-spin' : ''} />
+          <span>Refresh Catalog</span>
+        </button>
+      </div>
 
-        {/* Upload & Link Form */}
-        <div className="bg-[#131722]/70 p-5 rounded-2xl border border-slate-800 mb-8 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Background name</label>
-              <input
-                value={bgName}
-                onChange={(e) => setBgName(e.target.value)}
-                placeholder="e.g. Kaaba Evening, Rain on Water, Prophet's Mosque"
-                className="mt-1 w-full bg-[#0A0F1C] border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-xs outline-none focus:border-teal-500"
-              />
+      {/* SECTION 1: LAPTOP LOCAL BACKGROUNDS DETECTED (MIGRATION TOOL) */}
+      <div className="bg-gradient-to-br from-amber-950/30 via-emerald-950/20 to-black/40 border border-amber-600/30 rounded-3xl p-6 shadow-xl">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+              <FolderSync size={24} />
             </div>
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Description (optional)</label>
-              <input
-                value={bgDescription}
-                onChange={(e) => setBgDescription(e.target.value)}
-                placeholder="Peaceful golden hour recitation loop..."
-                className="mt-1 w-full bg-[#0A0F1C] border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-xs outline-none focus:border-teal-500"
-              />
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                Laptop Saved Backgrounds Detected
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[11px] font-semibold border border-amber-500/30">
+                  {detectedLocal.length} Available
+                </span>
+              </h3>
+              <p className="text-xs text-amber-200/80 mt-0.5">
+                Saved on this laptop (Fireplace and others). Click below to migrate them to Supabase Storage so every
+                phone, tablet, and user can play them seamlessly!
+              </p>
             </div>
+          </div>
+          {detectedLocal.length > 0 && (
+            <button
+              type="button"
+              onClick={handleMigrateAllLaptop}
+              disabled={isMigratingAll}
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <CloudUpload size={16} />
+              <span>{isMigratingAll ? 'Migrating to Cloud...' : 'Migrate All to Supabase Cloud'}</span>
+            </button>
+          )}
+        </div>
+
+        {detectedLocal.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 mt-5 pt-5 border-t border-amber-500/20">
+            {detectedLocal.map((item) => (
+              <div
+                key={item.id}
+                className="p-3.5 rounded-2xl bg-black/40 border border-amber-500/20 flex items-center justify-between gap-3"
+              >
+                <div className="truncate">
+                  <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
+                    {item.name.toLowerCase().includes('fire') && <Flame size={13} className="text-orange-400" />}
+                    <span>{item.name}</span>
+                  </div>
+                  <div className="text-[10px] text-amber-300/70 mt-0.5">
+                    {item.sizeBytes > 0 ? formatBytes(item.sizeBytes) : 'Local Storage Blob'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleMigrateLaptopItem(item)}
+                  disabled={migratingId === item.id || isMigratingAll}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-all shrink-0 cursor-pointer"
+                >
+                  {migratingId === item.id ? 'Uploading...' : 'Sync to Cloud'}
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 pt-4 border-t border-amber-500/10 text-xs text-amber-200/60">
+            No un-migrated backgrounds found on this browser. All backgrounds are stored in the cloud catalog below.
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 2: UPLOAD & ADD NEW BACKGROUND */}
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-sm">
+        <h3 className="text-base font-bold text-white flex items-center gap-2 mb-4">
+          <Upload size={18} className="text-emerald-400" />
+          Upload New Ambient Background
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
+              English Name *
+            </label>
+            <input
+              type="text"
+              value={bgNameEn}
+              onChange={(e) => setBgNameEn(e.target.value)}
+              placeholder="e.g. Cozy Fireplace Hearth"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white placeholder-emerald-700 focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5">
-              <Globe size={12} className="text-teal-400" />
-              Video URL (Recommended for cross-device sync & phone PWA)
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
+              Arabic Name (Optional)
             </label>
-            <div className="mt-1 flex flex-col sm:flex-row gap-2">
-              <input
-                value={bgUrl}
-                onChange={(e) => setBgUrl(e.target.value)}
-                placeholder="https://example.com/loop.mp4 or Cloudinary / Drive link"
-                className="flex-1 bg-[#0A0F1C] border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-xs outline-none focus:border-teal-500 font-mono"
-              />
-              <button
-                type="button"
-                onClick={handleAddVideoUrl}
-                disabled={bgUploading || !bgUrl.trim()}
-                className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-900 text-xs font-bold flex items-center justify-center gap-2 shrink-0 transition-colors shadow-lg shadow-teal-500/20"
-              >
-                <Save size={14} /> Add Video URL
-              </button>
-            </div>
-            <p className="text-[10px] text-slate-500 mt-1">
-              Supports any direct MP4 or WebM video loop. Links load instantly on all mobile phones and desktop.
-            </p>
+            <input
+              type="text"
+              value={bgNameAr}
+              onChange={(e) => setBgNameAr(e.target.value)}
+              placeholder="e.g. دفء الموقد"
+              dir="rtl"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white placeholder-emerald-700 focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
-          <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0A0F1C] border border-slate-700 text-slate-300 text-xs font-semibold hover:border-teal-500/50 transition-colors"
-              >
-                <Upload size={14} className="text-teal-400" />
-                Or Browse Video File from Device
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="video/mp4,video/webm,video/quicktime,video/*"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadBackground(f); }}
-              />
-            </div>
-
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={bgSetDefault}
-                onChange={(e) => setBgSetDefault(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-700 text-teal-500 focus:ring-teal-400 focus:ring-offset-0 bg-[#0A0F1C]"
-              />
-              <span className="text-teal-300 font-medium">Set as default background for all users & phone PWAs</span>
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
+              Category *
             </label>
+            <select
+              value={bgCategory}
+              onChange={(e) => setBgCategory(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white focus:outline-none focus:border-emerald-500"
+            >
+              <option value="fireplace">Fireplace (Hearth & Campfire)</option>
+              <option value="rain">Rain (Sanctuary Roof & Lake)</option>
+              <option value="ocean">Ocean (Waves & Sunset Coast)</option>
+              <option value="forest">Forest (Canopy & Mountain Stream)</option>
+              <option value="cosmos">Cosmos (Night Sky & Deep Galaxy)</option>
+              <option value="night">Night (Starry Midnight)</option>
+              <option value="general">General Sacred</option>
+            </select>
           </div>
-
-          {bgUploading && (
-            <div className="mt-3 w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-teal-500 transition-all duration-200" style={{ width: `${bgProgress}%` }} />
-            </div>
-          )}
-          {bgError && <p className="mt-2 text-xs text-red-400">{bgError}</p>}
         </div>
 
-        {/* Background list */}
-        <h3 className="text-sm font-bold text-white mb-4 flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <Film size={15} className="text-teal-400" />
-            Backgrounds ({customVideos.length})
-          </span>
-          <span className="text-[11px] text-slate-400 font-normal">
-            Click any video below to activate or set as global default
-          </span>
-        </h3>
-
-        {customVideos.length === 0 ? (
-          <div className="text-center py-12 text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl">
-            No background videos added yet — enter a video URL or upload a file above.
+        {/* Video File Pick & Validation */}
+        <div className="mt-4 pt-4 border-t border-emerald-900/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="video/mp4"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleUploadNewFile(f);
+              }}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={bgUploading}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Upload size={15} />
+              <span>{bgUploading ? 'Processing & Uploading...' : 'Pick Video File (H.264 MP4)'}</span>
+            </button>
+            <div className="text-[11px] text-emerald-400/80 mt-1.5">
+              Requirements: MP4 format, 720p max resolution, no audio track, target 3–8 MB for smooth mobile looping.
+            </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {customVideos.map((video) => {
-              const isActive = activeBackgroundVideoId === video.id || (video.videoUrl && activeBackgroundVideoId === video.videoUrl);
-              return (
-                <div key={video.id} className="bg-[#131722]/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col gap-3 relative group">
-                  <button
-                    onClick={() => setPreviewVideoId(video.videoUrl || video.id)}
-                    className="relative w-full h-32 rounded-xl overflow-hidden border border-slate-800 bg-black group/thumb cursor-pointer"
-                    title={`Preview ${video.name}`}
-                  >
-                    <VideoThumb videoId={video.videoUrl || video.id} videoLibrary={customVideos} />
-                    <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity bg-black/40">
-                      <Play size={24} className="text-white fill-current" />
-                    </span>
 
-                    <div className="absolute top-2 left-2 flex flex-col gap-1">
-                      {isActive && (
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-teal-500 text-slate-900 shadow">
-                          Active Here
-                        </span>
-                      )}
-                      {video.isDefault && (
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-400 text-slate-950 flex items-center gap-1 shadow">
-                          <Star size={10} className="fill-current" /> Global Default
-                        </span>
-                      )}
-                    </div>
-                  </button>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-emerald-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bgIsPremium}
+                onChange={(e) => setBgIsPremium(e.target.checked)}
+                className="rounded accent-emerald-500"
+              />
+              <span>Premium Only</span>
+            </label>
+          </div>
+        </div>
 
-                  <div>
-                    <h4 className="text-xs font-semibold text-white truncate">{video.name}</h4>
-                    <p className="text-[10px] text-slate-500">
-                      {video.sizeBytes ? formatBytes(video.sizeBytes) : (video.videoUrl ? 'Cloud Hosted' : '')}
-                      {video.createdAt ? ` · ${new Date(video.createdAt).toLocaleDateString()}` : ''}
-                    </p>
-                    {video.description && <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{video.description}</p>}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/60">
-                    <button
-                      onClick={() => handleActivateThisDevice(video)}
-                      className={`text-[10px] font-semibold py-1.5 px-2 rounded-lg border flex items-center justify-center gap-1 transition-all ${
-                        isActive
-                          ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
-                          : 'bg-[#0A0F1C] text-slate-300 border-slate-700 hover:border-teal-500/50'
-                      }`}
-                    >
-                      <Check size={11} /> {isActive ? 'Active' : 'Activate'}
-                    </button>
-                    <button
-                      onClick={() => handleSetGlobalDefault(video)}
-                      className="text-[10px] font-semibold py-1.5 px-2 rounded-lg bg-[#0A0F1C] border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 flex items-center justify-center gap-1 transition-colors"
-                      title="Makes this the background on phones and all devices"
-                    >
-                      <Star size={11} className={video.isDefault ? 'fill-current' : ''} />
-                      Set Default
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <button
-                      onClick={() => { setReplacingId(video.id); replaceRef.current?.click(); }}
-                      className="text-[10px] font-semibold text-slate-400 hover:text-white flex items-center gap-1"
-                    >
-                      <RefreshCw size={11} /> Replace file
-                    </button>
-                    <button
-                      onClick={() => handleDeleteVideo(video)}
-                      className="text-[10px] font-semibold text-red-400 hover:text-red-300 flex items-center gap-1"
-                    >
-                      <Trash2 size={11} /> Delete
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {bgUploading && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-emerald-300 mb-1">
+              <span>Uploading to Supabase Storage & generating poster thumbnail...</span>
+              <span>{bgProgress}%</span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
+                style={{ width: `${bgProgress}%` }}
+              />
+            </div>
           </div>
         )}
 
-        <input
-          ref={replaceRef}
-          type="file"
-          accept="video/mp4,video/webm,video/quicktime,video/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file && replacingId) handleReplaceVideo(replacingId, file);
-            if (replaceRef.current) replaceRef.current.value = '';
-          }}
-        />
-      </section>
-
-      {/* Hosted loop URLs per ambient sound (global mapping, saved to the server) */}
-      <section className="bg-[#0A0F1C]/80 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-8 shadow-xl animate-in fade-in duration-200">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Video className="text-teal-400" size={20} />
-              Ambient Sound Video Mapping
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Connect each soundscape (Rain, Mecca, Medina, etc.) to a video loop URL that plays automatically when that ambient sound is chosen.
-            </p>
+        {bgValidationWarning && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">
+            <AlertTriangle size={15} className="shrink-0" />
+            <span>{bgValidationWarning}</span>
           </div>
-          <button
-            onClick={onSaveAmbient}
-            disabled={savingAmbient}
-            className="bg-teal-500 hover:bg-teal-400 disabled:opacity-60 text-slate-900 px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-lg shadow-teal-500/20"
-          >
-            <Save size={16} /> {savingAmbient ? 'Saving...' : 'Save Mappings'}
-          </button>
+        )}
+
+        {bgError && (
+          <div className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs">
+            {bgError}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 3: CLOUD CATALOG MANAGEMENT */}
+      <div className="space-y-4">
+        {/* Category Filter Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            const isSel = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setActiveCategory(cat.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
+                  isSel
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-black/30 border border-emerald-900/40 text-emerald-200/70 hover:border-emerald-600'
+                }`}
+              >
+                <Icon size={14} />
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="grid gap-4">
-          {AMBIENT_TRACKS.map((track) => (
-            <div key={track.id} className="flex flex-col sm:flex-row sm:items-center gap-4 bg-[#131722]/60 p-4 rounded-2xl border border-slate-800">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
-                <track.icon size={20} />
-              </div>
-              <div className="flex-1">
-                <div className="text-xs font-semibold text-white mb-1">{track.name} loop URL</div>
-                <input
-                  type="text"
-                  value={ambientSettings[track.id] || ''}
-                  onChange={(e) => setAmbientSettings({ ...ambientSettings, [track.id]: e.target.value })}
-                  placeholder="https://example.com/video.mp4"
-                  className="w-full bg-[#0A0F1C] border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-xs focus:border-teal-500 outline-none font-mono"
-                />
-              </div>
-              {ambientSettings[track.id] && (
-                <button
-                  type="button"
-                  onClick={() => setPreviewVideoId(ambientSettings[track.id])}
-                  className="px-3 py-2 rounded-xl bg-[#0A0F1C] border border-slate-700 text-teal-400 text-xs font-semibold hover:border-teal-500/40 flex items-center gap-1.5 self-end sm:self-auto shrink-0"
-                >
-                  <Play size={13} /> Preview
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
+        {/* Background Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredBackgrounds.map((bg, idx) => {
+            const isCurrentBroadcast =
+              activeBackgroundVideoId === bg.video_url || activeBackgroundVideoId === bg.id;
 
-      {/* Video Preview Modal */}
+            return (
+              <div
+                key={bg.id}
+                className={`p-4 rounded-3xl border transition-all flex flex-col justify-between gap-4 ${
+                  isCurrentBroadcast
+                    ? 'bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_20px_rgba(31,138,106,0.15)]'
+                    : 'bg-[var(--color-surface)] border-[var(--color-border)] hover:border-emerald-900/50'
+                }`}
+              >
+                <div>
+                  {/* Poster Thumbnail or Gradient */}
+                  <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/60 border border-emerald-900/30 group">
+                    {bg.poster_url ? (
+                      <img
+                        src={bg.poster_url}
+                        alt={bg.name_en}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-950 to-black text-emerald-400">
+                        <Film size={28} />
+                      </div>
+                    )}
+
+                    {/* Preview Button Overlay */}
+                    <button
+                      type="button"
+                      onClick={() => setPreviewVideoUrl(bg.video_url)}
+                      className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-2 text-xs font-semibold cursor-pointer"
+                    >
+                      <Play size={20} className="fill-white" />
+                      <span>Preview Loop</span>
+                    </button>
+
+                    {/* Category Badge */}
+                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md text-[10px] font-semibold text-emerald-300 uppercase tracking-wider border border-white/10">
+                      {bg.category}
+                    </span>
+
+                    {/* Premium Badge */}
+                    {bg.is_premium && (
+                      <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-amber-500 text-[10px] font-bold text-slate-950">
+                        PREMIUM
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Titles */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-white truncate">{bg.name_en}</h4>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleReorder(bg, 'up')}
+                          title="Move Up"
+                          className="p-1 rounded text-emerald-400/80 hover:text-white cursor-pointer"
+                        >
+                          <ArrowUp size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReorder(bg, 'down')}
+                          title="Move Down"
+                          className="p-1 rounded text-emerald-400/80 hover:text-white cursor-pointer"
+                        >
+                          <ArrowDown size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    {bg.name_ar && (
+                      <div className="text-xs text-emerald-300/80 mt-0.5" dir="rtl">
+                        {bg.name_ar}
+                      </div>
+                    )}
+                    <div className="text-[11px] text-emerald-400/60 mt-1">
+                      Order: {bg.sort_order} • Size: {bg.size_bytes ? formatBytes(bg.size_bytes) : 'CDN Stream'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Actions */}
+                <div className="pt-3 border-t border-emerald-900/30 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleActive(bg)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                        bg.is_active
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-black/40 text-slate-500 border border-slate-800'
+                      }`}
+                    >
+                      {bg.is_active ? 'Active' : 'Disabled'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditingBg(bg)}
+                      className="px-2.5 py-1 rounded-lg bg-black/40 hover:bg-emerald-900/30 text-emerald-300 text-[11px] font-medium border border-emerald-900/40 cursor-pointer"
+                    >
+                      Edit
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveBackgroundVideoId(bg.video_url);
+                        showToast(`Broadcasted "${bg.name_en}" to all devices!`, 'success');
+                      }}
+                      className={`px-3 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                        isCurrentBroadcast
+                          ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                          : 'bg-emerald-900/40 hover:bg-emerald-600 text-emerald-200 hover:text-white'
+                      }`}
+                    >
+                      {isCurrentBroadcast ? '✓ Live' : 'Broadcast'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBackground(bg.id, bg.name_en)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {filteredBackgrounds.length === 0 && (
+          <div className="text-center py-12 text-xs text-emerald-300/60 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl">
+            No backgrounds found in category "{activeCategory}". Upload an MP4 above to get started!
+          </div>
+        )}
+      </div>
+
+      {/* PREVIEW VIDEO MODAL */}
       <AnimatePresence>
-        {previewVideoId && (
+        {previewVideoUrl && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm"
-            onClick={() => setPreviewVideoId(null)}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setPreviewVideoUrl(null)}
           >
             <div
-              className="bg-[#0F172A] rounded-2xl overflow-hidden border border-slate-800 shadow-2xl max-w-4xl w-full"
+              className="relative max-w-3xl w-full bg-black border border-emerald-900/60 rounded-3xl overflow-hidden shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between p-4 border-b border-slate-800">
-                <h3 className="text-white font-medium text-sm">Background Preview</h3>
-                <button onClick={() => setPreviewVideoId(null)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
-                  <X size={20} />
+              <button
+                type="button"
+                onClick={() => setPreviewVideoUrl(null)}
+                className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+              <video
+                src={previewVideoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full aspect-video object-cover"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* EDIT METADATA MODAL */}
+      <AnimatePresence>
+        {editingBg && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setEditingBg(null)}
+          >
+            <div
+              className="max-w-md w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-2xl space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-emerald-900/30 pb-3">
+                <h3 className="text-sm font-bold text-white">Edit Background Metadata</h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingBg(null)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X size={16} />
                 </button>
               </div>
-              <div className="aspect-video bg-black relative">
-                <PreviewVideo videoId={previewVideoId} videoLibrary={customVideos} />
+
+              <div>
+                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">English Name</label>
+                <input
+                  type="text"
+                  value={editingBg.name_en}
+                  onChange={(e) => setEditingBg({ ...editingBg, name_en: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Arabic Name</label>
+                <input
+                  type="text"
+                  value={editingBg.name_ar || ''}
+                  onChange={(e) => setEditingBg({ ...editingBg, name_ar: e.target.value })}
+                  dir="rtl"
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Category</label>
+                <select
+                  value={editingBg.category}
+                  onChange={(e) => setEditingBg({ ...editingBg, category: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
+                >
+                  <option value="fireplace">Fireplace</option>
+                  <option value="rain">Rain</option>
+                  <option value="ocean">Ocean</option>
+                  <option value="forest">Forest</option>
+                  <option value="cosmos">Cosmos</option>
+                  <option value="night">Night</option>
+                  <option value="general">General</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Sort Order</label>
+                <input
+                  type="number"
+                  value={editingBg.sort_order}
+                  onChange={(e) => setEditingBg({ ...editingBg, sort_order: parseInt(e.target.value, 10) || 0 })}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
+                />
+              </div>
+
+              <div className="flex items-center gap-4 pt-2">
+                <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingBg.is_premium}
+                    onChange={(e) => setEditingBg({ ...editingBg, is_premium: e.target.checked })}
+                    className="accent-emerald-500"
+                  />
+                  <span>Premium Only</span>
+                </label>
+              </div>
+
+              <div className="pt-4 border-t border-emerald-900/30 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingBg(null)}
+                  className="px-4 py-2 rounded-xl bg-black/40 text-xs text-slate-400 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow-md cursor-pointer"
+                >
+                  Save Changes
+                </button>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }
 
-/** Loop preview thumbnail for one stored background id. */
-function VideoThumb({ videoId, videoLibrary }: { videoId: string; videoLibrary?: CustomVideo[] }) {
-  const src = useBackgroundVideoSrc(videoId, videoLibrary);
-  if (!src) {
-    return (
-      <span className="flex h-full w-full items-center justify-center text-slate-500">
-        <Film size={18} />
-      </span>
-    );
-  }
-  return <video src={src} muted loop autoPlay playsInline preload="metadata" className="w-full h-full object-cover" />;
-}
-
-/** Full-size preview video for one stored background id. */
-function PreviewVideo({ videoId, videoLibrary }: { videoId: string; videoLibrary?: CustomVideo[] }) {
-  const src = useBackgroundVideoSrc(videoId, videoLibrary);
-  if (!src) {
-    return <div className="flex h-full items-center justify-center text-slate-500 text-xs">Preview unavailable</div>;
-  }
-  return <video key={videoId} src={src} autoPlay loop muted controls className="w-full h-full object-contain" />;
-}
+export default BackgroundsAdmin;

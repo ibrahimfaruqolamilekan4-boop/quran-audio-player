@@ -1,4 +1,4 @@
-﻿// Entry point for the /api Serverless Functions.
+// Entry point for the /api Serverless Functions.
 //
 // Vercel Hobby allows at most 12 Serverless Functions per deployment. This app
 // used to ship 13 (one file per endpoint under api/) and every production
@@ -40,6 +40,8 @@ import verifyFlutterwave from './payments/verify';
 import flwWebhook from './payments/webhook';
 import createVirtualAccount from './payments/create-virtual-account';
 import checkTransferStatus from './payments/check-transfer-status';
+import publicBackgrounds from './backgrounds';
+import adminSupabaseBackgrounds from './admin/supabase-backgrounds';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -67,6 +69,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
   [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
+  [/^\/api\/backgrounds$/, publicBackgrounds],
+  [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

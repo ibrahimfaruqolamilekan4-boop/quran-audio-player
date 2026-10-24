@@ -56,6 +56,8 @@ export interface Background {
   videoUrl: string;
   ambientUrl?: string;
   thumbnailUrl?: string;
+  posterUrl?: string;
+  category?: string;
   sizeBytes?: number;
   createdAt?: number;
 }
@@ -64,7 +66,11 @@ export interface CustomVideo {
   id: string;
   name: string;
   videoUrl?: string;
+  posterUrl?: string;
+  poster_url?: string;
+  category?: string;
   isDefault?: boolean;
+  isPremium?: boolean;
   /** Optional longer label for the admin background library. */
   description?: string;
   sizeBytes?: number;

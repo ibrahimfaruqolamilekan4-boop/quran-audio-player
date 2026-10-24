@@ -5,7 +5,7 @@ import { Background } from "../types";
 
 /**
  * Full‑viewport background video layer with optional ambient audio.
- * Handles cross‑fade between videos, pre‑loading of the next video and a dark scrim.
+ * Handles cross‑fade between videos and battery-saving visibility decoupling.
  */
 export interface BackgroundLayerProps {
   /** List of available backgrounds */
@@ -28,6 +28,7 @@ export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
 
   const [prevVideo, setPrevVideo] = useState<string | null>(null);
   const [isFading, setIsFading] = useState(false);
+  const activeVideoRef = useRef<HTMLVideoElement>(null);
 
   // When activeId changes we start a fade transition
   useEffect(() => {
@@ -37,22 +38,22 @@ export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
     const timer = setTimeout(() => {
       setPrevVideo(null);
       setIsFading(false);
-    }, 800); // same as CSS transition duration
+    }, 800);
     return () => clearTimeout(timer);
   }, [active?.videoUrl]);
 
-  // Pre‑load next video (simple <link> preload)
+  // Pause video on background/lockscreen to save mobile battery
   useEffect(() => {
-    if (!active?.videoUrl) return;
-    const link = document.createElement("link");
-    link.rel = "preload";
-    link.as = "video";
-    link.href = active.videoUrl;
-    document.head.appendChild(link);
-    return () => {
-      document.head.removeChild(link);
+    const handleVis = () => {
+      if (document.hidden) {
+        activeVideoRef.current?.pause();
+      } else {
+        activeVideoRef.current?.play().catch(() => {});
+      }
     };
-  }, [active?.videoUrl]);
+    document.addEventListener("visibilitychange", handleVis);
+    return () => document.removeEventListener("visibilitychange", handleVis);
+  }, []);
 
   // Ambient audio – play only when volume > 0 (controlled by parent hook)
   const ambientRef = useRef<HTMLAudioElement>(null);
@@ -75,17 +76,20 @@ export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
     <div className="fixed inset-0 z-0 overflow-hidden">
       {/* Current video */}
       <AnimatePresence initial={false}>
-        <motion.video
-          key={active.videoUrl}
-          src={active.videoUrl}
-          className="absolute inset-0 w-full h-full object-cover"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          style={{ opacity: isFading ? 0 : 1, transition: "opacity 0.8s ease" }}
-        />
+        {active?.videoUrl && (
+          <motion.video
+            ref={activeVideoRef}
+            key={active.videoUrl}
+            src={active.videoUrl}
+            className="absolute inset-0 w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="none"
+            style={{ opacity: isFading ? 0 : 1, transition: "opacity 0.8s ease" }}
+          />
+        )}
         {/* Previous video for cross‑fade */}
         {prevVideo && (
           <motion.video
@@ -96,16 +100,16 @@ export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
             muted
             loop
             playsInline
-            preload="auto"
+            preload="none"
             style={{ opacity: isFading ? 1 : 0, transition: "opacity 0.8s ease" }}
           />
         )}
       </AnimatePresence>
 
       {/* Dark scrim gradient for readability */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
 
-      {/* Ambient audio element – volume is controlled externally */}
+      {/* Hidden audio element for ambient sound */}
       <audio ref={ambientRef} />
     </div>
   );

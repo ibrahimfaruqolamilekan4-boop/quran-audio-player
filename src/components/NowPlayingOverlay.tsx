@@ -33,7 +33,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
 import { isSurahDownloaded, downloadSurah } from '../lib/offlineManager';
 import { SubscriptionModal } from './SubscriptionModal';
-import { AMBIENT_TRACKS, SOUNDSCAPE_VIDEOS } from '../lib/constants';
+import { AMBIENT_TRACKS } from '../lib/constants';
 import { ReciterAvatar } from './ReciterAvatar';
 import type { AmbientTrack, Chapter, Reciter } from '../types';
 
@@ -83,6 +83,8 @@ export function NowPlayingOverlay() {
     setAmbientTrack,
     activeBackgroundVideoId,
     setActiveBackgroundVideoId,
+    customVideos,
+    ambientVideoMapping,
   } = usePlayer();
 
   const reduceMotion = useReducedMotion();
@@ -195,7 +197,7 @@ export function NowPlayingOverlay() {
   const handleSelectSound = (track: AmbientTrack | null) => {
     setAmbientTrack(track);
     if (track) {
-      const targetVideo = SOUNDSCAPE_VIDEOS[track.id];
+      const targetVideo = ambientVideoMapping[track.id] || customVideos.find(v => v.id === track.id || (v.name && v.name.toLowerCase().includes(track.id.toLowerCase())))?.videoUrl;
       if (targetVideo) {
         setActiveBackgroundVideoId(targetVideo);
       }

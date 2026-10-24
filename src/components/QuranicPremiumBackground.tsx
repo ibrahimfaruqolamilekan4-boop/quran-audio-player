@@ -385,7 +385,7 @@ export function QuranicPremiumBackground({
         return saved;
       }
     }
-    return '/videos/cosmos.mp4';
+    return '';
   }, []);
 
   const [videoUrl, setVideoUrl] = useState<string>(initialVideo);
@@ -407,7 +407,10 @@ export function QuranicPremiumBackground({
 
     async function loadCustomVideo() {
       if (!activeBackgroundVideoId) {
-        if (isMounted) setVideoUrl('/videos/cosmos.mp4');
+        if (isMounted) {
+          const def = customVideos.find(v => v.isDefault && v.videoUrl) || customVideos[0];
+          setVideoUrl(def?.videoUrl || '');
+        }
         return;
       }
       try {
@@ -416,11 +419,14 @@ export function QuranicPremiumBackground({
         if (resolved?.url) {
           setVideoUrl(resolved.url);
         } else {
-          setVideoUrl('/videos/cosmos.mp4');
+          setVideoUrl('');
         }
       } catch (e) {
         console.error('Failed to load background video:', e);
-        if (isMounted) setVideoUrl('/videos/cosmos.mp4');
+        if (isMounted) {
+          const def = customVideos.find(v => v.isDefault && v.videoUrl) || customVideos[0];
+          setVideoUrl(def?.videoUrl || '');
+        }
       }
     }
 
@@ -458,12 +464,17 @@ export function QuranicPremiumBackground({
   }, [videoUrl]);
 
 function getVideoPoster(url: string | null | undefined): string {
-  if (!url) return '/videos/cosmos-poster.jpg';
-  const lower = url.toLowerCase();
-  if (lower.includes('nature')) return '/videos/nature-poster.jpg';
-  if (lower.includes('ocean')) return '/videos/ocean-poster.jpg';
-  if (lower.includes('rain')) return '/videos/rain-poster.jpg';
-  return '/videos/cosmos-poster.jpg';
+  if (!url) return '';
+  const match = customVideos.find(v => v.videoUrl === url || v.id === url);
+  if ((match as any)?.posterUrl || (match as any)?.poster_url) {
+    return (match as any).posterUrl || (match as any).poster_url;
+  }
+  return '';
+
+
+
+
+
 }
 
   // Start playback safely on video elements whenever sources are ready (iOS Safari, iPadOS, Android)
@@ -500,15 +511,15 @@ function getVideoPoster(url: string | null | undefined): string {
   }, [slotBUrl]);
 
   const handleVideoError = (failedSrc: string | null) => {
-    if (!failedSrc || failedSrc === '/videos/cosmos.mp4') return;
-    // Try another cloud default video from customVideos if available, otherwise fall back to cosmos.mp4
+    if (!failedSrc) return;
+    // Try another cloud default video from customVideos if available
     const fallbackCloud = customVideos.find(
       v =>
         v.videoUrl &&
         v.videoUrl !== failedSrc &&
         (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http://') || v.videoUrl.startsWith('https://'))
     );
-    setVideoUrl(fallbackCloud?.videoUrl || '/videos/cosmos.mp4');
+    setVideoUrl(fallbackCloud?.videoUrl || '');
   };
 
   // Global user interaction unblocker for mobile browser autoplay policy & iOS Low Power Mode
@@ -530,6 +541,25 @@ function getVideoPoster(url: string | null | undefined): string {
       window.removeEventListener('scroll', unblock);
     };
   }, [slotAUrl, slotBUrl]);
+
+  // Pause video when screen locks or app goes to background (keeps audio reciting uninterrupted!)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (videoRefA.current) videoRefA.current.pause();
+        if (videoRefB.current) videoRefB.current.pause();
+      } else {
+        if (slotAUrl && videoRefA.current && activeSlot === 'A') {
+          playVideoSafe(videoRefA.current);
+        }
+        if (slotBUrl && videoRefB.current && activeSlot === 'B') {
+          playVideoSafe(videoRefB.current);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [slotAUrl, slotBUrl, activeSlot]);
 
   return (
     <div 
@@ -588,7 +618,7 @@ function getVideoPoster(url: string | null | undefined): string {
         loop
         muted
         playsInline
-        preload="auto"
+        preload="none"
         disablePictureInPicture
         aria-hidden="true"
         className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
@@ -626,7 +656,7 @@ function getVideoPoster(url: string | null | undefined): string {
         loop
         muted
         playsInline
-        preload="auto"
+        preload="none"
         disablePictureInPicture
         aria-hidden="true"
         className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"

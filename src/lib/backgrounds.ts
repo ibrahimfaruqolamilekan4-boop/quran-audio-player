@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import localforage from 'localforage';
 import type { CustomVideo } from '../types';
+import { mediaStore } from './upload';
 
 /**
  * Shared resolution of stored background-video references.
@@ -13,31 +14,29 @@ import type { CustomVideo } from '../types';
 // In-memory cache for resolved blob URLs so videos do not reload/skip on re-renders
 const blobUrlCache = new Map<string, string>();
 
-import { SOUNDSCAPE_VIDEOS } from './constants';
-import { mediaStore } from './upload';
-
 export async function resolveBackgroundVideo(
-  rawId: string,
+  rawId: string | null | undefined,
   videoLibrary?: CustomVideo[]
 ): Promise<{ url: string; revoke: boolean } | null> {
   const id = (rawId || '').trim().replace(/^https?:\/\/localhost(:\d+)?/, '');
-  if (!id) return { url: '/videos/cosmos.mp4', revoke: false };
+  if (!id) {
+    // If no ID specified, pick default from videoLibrary if available
+    const def = videoLibrary?.find(v => v.isDefault && v.videoUrl) || videoLibrary?.[0];
+    if (def?.videoUrl) {
+      return { url: def.videoUrl.replace(/^https?:\/\/localhost(:\d+)?/, ''), revoke: false };
+    }
+    return null;
+  }
 
-  // Direct URLs or relative paths (except legacy /videos/uploads/ if a better library match exists)
+  // Direct URLs or relative paths (except local blob keys)
   if (
     id.startsWith('http://') ||
     id.startsWith('https://') ||
     id.startsWith('blob:') ||
     id.startsWith('data:') ||
-    id.startsWith('/api/media/') ||
-    (id.startsWith('/videos/') && !id.startsWith('/videos/uploads/'))
+    id.startsWith('/api/media/')
   ) {
     return { url: id, revoke: false };
-  }
-
-  // Check known soundscapes (rain, waves, wind, cosmos, etc.)
-  if (SOUNDSCAPE_VIDEOS[id]) {
-    return { url: SOUNDSCAPE_VIDEOS[id], revoke: false };
   }
 
   // Check if it matches a known video entry from library with a portable URL
@@ -49,8 +48,7 @@ export async function resolveBackgroundVideo(
       match.videoUrl !== id &&
       (match.videoUrl.startsWith('/api/media/') ||
         match.videoUrl.startsWith('http://') ||
-        match.videoUrl.startsWith('https://') ||
-        (match.videoUrl.startsWith('/videos/') && !match.videoUrl.startsWith('/videos/uploads/')))
+        match.videoUrl.startsWith('https://'))
     ) {
       return { url: match.videoUrl.replace(/^https?:\/\/localhost(:\d+)?/, ''), revoke: false };
     }
@@ -82,29 +80,18 @@ export async function resolveBackgroundVideo(
     console.warn('Could not read localforage video blob:', err);
   }
 
-  // If this device (e.g. a phone or tablet) had a stale local ID, prefer the admin's global default video from videoLibrary
+  // If this device had an unresolvable local ID, prefer the admin's global default video from videoLibrary
   if (videoLibrary && videoLibrary.length > 0) {
     const globalDef =
-      videoLibrary.find(v => v.isDefault && v.videoUrl && (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http') || v.videoUrl.startsWith('/videos/'))) ||
+      videoLibrary.find(v => v.isDefault && v.videoUrl && (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http'))) ||
       videoLibrary.find(v => v.videoUrl && (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http')));
     if (globalDef?.videoUrl) {
       return { url: globalDef.videoUrl.replace(/^https?:\/\/localhost(:\d+)?/, ''), revoke: false };
     }
   }
 
-  if (id.startsWith('/videos/uploads/')) {
-    return { url: id, revoke: false };
-  }
-
-  // Direct video filenames
-  if (id.endsWith('.mp4') || id.endsWith('.webm')) {
-    return { url: `/videos/${id}`, revoke: false };
-  }
-
-  // Safe fallback to cosmos video so screen is never blank
-  return { url: '/videos/cosmos.mp4', revoke: false };
+  return null;
 }
-
 
 /** Object URL for a stored background id, or null. Never revokes pass-through URLs. */
 export function useBackgroundVideoSrc(id: string | null | undefined, videoLibrary?: CustomVideo[]): string | null {
