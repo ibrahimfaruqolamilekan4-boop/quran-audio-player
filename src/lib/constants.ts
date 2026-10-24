@@ -109,19 +109,7 @@ export const CURATED_RECITERS: Reciter[] = [
   // ==========================================
   // FEATURED RECITERS (Home Screen Priority)
   // ==========================================
-  {
-  {
-    id: 'sheim',
-    name: 'Abdelaziz Sheim',
-    nameArabic: 'عبدالعزيز سحيم',
-    category: 'African Masters',
-    style: "Murattal (Warsh 'an Nafi')",
-    location: "M'Sila",
-    region: 'Algeria',
-    serverUrl: 'https://cdn.mp3quran.net/audio/abdelaziz-sheim/r1/',
-    bio: "Born in M'Sila, Algeria. Celebrated across the Muslim world for his exceptionally melodious and moving recitation in the Riwayah of Warsh 'an Nafi'. Has won multiple international Quran competitions and leads Taraweeh and Tahajjud prayers in Algeria and internationally.",
-    featured: true,
-  },
+  
   {
     id: 'noreen',
     name: 'Noreen Muhammad Siddiq',
@@ -138,8 +126,8 @@ export const CURATED_RECITERS: Reciter[] = [
   {
     id: 'suhaim',
     name: 'Abdulaziz Suhaim',
-    nameArabic: 'عبد العزيز سحيم',
-    category: 'Sweet Voices',
+    nameArabic: 'عبدالعزيز سحيم',
+    category: 'African Masters',
     style: "Murattal (Warsh 'an Nafi')",
     location: "M'Sila",
     region: 'Algeria',
