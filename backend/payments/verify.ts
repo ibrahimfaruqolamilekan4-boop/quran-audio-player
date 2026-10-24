@@ -15,8 +15,8 @@ const PLAN_DURATION_DAYS: Record<string, number | null> = {
 };
 
 const EXPECTED_AMOUNTS: Record<string, { ngn: number; usd: number }> = {
-  monthly: { ngn: 1500, usd: 2.99 },
-  yearly: { ngn: 12000, usd: 24.99 },
+  monthly: { ngn: 2500, usd: 3.99 },
+  yearly: { ngn: 24000, usd: 34.99 },
   lifetime: { ngn: 30000, usd: 59.99 },
 };
 

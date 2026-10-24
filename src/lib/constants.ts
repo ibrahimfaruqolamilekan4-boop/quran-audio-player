@@ -1,5 +1,5 @@
 import { CloudRain, Flame, Waves, Bird, Wind, CloudLightning, Trees, Droplets, AudioWaveform, Zap, Train, Cat, VolumeX } from 'lucide-react';
-import { AmbientTrack, Reciter } from '../types';
+import { AmbientTrack, Reciter, AmbientPreset } from '../types';
 
 export const AMBIENT_TRACKS: AmbientTrack[] = [
   { id: 'rain', name: 'Rain', url: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg', icon: CloudRain },
@@ -15,6 +15,70 @@ export const AMBIENT_TRACKS: AmbientTrack[] = [
   { id: 'storm', name: 'Thunder Storm', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: Zap },
   { id: 'thunder', name: 'Thunder', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: CloudLightning },
   { id: 'train', name: 'Train', url: 'https://actions.google.com/sounds/v1/transportation/train_pass_by.ogg', icon: Train },
+];
+
+
+export const AMBIENT_PRESETS: AmbientPreset[] = [
+  {
+    id: 'night-prayer',
+    name: 'Night Prayer',
+    nameArabic: 'قيام الليل',
+    description: 'Gentle midnight crickets and calm starry sky for tahajjud',
+    soundId: 'crickets',
+    audioUrl: 'https://actions.google.com/sounds/v1/animals/crickets_and_night_insects.ogg',
+    videoUrl: '/videos/cosmos.mp4',
+    defaultVolume: 0.35,
+  },
+  {
+    id: 'rain-dua',
+    name: 'Rain Dua',
+    nameArabic: 'دعاء المطر',
+    description: 'Peaceful raindrops on the sanctuary roof during moments of supplication',
+    soundId: 'rain',
+    audioUrl: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg',
+    videoUrl: '/videos/rain.mp4',
+    defaultVolume: 0.4,
+  },
+  {
+    id: 'ocean-calm',
+    name: 'Ocean Calm',
+    nameArabic: 'سكينة البحر',
+    description: 'Rhythmic, gentle waves rolling onto shore for deep meditation',
+    soundId: 'waves',
+    audioUrl: 'https://actions.google.com/sounds/v1/water/waves_crashing_on_rock_beach.ogg',
+    videoUrl: '/videos/ocean.mp4',
+    defaultVolume: 0.35,
+  },
+  {
+    id: 'morning-light',
+    name: 'Morning Light',
+    nameArabic: 'إشراق الصباح',
+    description: 'Crisp dawn birdsong and morning forest breeze for fajr reflection',
+    soundId: 'birds',
+    audioUrl: 'https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg',
+    videoUrl: '/videos/nature.mp4',
+    defaultVolume: 0.3,
+  },
+  {
+    id: 'forest-dhikr',
+    name: 'Forest Dhikr',
+    nameArabic: 'ذكر الطبيعة',
+    description: 'Gentle flowing river and rustling canopy for continuous remembrance',
+    soundId: 'river',
+    audioUrl: 'https://actions.google.com/sounds/v1/water/river_stream.ogg',
+    videoUrl: '/videos/nature.mp4',
+    defaultVolume: 0.35,
+  },
+  {
+    id: 'cosmos',
+    name: 'Cosmos',
+    nameArabic: 'آفاق الكون',
+    description: 'Transcendent celestial vistas contemplating the majesty of creation',
+    soundId: 'fire',
+    audioUrl: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg',
+    videoUrl: '/videos/cosmos.mp4',
+    defaultVolume: 0.25,
+  },
 ];
 
 export const SOUNDSCAPE_VIDEOS: Record<string, string> = {
@@ -46,10 +110,23 @@ export const CURATED_RECITERS: Reciter[] = [
   // FEATURED RECITERS (Home Screen Priority)
   // ==========================================
   {
+  {
+    id: 'sheim',
+    name: 'Abdelaziz Sheim',
+    nameArabic: 'عبدالعزيز سحيم',
+    category: 'African Masters',
+    style: "Murattal (Warsh 'an Nafi')",
+    location: "M'Sila",
+    region: 'Algeria',
+    serverUrl: 'https://cdn.mp3quran.net/audio/abdelaziz-sheim/r1/',
+    bio: "Born in M'Sila, Algeria. Celebrated across the Muslim world for his exceptionally melodious and moving recitation in the Riwayah of Warsh 'an Nafi'. Has won multiple international Quran competitions and leads Taraweeh and Tahajjud prayers in Algeria and internationally.",
+    featured: true,
+  },
+  {
     id: 'noreen',
     name: 'Noreen Muhammad Siddiq',
     nameArabic: 'نورين محمد صديق',
-    category: 'Sweet Voices',
+    category: 'African Masters',
     style: "Murattal (Al-Duri 'an Abi 'Amr)",
     location: 'Khartoum',
     region: 'Sudan',
@@ -463,7 +540,7 @@ export const CURATED_RECITERS: Reciter[] = [
     id: 'edghouch',
     name: 'Yusuf Edghouch',
     nameArabic: 'يوسف الدغوش',
-    category: 'Sweet Voices',
+    category: 'African Masters',
     style: 'Murattal',
     location: 'Rabat',
     region: 'Morocco',
@@ -485,7 +562,7 @@ export const CURATED_RECITERS: Reciter[] = [
     id: 'okasha',
     name: 'Okasha Kameny',
     nameArabic: 'عكاشة كميني',
-    category: 'Sweet Voices',
+    category: 'African Masters',
     style: 'Murattal (Ibn Kathir)',
     location: 'Kumasi',
     region: 'Ghana',

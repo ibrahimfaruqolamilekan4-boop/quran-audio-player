@@ -440,7 +440,7 @@ export function LandingView() {
             Elevate Your Daily Connection With The Noble Quran
           </h2>
           <p className="text-slate-300 text-sm md:text-base max-w-xl mx-auto font-light leading-relaxed mb-10">
-            Join a global sanctuary designed for quiet minds, honest reflection, and uncompromised focus. Completely free, distraction-free, and always ad-free.
+            Join a global sanctuary designed for quiet minds, honest reflection, and uncompromised focus. Pure Quranic recitation with atmospheric soundscapes.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

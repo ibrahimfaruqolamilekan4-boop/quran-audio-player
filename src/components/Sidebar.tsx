@@ -49,6 +49,7 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
   const bottomNavItems = [
     { id: 'library', label: 'Surahs', icon: BookOpen },
     { id: 'prayer-times', label: 'Prayers', icon: Clock },
+    { id: 'premium', label: 'Premium Sanctuary', icon: Sparkles },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -242,6 +243,34 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
             </div>
 
             <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMoreMenu(false);
+                  setCurrentTab('premium');
+                }}
+                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer min-h-[48px] ${
+                  currentTab === 'premium'
+                    ? 'bg-[#1F8A6A]/15 border-[#D4AF37]/50 text-[#D4AF37]'
+                    : 'bg-[#0C2A20] border-white/8 hover:bg-[#11382B] text-[#F6F1E4]'
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/15 flex items-center justify-center text-[#D4AF37]">
+                    <Sparkles size={20} />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-sm font-bold text-[#F6F1E4] flex items-center gap-2">
+                      <span>Premium Sanctuary</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#D4AF37] text-[#06150F] font-bold">PRO</span>
+                    </div>
+                    <div className="text-xs text-[#A8BFB3]">Offline downloads & bank transfer</div>
+                  </div>
+                </div>
+                <ChevronRight size={18} className="text-[#A8BFB3]/60" />
+              </button>
+
+
               <button
                 type="button"
                 onClick={() => {

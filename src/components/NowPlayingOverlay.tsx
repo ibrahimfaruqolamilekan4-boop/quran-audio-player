@@ -357,7 +357,7 @@ export function NowPlayingOverlay() {
                   onClick={togglePlayPause}
                   disabled={isLoading}
                   aria-label={isPlaying ? 'Pause' : 'Play'}
-                  className="w-16 h-16 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-[0_0_35px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                  className="w-16 h-16 rounded-full bg-[#D4AF37] hover:bg-[#E2C04B] text-[#06150F] flex items-center justify-center shadow-[0_0_35px_rgba(212,175,55,0.45)] hover:scale-105 active:scale-95 transition-all cursor-pointer"
                 >
                   {isLoading ? (
                     <Loader2 size={30} className="animate-spin text-slate-950" />

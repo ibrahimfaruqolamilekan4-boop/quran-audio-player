@@ -39,6 +39,17 @@ export interface AmbientTrack {
   icon: any; 
 }
 
+export interface AmbientPreset {
+  id: string;
+  name: string;
+  nameArabic?: string;
+  description: string;
+  soundId: string;
+  audioUrl: string;
+  videoUrl: string;
+  defaultVolume: number;
+}
+
 export interface Background {
   id: string;
   name: string;
@@ -59,4 +70,3 @@ export interface CustomVideo {
   sizeBytes?: number;
   createdAt?: number;
 }
-

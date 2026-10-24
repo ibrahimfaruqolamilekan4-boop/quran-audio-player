@@ -873,6 +873,83 @@ export function SettingsView() {
       </div>
 
       <div className="space-y-8">
+        {/* Appearance & Quranic Typography Settings */}
+        <section className="bg-[#0C2A20] backdrop-blur-xl border border-white/8 rounded-3xl p-6 lg:p-8 shadow-xl space-y-6">
+          <div className="flex items-center gap-2.5 pb-4 border-b border-white/8">
+            <div className="w-9 h-9 rounded-xl bg-[#1F8A6A]/20 text-[#34C38F] flex items-center justify-center">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <h2 className="text-xl font-serif font-bold text-[#F6F1E4]">Appearance & Quran Typography</h2>
+              <p className="text-xs text-[#A8BFB3]">Customize Quranic Arabic ayah font sizing and visual theme.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Quran Ayah Font Scale */}
+            <div className="space-y-2.5">
+              <label className="text-sm font-semibold text-[#F6F1E4] block">
+                Quran Ayah Font Size
+              </label>
+              <div className="flex items-center gap-2">
+                {[
+                  { id: 'S', label: 'Small (24px)' },
+                  { id: 'M', label: 'Medium (28px)' },
+                  { id: 'L', label: 'Large (32px)' },
+                  { id: 'XL', label: 'Extra (38px)' },
+                ].map(size => (
+                  <button
+                    key={size.id}
+                    type="button"
+                    onClick={() => {
+                      document.documentElement.setAttribute('data-quran-size', size.id);
+                      localStorage.setItem('nooraya_quran_size', size.id);
+                    }}
+                    className="flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all bg-[#11382B] hover:bg-[#176B53] text-[#F6F1E4] border border-white/8 active:scale-95 cursor-pointer text-center"
+                  >
+                    {size.id}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-[#A8BFB3]">
+                Preview: <span className="font-quran text-[#34C38F] ml-1">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</span>
+              </p>
+            </div>
+
+            {/* App Visual Identity */}
+            <div className="space-y-2.5">
+              <label className="text-sm font-semibold text-[#F6F1E4] block">
+                Visual Sanctuary Theme
+              </label>
+              <div className="flex items-center gap-2">
+                {[
+                  { id: 'dark', label: 'Medina Emerald (Dark)' },
+                  { id: 'light', label: 'Desert Pearl (Light)' },
+                ].map(theme => (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => {
+                      if (theme.id === 'light') {
+                        document.documentElement.classList.add('light');
+                        document.documentElement.setAttribute('data-theme', 'light');
+                      } else {
+                        document.documentElement.classList.remove('light');
+                        document.documentElement.setAttribute('data-theme', 'dark');
+                      }
+                      localStorage.setItem('nooraya_theme', theme.id);
+                    }}
+                    className="flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all bg-[#11382B] hover:bg-[#176B53] text-[#F6F1E4] border border-white/8 active:scale-95 cursor-pointer text-center"
+                  >
+                    {theme.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-[#A8BFB3]">Default is Medina Emerald with deep gold highlights.</p>
+            </div>
+          </div>
+        </section>
+
         {/* Account Status Card */}
         <section className="bg-[#0D121F]/90 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-7 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

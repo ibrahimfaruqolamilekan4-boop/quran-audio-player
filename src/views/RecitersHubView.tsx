@@ -1,17 +1,60 @@
 import React, { useState, useMemo } from 'react';
 import { usePlayer } from '../context/PlayerContext';
 import { ReciterAvatar } from '../components/ReciterAvatar';
-import { Check, Search, MapPin, Play, Pause, X, Radio, ImageOff, ExternalLink, ShieldCheck, Sparkles, BookOpen, WifiOff, CheckCircle2 } from 'lucide-react';
+import {
+  Check,
+  Search,
+  MapPin,
+  Play,
+  Pause,
+  X,
+  Radio,
+  ImageOff,
+  ExternalLink,
+  ShieldCheck,
+  Sparkles,
+  BookOpen,
+  WifiOff,
+  CheckCircle2,
+  Filter,
+} from 'lucide-react';
 import { SurahDownloadButton } from '../components/SurahDownloadButton';
 import { isSurahDownloaded } from '../lib/offlineManager';
 import type { Reciter } from '../types';
 
 const SECTION_ORDER = [
+  'African Masters',
   "Madinah (Prophet's Mosque)",
   "Makkah (Masjid al-Haram)",
-  "Classic Masters",
-  "Sweet Voices"
+  'Classic Masters',
+  'Sweet Voices',
 ];
+
+const COUNTRY_FLAGS: Record<string, string> = {
+  Algeria: '🇩🇿',
+  Sudan: '🇸🇩',
+  'Saudi Arabia': '🇸🇦',
+  Egypt: '🇪🇬',
+  Morocco: '🇲🇦',
+  Ghana: '🇬🇭',
+  Yemen: '🇾🇪',
+  Kuwait: '🇰🇼',
+  Oman: '🇴🇲',
+};
+
+function getCountryFlag(region?: string): string {
+  if (!region) return '🌍';
+  return COUNTRY_FLAGS[region] || '🌍';
+}
+
+function getRiwayaShort(style?: string): string {
+  if (!style) return "Hafs 'an 'Asim";
+  if (style.includes('Warsh')) return "Warsh 'an Nafi'";
+  if (style.includes('Duri') || style.includes('Dori')) return 'Al-Duri';
+  if (style.includes('Bizi') || style.includes('Ibn Kathir')) return 'Ibn Kathir';
+  if (style.includes('Mujawwad')) return 'Mujawwad';
+  return "Hafs 'an 'Asim";
+}
 
 export function RecitersHubView() {
   const {
@@ -28,6 +71,8 @@ export function RecitersHubView() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSection, setSelectedSection] = useState<string>('All');
+  const [selectedCountry, setSelectedCountry] = useState<string>('All');
+  const [selectedRiwaya, setSelectedRiwaya] = useState<string>('All');
   const [selectedReciter, setSelectedReciter] = useState<string | null>(null);
   const [downloadedMap, setDownloadedMap] = useState<Record<number, boolean>>({});
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -57,13 +102,32 @@ export function RecitersHubView() {
       if (!cancelled) setDownloadedMap(map);
     }
     void check();
-    const handleChanged = () => { void check(); };
+    const handleChanged = () => {
+      void check();
+    };
     window.addEventListener('quran-downloads-changed', handleChanged);
     return () => {
       cancelled = true;
       window.removeEventListener('quran-downloads-changed', handleChanged);
     };
   }, [selectedReciter, chapters]);
+
+  // Derive unique countries and riwayat from reciters
+  const availableCountries = useMemo(() => {
+    const set = new Set<string>();
+    allReciters.forEach(r => {
+      if (r.region) set.add(r.region);
+    });
+    return Array.from(set).sort();
+  }, [allReciters]);
+
+  const availableRiwayat = useMemo(() => {
+    const set = new Set<string>();
+    allReciters.forEach(r => {
+      set.add(getRiwayaShort(r.style));
+    });
+    return Array.from(set).sort();
+  }, [allReciters]);
 
   const query = searchQuery.trim().toLowerCase();
 
@@ -83,9 +147,14 @@ export function RecitersHubView() {
         (r.category && r.category.toLowerCase().includes(selectedSection.toLowerCase())) ||
         (!r.category && selectedSection === 'Custom');
 
-      return matchesSearch && matchesSection;
+      const matchesCountry = selectedCountry === 'All' || r.region === selectedCountry;
+
+      const matchesRiwaya =
+        selectedRiwaya === 'All' || getRiwayaShort(r.style) === selectedRiwaya;
+
+      return matchesSearch && matchesSection && matchesCountry && matchesRiwaya;
     });
-  }, [allReciters, query, selectedSection]);
+  }, [allReciters, query, selectedSection, selectedCountry, selectedRiwaya]);
 
   // Group reciters into ordered sections
   const groupedSections = useMemo(() => {
@@ -122,6 +191,7 @@ export function RecitersHubView() {
     playChapter(chapter, reciter);
   };
 
+  // Reciter Detail View (114 Surahs & Per-Surah Downloads)
   if (selectedReciter) {
     const reciter = allReciters.find(r => r.id === selectedReciter);
     if (!reciter) return null;
@@ -129,19 +199,19 @@ export function RecitersHubView() {
     const showPause = active && isPlaying && !!currentChapter;
 
     return (
-      <div className="animate-in slide-in-from-right-8 duration-500 pb-20">
+      <div className="animate-in slide-in-from-right-8 duration-500 pb-24">
         <button
           onClick={() => setSelectedReciter(null)}
-          className="text-slate-400 hover:text-white mb-8 text-sm flex items-center gap-2 transition-colors group"
+          className="text-[#A8BFB3] hover:text-[#F6F1E4] mb-8 text-sm flex items-center gap-2 transition-colors group cursor-pointer"
         >
           <span className="transition-transform group-hover:-translate-x-1">&larr;</span> Back to All Reciters
         </button>
 
-        <div className="relative flex flex-col md:flex-row gap-8 md:gap-12 items-start mb-12 bg-[#0b1320]/60 p-6 md:p-8 rounded-3xl border border-slate-800/80 backdrop-blur-xl">
+        <div className="relative flex flex-col md:flex-row gap-8 md:gap-12 items-start mb-12 bg-[#0C2A20] p-6 md:p-8 rounded-3xl border border-white/8 backdrop-blur-xl">
           <button
             onClick={() => startPlaying(reciter)}
             title={showPause ? 'Pause' : 'Play'}
-            className="group relative shrink-0 w-44 h-56 md:w-56 md:h-72 overflow-hidden rounded-[2rem] shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 border border-slate-700/60"
+            className="group relative shrink-0 w-44 h-56 md:w-56 md:h-72 overflow-hidden rounded-[2rem] shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1F8A6A] border-2 border-[#1F8A6A]/40 cursor-pointer"
           >
             <ReciterAvatar
               reciter={reciter}
@@ -149,54 +219,62 @@ export function RecitersHubView() {
               contentClassName="text-5xl"
               iconSize={48}
             />
-            <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-            <span className="absolute inset-0 flex items-center justify-center">
-              <span className="w-16 h-16 rounded-full bg-teal-500 text-black flex items-center justify-center shadow-[0_0_30px_rgba(20,184,166,0.45)] opacity-95 group-hover:scale-110 transition-transform duration-300">
-                {showPause ? <Pause size={24} className="fill-current" /> : <Play size={24} className="fill-current ml-1" />}
-              </span>
-            </span>
-            <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-[0.2em] font-semibold text-white/90">
-              {active ? (showPause ? 'Now playing' : 'Paused') : 'Listen Now'}
-            </span>
+
+            <div className="absolute inset-0 bg-gradient-to-t from-[#06150F] via-[#06150F]/40 to-transparent" />
+
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl ${
+                  showPause
+                    ? 'medina-btn-play scale-105'
+                    : 'bg-black/60 text-white backdrop-blur-md group-hover:scale-110 group-hover:bg-[#D4AF37] group-hover:text-[#06150F]'
+                }`}
+              >
+                {showPause ? (
+                  <Pause size={28} className="fill-current" />
+                ) : (
+                  <Play size={28} className="fill-current ml-1" />
+                )}
+              </div>
+            </div>
+
+            {active && (
+              <div className="absolute top-4 left-4 px-3 py-1 rounded-full bg-[#1F8A6A] text-white text-[10px] font-bold tracking-wide flex items-center gap-1.5 shadow-md">
+                <Radio size={12} className="animate-pulse" /> ACTIVE
+              </div>
+            )}
           </button>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              {reciter.category && (
-                <span className="px-3 py-1 bg-teal-500/15 text-teal-300 rounded-full text-xs font-semibold border border-teal-500/30 tracking-wide flex items-center gap-1.5">
-                  <Sparkles size={12} className="text-teal-400" />
-                  {reciter.category}
-                </span>
-              )}
-              <span className="px-3 py-1 bg-slate-800/80 text-slate-300 rounded-full text-xs font-medium border border-slate-700 tracking-wide">
-                {reciter.style}
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-3 mb-2">
+              <span className="px-3.5 py-1 rounded-full bg-[#11382B] text-[#D4AF37] border border-[#D4AF37]/30 text-xs font-semibold tracking-wider flex items-center gap-1.5">
+                <span>{getCountryFlag(reciter.region)}</span>
+                <span>{reciter.region || 'International'}</span>
               </span>
-              <span className="px-3 py-1 bg-slate-800/80 text-slate-300 rounded-full text-xs font-medium border border-slate-700 tracking-wide">
-                {reciter.region || 'Custom'}
+              <span className="px-3 py-1 rounded-full bg-[#11382B] text-[#A8BFB3] text-xs font-medium">
+                {getRiwayaShort(reciter.style)}
               </span>
-              {active && (
-                <span className="px-3 py-1 bg-teal-500 text-black rounded-full text-xs font-bold tracking-wide flex items-center gap-1.5 shadow-md">
-                  <Radio size={12} className="animate-pulse" /> Active reciter
+              {reciter.location && (
+                <span className="text-xs text-[#A8BFB3] flex items-center gap-1">
+                  <MapPin size={12} className="text-[#1F8A6A]" />
+                  {reciter.location}
                 </span>
               )}
             </div>
 
-            <h2 className="text-3xl md:text-5xl font-serif text-white tracking-tight mb-1">{reciter.name}</h2>
-            {reciter.nameArabic && (
-              <h3 className="text-2xl md:text-3xl font-amiri text-teal-400/90 font-bold mb-3" dir="rtl">
-                {reciter.nameArabic}
-              </h3>
-            )}
+            <h1 className="text-3xl md:text-5xl font-serif font-bold text-[#F6F1E4] tracking-tight">
+              {reciter.name}
+            </h1>
 
-            {reciter.location && (
-              <p className="text-slate-400 font-light flex items-center gap-2 text-sm mb-4">
-                <MapPin size={15} className="text-teal-500" /> {reciter.location}, {reciter.region}
+            {reciter.nameArabic && (
+              <p className="text-2xl md:text-3xl font-quran text-[#34C38F] mt-2 font-medium" dir="rtl">
+                {reciter.nameArabic}
               </p>
             )}
 
             {reciter.bio && (
-              <div className="my-5 p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-300 text-sm leading-relaxed">
-                <div className="flex items-center gap-2 text-xs font-semibold text-teal-400 mb-1.5 uppercase tracking-wider">
+              <div className="mt-5 max-w-2xl text-xs sm:text-sm text-[#A8BFB3] leading-relaxed bg-[#06150F]/60 p-4 rounded-2xl border border-white/5 space-y-1.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#D4AF37] flex items-center gap-1.5">
                   <BookOpen size={13} />
                   Biography & Background
                 </div>
@@ -208,10 +286,10 @@ export function RecitersHubView() {
               <button
                 onClick={() => setReciter(reciter)}
                 disabled={active}
-                className={`px-8 py-3 rounded-2xl font-semibold transition-all shadow-lg ${
+                className={`px-8 py-3 rounded-2xl font-semibold transition-all shadow-lg cursor-pointer ${
                   active
-                    ? 'bg-teal-500/20 text-teal-400 border border-teal-500/40 shadow-teal-500/10 cursor-default'
-                    : 'bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-teal-500/20'
+                    ? 'bg-[#1F8A6A]/20 text-[#34C38F] border border-[#1F8A6A]/40 shadow-none cursor-default'
+                    : 'medina-btn-primary'
                 }`}
               >
                 {active ? 'Currently Selected' : 'Set as Active Reciter'}
@@ -222,38 +300,33 @@ export function RecitersHubView() {
                   href={reciter.imageCredit}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/80 text-xs text-slate-300 flex items-center gap-1.5 transition-colors"
-                  title="View photo source and license on Wikimedia Commons"
+                  className="px-3.5 py-2.5 rounded-xl bg-[#11382B] hover:bg-[#176B53] border border-white/8 text-xs text-[#A8BFB3] hover:text-[#F6F1E4] flex items-center gap-1.5 transition-colors"
                 >
-                  <ShieldCheck size={14} className="text-teal-400" />
+                  <ShieldCheck size={14} className="text-[#34C38F]" />
                   <span>Photo: {reciter.imageLicense || 'Wikimedia Commons'}</span>
                   <ExternalLink size={12} className="opacity-60" />
                 </a>
               )}
-
-              {!reciter.imageUrl && (
-                <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center gap-1.5">
-                  <ImageOff size={13} />
-                  Placeholder avatar (uploadable in Admin)
-                </span>
-              )}
             </div>
 
-            <div className="mt-4 text-[11px] text-slate-500 font-mono truncate max-w-xl">
+            <div className="mt-4 text-[11px] text-[#A8BFB3]/60 font-mono truncate max-w-xl">
               CDN Source: {reciter.serverUrl}
             </div>
           </div>
         </div>
 
+        {/* 114 Surahs Section with per-surah download button */}
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-medium text-white tracking-wide">
+            <h3 className="text-xl font-medium text-[#F6F1E4] tracking-wide">
               114 Surahs
               {currentChapter && (
-                <span className="ml-3 text-sm font-normal text-teal-400/80">· now playing {currentChapter.name_simple}</span>
+                <span className="ml-3 text-sm font-normal text-[#34C38F]">
+                  · now playing {currentChapter.name_simple}
+                </span>
               )}
             </h3>
-            <span className="text-xs text-slate-500">Click any surah to stream directly from this reciter</span>
+            <span className="text-xs text-[#A8BFB3]">Click any surah to stream directly from this reciter</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -267,7 +340,9 @@ export function RecitersHubView() {
                   key={chapter.id}
                   onClick={() => {
                     if (isUnavail) {
-                      setOfflineNotice(`Surah ${chapter.name_simple} is not downloaded for ${reciter.name}. Connect to internet to stream.`);
+                      setOfflineNotice(
+                        `Surah ${chapter.name_simple} is not downloaded for ${reciter.name}. Connect to internet to stream.`
+                      );
                       setTimeout(() => setOfflineNotice(null), 4000);
                       return;
                     }
@@ -276,10 +351,10 @@ export function RecitersHubView() {
                   }}
                   className={`group flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all ${
                     isUnavail
-                      ? 'opacity-40 cursor-not-allowed bg-slate-900/30 border-slate-800/40'
+                      ? 'opacity-40 cursor-not-allowed bg-[#06150F]/40 border-white/5'
                       : playingThis
-                      ? 'bg-teal-500/15 border-teal-500/50 text-teal-300 shadow-md cursor-pointer'
-                      : 'bg-[#0F172A]/40 border-slate-800/50 hover:bg-[#1E293B]/60 hover:border-slate-700 text-slate-300 cursor-pointer'
+                      ? 'bg-[#1F8A6A]/20 border-[#1F8A6A]/60 text-[#34C38F] shadow-md cursor-pointer'
+                      : 'bg-[#0C2A20]/60 border-white/8 hover:bg-[#11382B] hover:border-[#1F8A6A]/40 text-[#F6F1E4] cursor-pointer'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -288,27 +363,30 @@ export function RecitersHubView() {
                     </span>
                     <div className="flex flex-col min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-serif text-sm sm:text-base truncate group-hover:text-teal-400 transition-colors">
+                        <span className="font-serif text-sm sm:text-base truncate group-hover:text-[#34C38F] transition-colors">
                           {chapter.name_simple}
                         </span>
                         {isDl && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-medium shrink-0">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#34C38F]/15 text-[#34C38F] text-[9px] font-medium shrink-0">
                             <CheckCircle2 size={10} />
                             <span>Downloaded</span>
                           </span>
                         )}
                         {isUnavail && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[9px] font-medium shrink-0">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/40 text-[#A8BFB3] text-[9px] font-medium shrink-0">
                             <WifiOff size={9} />
                             <span>Offline</span>
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-slate-500 truncate">{chapter.translated_name.name}</span>
+                      <span className="text-xs text-[#A8BFB3] truncate">{chapter.translated_name.name}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <span className="text-sm font-amiri text-slate-400 group-hover:text-teal-400 transition-colors hidden sm:inline" dir="rtl">
+                    <span
+                      className="text-sm font-quran text-[#A8BFB3] group-hover:text-[#34C38F] transition-colors hidden sm:inline"
+                      dir="rtl"
+                    >
                       {chapter.name_arabic}
                     </span>
                     <div onClick={e => e.stopPropagation()}>
@@ -316,14 +394,10 @@ export function RecitersHubView() {
                     </div>
                     <div
                       className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 transition-opacity ${
-                        playingThis ? 'opacity-100 bg-teal-500/20' : 'opacity-0 group-hover:opacity-100'
+                        playingThis ? 'opacity-100 bg-[#D4AF37] text-[#06150F]' : 'opacity-0 group-hover:opacity-100'
                       }`}
                     >
-                      {playingThis && isPlaying ? (
-                        <Pause size={14} className="text-teal-300 fill-current" />
-                      ) : (
-                        <Play size={14} className="text-white fill-current ml-0.5" />
-                      )}
+                      {playingThis && isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
                     </div>
                   </div>
                 </div>
@@ -335,37 +409,35 @@ export function RecitersHubView() {
     );
   }
 
+  // Sheikh Hub Main Grid View
   return (
-    <div className="max-w-6xl mx-auto pb-20 animate-in fade-in duration-700">
-      <header className="mb-8 space-y-6 sticky top-0 bg-[#030712]/90 backdrop-blur-3xl pt-6 pb-6 z-20 border-b border-slate-800/60">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-24">
+      {/* Search & Header */}
+      <header className="space-y-6">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
-            <h2 className="text-4xl md:text-5xl font-serif text-white tracking-tight">Reciters</h2>
-            <p className="text-slate-400 text-sm mt-2">
-              {filteredReciters.length} of {allReciters.length} qurra available
-              {currentReciter && (
-                <>
-                  {' · '}
-                  <span className="text-teal-400 font-medium">{currentReciter.name}</span> active
-                </>
-              )}
+            <h2 className="text-3xl md:text-5xl font-serif font-bold text-[#F6F1E4] tracking-tight">
+              Reciters Sanctuary
+            </h2>
+            <p className="text-[#A8BFB3] mt-2 font-light text-base md:text-lg">
+              Explore authentic voices across Africa, the Holy Mosques, and classical masters.
             </p>
           </div>
 
           <div className="relative w-full md:w-96">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8BFB3]" size={18} />
             <input
               type="text"
-              placeholder="Search in English or Arabic (e.g. نورين)..."
+              placeholder="Search by name, country, or Arabic..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0F172A]/70 border border-slate-800 rounded-2xl py-3.5 pl-12 pr-11 text-white placeholder-slate-500 focus:outline-none focus:border-teal-500/60 transition-colors"
+              className="w-full bg-[#0C2A20] border border-white/8 rounded-2xl py-3.5 pl-12 pr-11 text-[#F6F1E4] placeholder-[#A8BFB3]/60 focus:outline-none focus:border-[#1F8A6A] transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
                 title="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-[#A8BFB3] hover:text-[#F6F1E4] transition-colors"
               >
                 <X size={16} />
               </button>
@@ -373,125 +445,205 @@ export function RecitersHubView() {
           </div>
         </div>
 
-        {/* Section Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-2 px-2 scrollbar-none">
-          {['All', ...SECTION_ORDER, ...(customReciters.length > 0 ? ['Custom'] : [])].map(sec => {
-            const isSecActive = selectedSection === sec;
-            return (
+        {/* Sticky Filter Chips Bar */}
+        <div className="sticky top-[calc(60px+env(safe-area-inset-top,0px))] md:top-14 z-30 bg-[#06150F]/90 backdrop-blur-xl py-3 border-y border-white/8 space-y-2 -mx-4 px-4 sm:-mx-8 sm:px-8">
+          {/* Category Chips */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {['All', ...SECTION_ORDER, ...(customReciters.length > 0 ? ['Custom'] : [])].map(sec => {
+              const isSecActive = selectedSection === sec;
+              return (
+                <button
+                  key={sec}
+                  onClick={() => setSelectedSection(sec)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                    isSecActive
+                      ? 'bg-[#1F8A6A] text-white shadow-md shadow-[#1F8A6A]/25'
+                      : 'bg-[#0C2A20] text-[#A8BFB3] hover:bg-[#11382B] border border-white/8 hover:text-[#F6F1E4]'
+                  }`}
+                >
+                  {sec === 'African Masters' ? '🌍 African Masters' : sec}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Country & Riwaya Sub-Filters */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
+            <span className="text-[#A8BFB3]/60 font-semibold uppercase tracking-wider text-[10px] shrink-0">
+              Filter by:
+            </span>
+
+            {/* Country Pills */}
+            <button
+              onClick={() => setSelectedCountry('All')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                selectedCountry === 'All'
+                  ? 'bg-[#D4AF37] text-[#06150F] font-bold'
+                  : 'bg-white/5 text-[#A8BFB3] hover:text-[#F6F1E4]'
+              }`}
+            >
+              All Countries
+            </button>
+
+            {availableCountries.map(country => (
               <button
-                key={sec}
-                onClick={() => setSelectedSection(sec)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                  isSecActive
-                    ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
-                    : 'bg-slate-900/80 text-slate-300 hover:bg-slate-800 border border-slate-800 hover:text-white'
+                key={country}
+                onClick={() => setSelectedCountry(country)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer ${
+                  selectedCountry === country
+                    ? 'bg-[#D4AF37] text-[#06150F] font-bold'
+                    : 'bg-white/5 text-[#A8BFB3] hover:text-[#F6F1E4]'
                 }`}
               >
-                {sec}
+                <span>{getCountryFlag(country)}</span>
+                <span>{country}</span>
               </button>
-            );
-          })}
+            ))}
+
+            <span className="text-white/10 shrink-0">|</span>
+
+            {/* Riwaya Pills */}
+            <button
+              onClick={() => setSelectedRiwaya('All')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                selectedRiwaya === 'All'
+                  ? 'bg-[#34C38F] text-[#06150F] font-bold'
+                  : 'bg-white/5 text-[#A8BFB3] hover:text-[#F6F1E4]'
+              }`}
+            >
+              All Riwayat
+            </button>
+
+            {availableRiwayat.map(riwaya => (
+              <button
+                key={riwaya}
+                onClick={() => setSelectedRiwaya(riwaya)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                  selectedRiwaya === riwaya
+                    ? 'bg-[#34C38F] text-[#06150F] font-bold'
+                    : 'bg-white/5 text-[#A8BFB3] hover:text-[#F6F1E4]'
+                }`}
+              >
+                {riwaya}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
+      {/* Reciters Grid */}
       {filteredReciters.length === 0 ? (
-        <div className="flex flex-col items-center justify-center text-center py-24 text-slate-500">
-          <ImageOff size={32} className="mb-4 opacity-60 text-slate-400" />
-          <p className="text-white font-medium text-lg">No reciter matches “{searchQuery}”.</p>
-          <p className="text-sm mt-1 text-slate-400">Try searching by English or Arabic name, mosque, or country.</p>
+        <div className="flex flex-col items-center justify-center text-center py-24 text-[#A8BFB3]">
+          <ImageOff size={32} className="mb-4 opacity-60 text-[#A8BFB3]" />
+          <p className="text-[#F6F1E4] font-medium text-lg">No reciter matches your filters.</p>
+          <p className="text-sm mt-1 text-[#A8BFB3]">Try searching by English or Arabic name, or reset filters.</p>
           <button
             onClick={() => {
               setSearchQuery('');
               setSelectedSection('All');
+              setSelectedCountry('All');
+              setSelectedRiwaya('All');
             }}
-            className="mt-6 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium transition-colors"
+            className="mt-6 px-6 py-2.5 rounded-xl bg-[#11382B] hover:bg-[#176B53] text-[#F6F1E4] text-sm font-medium transition-colors cursor-pointer"
           >
-            Reset Filters
+            Reset All Filters
           </button>
         </div>
       ) : (
-        groupedSections.map(group => {
-          return (
-            <div key={group.title} className="mb-14">
-              <div className="flex items-center justify-between mb-6 pl-1">
-                <h3 className="text-base font-semibold text-slate-200 tracking-wide flex items-center gap-3">
-                  <span className="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-[0_0_10px_rgba(45,212,191,0.6)]" />
-                  {group.title}
-                  <span className="text-xs font-normal text-slate-500">({group.reciters.length})</span>
-                </h3>
-                <div className="h-px bg-slate-800/80 flex-1 ml-4" />
-              </div>
+        groupedSections.map(group => (
+          <div key={group.title} className="mb-14">
+            <div className="flex items-center justify-between mb-6 pl-1">
+              <h3 className="text-lg font-serif font-semibold text-[#F6F1E4] tracking-wide flex items-center gap-3">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#34C38F] shadow-[0_0_10px_rgba(52,195,143,0.6)]" />
+                {group.title}
+                <span className="text-xs font-normal text-[#A8BFB3]">({group.reciters.length})</span>
+              </h3>
+              <div className="h-px bg-white/8 flex-1 ml-4" />
+            </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-                {group.reciters.map(reciter => {
-                  const selected = isActive(reciter);
-                  return (
-                    <div
-                      key={reciter.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setSelectedReciter(reciter.id)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setSelectedReciter(reciter.id);
-                        }
-                      }}
-                      className={`group relative flex flex-col overflow-hidden rounded-3xl aspect-[3/4] cursor-pointer border transition-all duration-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
-                        selected
-                          ? 'border-teal-500 shadow-[0_0_30px_rgba(20,184,166,0.25)] ring-1 ring-teal-500/50'
-                          : 'border-slate-800/80 hover:border-slate-600 bg-slate-900/30'
-                      }`}
-                    >
-                      <ReciterAvatar
-                        reciter={reciter}
-                        className="rounded-none border-0"
-                        contentClassName="text-4xl"
-                        iconSize={32}
-                      />
+            {/* Sheikh Cards with Large Circular Portrait, Emerald Ring, Country Flag & Riwaya */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+              {group.reciters.map(reciter => {
+                const selected = isActive(reciter);
+                const flag = getCountryFlag(reciter.region);
+                const riwaya = getRiwayaShort(reciter.style);
 
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+                return (
+                  <div
+                    key={reciter.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedReciter(reciter.id)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedReciter(reciter.id);
+                      }
+                    }}
+                    className={`group medina-card p-4 sm:p-5 flex flex-col items-center text-center cursor-pointer relative overflow-hidden transition-all duration-300 ${
+                      selected
+                        ? 'border-[#1F8A6A] bg-[#0C2A20] shadow-[0_0_24px_rgba(31,138,106,0.3)] ring-1 ring-[#1F8A6A]'
+                        : 'bg-[#0C2A20]/80 border-white/8 hover:border-[#1F8A6A]/50 hover:bg-[#11382B]'
+                    }`}
+                  >
+                    {/* Top Badges */}
+                    <div className="w-full flex items-center justify-between mb-3 pointer-events-none">
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-[#06150F]/70 text-[#A8BFB3] border border-white/5 flex items-center gap-1 font-mono">
+                        <span>{flag}</span>
+                        <span className="truncate max-w-[65px]">{reciter.region || 'World'}</span>
+                      </span>
 
-                      {/* Top Badges */}
-                      <div className="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none">
-                        {reciter.featured ? (
-                          <span className="bg-amber-400/90 text-slate-950 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md flex items-center gap-1">
-                            <Sparkles size={10} /> Featured
-                          </span>
-                        ) : (
-                          <span />
-                        )}
-                        {selected && (
-                          <span className="bg-teal-500 text-black p-1 rounded-full shadow-lg">
-                            <Check size={12} strokeWidth={3} />
-                          </span>
-                        )}
+                      {reciter.featured && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#D4AF37] text-[#06150F] flex items-center gap-1 shadow-sm">
+                          <Sparkles size={9} />
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Circular Portrait with Emerald Ring */}
+                    <div className="relative my-2">
+                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full ring-3 ring-[#1F8A6A] p-0.5 bg-[#0C2A20] shadow-xl overflow-hidden transition-transform duration-300 group-hover:scale-105">
+                        <ReciterAvatar
+                          reciter={reciter}
+                          className="rounded-full border-0"
+                          shape="circle"
+                          contentClassName="text-3xl"
+                          iconSize={28}
+                        />
                       </div>
 
-                      {/* Bottom Info */}
-                      <div className="absolute bottom-0 inset-x-0 p-4 flex flex-col justify-end">
-                        <span className="text-white font-serif text-base font-bold leading-tight group-hover:text-teal-300 transition-colors line-clamp-1">
-                          {reciter.name}
+                      {selected && (
+                        <span className="absolute bottom-0 right-1 bg-[#D4AF37] text-[#06150F] p-1.5 rounded-full shadow-lg">
+                          <Check size={12} strokeWidth={3} />
                         </span>
+                      )}
+                    </div>
 
-                        {reciter.nameArabic && (
-                          <span className="text-xs font-amiri text-teal-400/90 font-medium mt-0.5 truncate" dir="rtl">
-                            {reciter.nameArabic}
-                          </span>
-                        )}
+                    {/* Name & Arabic Info */}
+                    <div className="mt-3 w-full space-y-1">
+                      <h4 className="font-serif text-sm sm:text-base font-bold text-[#F6F1E4] leading-tight line-clamp-1 group-hover:text-[#34C38F] transition-colors">
+                        {reciter.name}
+                      </h4>
 
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-1.5">
-                          <MapPin size={11} className="text-teal-400 shrink-0" />
-                          <span className="truncate">{reciter.location || reciter.region}</span>
-                        </div>
+                      {reciter.nameArabic && (
+                        <p className="text-xs font-quran text-[#34C38F] truncate" dir="rtl">
+                          {reciter.nameArabic}
+                        </p>
+                      )}
+
+                      {/* Riwaya Badge */}
+                      <div className="pt-1">
+                        <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded-md bg-[#1F8A6A]/15 text-[#A8BFB3] border border-[#1F8A6A]/20">
+                          {riwaya}
+                        </span>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })
+          </div>
+        ))
       )}
     </div>
   );

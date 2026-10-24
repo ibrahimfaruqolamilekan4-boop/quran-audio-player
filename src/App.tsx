@@ -18,6 +18,7 @@ import { SurahLibraryView } from './views/SurahLibraryView';
 import { RecitersHubView } from './views/RecitersHubView';
 import { InsightsView } from './views/InsightsView';
 import { SettingsView } from './views/SettingsView';
+import { PremiumView } from './views/PremiumView';
 import { PrayerTimesView } from './views/PrayerTimesView';
 import { QiblaView } from './views/QiblaView';
 import { AzkarView } from './views/AzkarView';
@@ -98,6 +99,7 @@ function DashboardLayout() {
             <Route path="reciters" element={<RecitersHubView />} />
             <Route path="insights" element={<InsightsView />} />
             <Route path="settings" element={<SettingsView />} />
+            <Route path="premium" element={<PremiumView />} />
             <Route path="player" element={<FullPlayerPage />} />
           </Routes>
         </div>
@@ -166,6 +168,7 @@ export default function App() {
                 <Route path="/auth" element={<AuthView />} />
                 <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
                 <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
+                <Route path="/premium" element={<Navigate to="/dashboard/premium" replace />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </div>

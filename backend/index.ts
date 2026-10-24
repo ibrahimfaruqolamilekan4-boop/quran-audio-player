@@ -38,6 +38,8 @@ import publicAmbient from './ambient';
 import media from './media';
 import verifyFlutterwave from './payments/verify';
 import flwWebhook from './payments/webhook';
+import createVirtualAccount from './payments/create-virtual-account';
+import checkTransferStatus from './payments/check-transfer-status';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -63,6 +65,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/ambient$/, publicAmbient],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
+  [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
+  [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

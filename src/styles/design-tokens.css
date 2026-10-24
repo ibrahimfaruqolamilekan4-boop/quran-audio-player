@@ -1,0 +1,144 @@
+/* ===================================================================
+   MEDINA EMERALD DESIGN TOKENS
+   Standardized variables for colors, typography, elevation, & gradients
+   =================================================================== */
+
+:root {
+  /* Default: Dark Theme ("Medina Emerald") */
+  --bg-primary: #06150F;
+  --bg-surface: #0C2A20;
+  --bg-surface-raised: #11382B;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-color-highlight: rgba(255, 255, 255, 0.16);
+
+  --primary-emerald: #1F8A6A;
+  --primary-hover: #27A37E;
+  --primary-pressed: #176B53;
+  --primary-subtle: rgba(31, 138, 106, 0.15);
+
+  /* Accent Gold: Strictly for main play button, active tab indicator, premium badge, and small highlights */
+  --accent-gold: #D4AF37;
+  --accent-gold-hover: #E2C04B;
+  --accent-gold-subtle: rgba(212, 175, 55, 0.15);
+
+  --text-primary: #F6F1E4;
+  --text-secondary: #D1DFD8;
+  --text-muted: #A8BFB3;
+  --text-subtle: #6E887C;
+
+  --status-error: #E5675B;
+  --status-success: #34C38F;
+  --status-warning: #E0A63A;
+
+  /* Typography */
+  --font-body: 'Manrope', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-heading: 'Fraunces', Georgia, serif;
+  --font-quran: 'Amiri Quran', 'Scheherazade New', 'Noto Naskh Arabic', serif;
+  --font-arabic-ui: 'Noto Naskh Arabic', 'Amiri', serif;
+
+  /* Sizes */
+  --font-size-quran: 30px;
+  --font-size-quran-lh: 2.1;
+  --font-size-body: 16px;
+  --font-size-secondary: 14px;
+  --font-size-caption: 12px;
+  --font-size-h1: 30px;
+  --font-size-h2: 22px;
+  --font-size-h3: 18px;
+
+  /* Touch Target */
+  --min-tap-target: 44px;
+
+  /* Border radius */
+  --radius-card: 20px;
+  --radius-button: 14px;
+  --radius-pill: 9999px;
+
+  /* Gradients */
+  --gradient-emerald-hero: linear-gradient(180deg, #022C22 0%, #064E3B 100%);
+  --gradient-emerald-radial: radial-gradient(circle at 50% 20%, #0C382A 0%, #06150F 80%);
+  --gradient-player: linear-gradient(180deg, rgba(12, 42, 32, 0.94) 0%, rgba(6, 21, 15, 0.98) 100%);
+}
+
+/* Light Theme (explicit .light class) */
+.light, [data-theme="light"] {
+  --bg-primary: #F7F4EC;
+  --bg-surface: #FFFFFF;
+  --bg-surface-raised: #EFE9DC;
+  --border-color: rgba(18, 38, 31, 0.10);
+  --border-color-highlight: rgba(18, 38, 31, 0.20);
+
+  --primary-emerald: #0F5C45;
+  --primary-hover: #15795C;
+  --primary-pressed: #0B4634;
+  --primary-subtle: rgba(15, 92, 69, 0.12);
+
+  --accent-gold: #B8923A;
+  --accent-gold-hover: #CA9E42;
+  --accent-gold-subtle: rgba(184, 146, 58, 0.15);
+
+  --text-primary: #12261F;
+  --text-secondary: #2C4238;
+  --text-muted: #5B6F66;
+  --text-subtle: #7A9086;
+
+  --status-error: #D34538;
+  --status-success: #23976D;
+  --status-warning: #C2841E;
+
+  --gradient-emerald-hero: linear-gradient(180deg, #EAE4D5 0%, #F7F4EC 100%);
+  --gradient-emerald-radial: radial-gradient(circle at 50% 20%, #EDE6D8 0%, #F7F4EC 80%);
+  --gradient-player: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(247, 244, 236, 0.98) 100%);
+}
+
+/* Follow system if data-theme="system" or not explicitly set */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg-primary: #F7F4EC;
+    --bg-surface: #FFFFFF;
+    --bg-surface-raised: #EFE9DC;
+    --border-color: rgba(18, 38, 31, 0.10);
+    --border-color-highlight: rgba(18, 38, 31, 0.20);
+
+    --primary-emerald: #0F5C45;
+    --primary-hover: #15795C;
+    --primary-pressed: #0B4634;
+    --primary-subtle: rgba(15, 92, 69, 0.12);
+
+    --accent-gold: #B8923A;
+    --accent-gold-hover: #CA9E42;
+    --accent-gold-subtle: rgba(184, 146, 58, 0.15);
+
+    --text-primary: #12261F;
+    --text-secondary: #2C4238;
+    --text-muted: #5B6F66;
+    --text-subtle: #7A9086;
+
+    --status-error: #D34538;
+    --status-success: #23976D;
+    --status-warning: #C2841E;
+
+    --gradient-emerald-hero: linear-gradient(180deg, #EAE4D5 0%, #F7F4EC 100%);
+    --gradient-emerald-radial: radial-gradient(circle at 50% 20%, #EDE6D8 0%, #F7F4EC 80%);
+    --gradient-player: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(247, 244, 236, 0.98) 100%);
+  }
+}
+
+/* Islamic Geometric Pattern Background Utility */
+.bg-islamic-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0l7.071 7.071L30 14.142 22.929 7.071zm15 15l7.071 7.071L45 29.142 37.929 22.071zm-30 0l7.071 7.071L15 29.142 7.929 22.071zm15 15l7.071 7.071L30 44.142 22.929 37.071zm15 15l7.071 7.071L45 59.142 37.929 52.071zm-30 0l7.071 7.071L15 59.142 7.929 52.071z' fill='%231F8A6A' fill-opacity='0.05' fill-rule='evenodd'/%3E%3C/svg%3E");
+}
+
+/* User-controlled Quran font scale */
+[data-quran-size="S"] { --font-size-quran: 24px; }
+[data-quran-size="M"] { --font-size-quran: 28px; }
+[data-quran-size="L"] { --font-size-quran: 32px; }
+[data-quran-size="XL"] { --font-size-quran: 38px; }
+
+/* Safe area insets */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}

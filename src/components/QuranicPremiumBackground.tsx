@@ -513,6 +513,24 @@ export function QuranicPremiumBackground({
     window.addEventListener('pointerdown', unblock, { once: true, passive: true });
     window.addEventListener('click', unblock, { once: true, passive: true });
     window.addEventListener('keydown', unblock, { once: true, passive: true });
+
+  // Decoupled Background Video Lifecycle:
+  // Pause background <video> on page hidden to conserve battery/GPU; resume on visible.
+  // Quran recitation audio continues playing independently without interruption.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (videoRefA.current && !videoRefA.current.paused) videoRefA.current.pause();
+        if (videoRefB.current && !videoRefB.current.paused) videoRefB.current.pause();
+      } else {
+        if (videoRefA.current && slotAUrl) playVideoSafe(videoRefA.current);
+        if (videoRefB.current && slotBUrl) playVideoSafe(videoRefB.current);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [slotAUrl, slotBUrl]);
+
     return () => {
       window.removeEventListener('touchstart', unblock);
       window.removeEventListener('pointerdown', unblock);
