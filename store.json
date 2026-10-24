@@ -90,7 +90,7 @@
       "category": "Madinah (Prophet's Mosque)",
       "bio": "Born in Al-Ahsa, Saudi Arabia and earned a doctorate from the College of Hadith. Appointed as an Imam of the Prophet's Mosque in Medina in 2019. Known for his clear articulation, soothing acoustic tone, and adherence to strict classical tajweed.",
       "server_url": "https://server11.mp3quran.net/mohna/",
-      "image_url": "/api/media/media_image_1792449372318_58fc5c88"
+      "image_url": "/api/media/media_image_1792779686033_0b3e432b"
     },
     {
       "id": "barhaji",
@@ -98,7 +98,7 @@
       "name_arabic": "محمد برهجي",
       "style": "Custom Global",
       "category": "Madinah (Prophet's Mosque)",
-      "bio": "Prominent Quran reciter and professor based in Medina, Saudi Arabia. Regularly leads prayers in Medina and participates in Quranic teaching circles. Characterized by a warm, contemplative recitation following the Hafs 'an 'Asim riwayah.",
+      "bio": "Prominent Quran reciter based in Medina, Saudi Arabia. Regularly leads prayers in Medina and participates in Quranic teaching circles. Characterized by a warm, contemplative recitation following the Hafs 'an 'Asim riwayah.",
       "server_url": "https://server16.mp3quran.net/M_Burhaji/Rewayat-Hafs-A-n-Assem/",
       "image_url": "/api/media/media_image_1792449380195_bf76310a"
     },
@@ -223,5 +223,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-24T00:12:27.883Z"
+  "updated_at": "2026-10-24T00:12:30.296Z"
 }
