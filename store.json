@@ -175,12 +175,12 @@
   ],
   "global_videos": [
     {
-      "id": "bg_vid_media_video_1792801084111_k25a89",
+      "id": "custom_vid_1791817104859",
       "name": "233867_medium",
       "video_url": "/api/media/media_video_1792801084111_k25a89",
-      "description": "Uploaded by admin",
+      "description": null,
       "is_default": false,
-      "created_at": "2026-10-24T00:18:08.579Z"
+      "created_at": "2026-10-24T00:18:12.341Z"
     },
     {
       "id": "custom_vid_1791817128309",
@@ -255,5 +255,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-24T00:18:09.127Z"
+  "updated_at": "2026-10-24T00:18:12.341Z"
 }
