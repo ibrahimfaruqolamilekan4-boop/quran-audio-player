@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Video,
@@ -597,19 +597,27 @@ export function BackgroundsAdmin({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
             <div className="flex items-center gap-2">
-              <span>{diagResult.urlConfigured ? 'âœ…' : 'âŒ'}</span>
+              <span className={diagResult.urlConfigured ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {diagResult.urlConfigured ? '[PASS]' : '[FAIL]'}
+              </span>
               <span>URL: {diagResult.urlConfigured ? 'Configured' : 'Missing VITE_SUPABASE_URL'}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span>{diagResult.anonKeyConfigured ? 'âœ…' : 'âŒ'}</span>
+              <span className={diagResult.anonKeyConfigured ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {diagResult.anonKeyConfigured ? '[PASS]' : '[FAIL]'}
+              </span>
               <span>Anon Key: {diagResult.anonKeyConfigured ? 'Configured' : 'Missing VITE_SUPABASE_ANON_KEY'}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span>{diagResult.tableReachable ? 'âœ…' : 'âŒ'}</span>
-              <span>Table 'backgrounds': {diagResult.tableReachable ? Reachable ( rows) : 'Unreachable / Not created'}</span>
+              <span className={diagResult.tableReachable ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {diagResult.tableReachable ? '[PASS]' : '[FAIL]'}
+              </span>
+              <span>Table 'backgrounds': {diagResult.tableReachable ? 'Reachable (' + diagResult.tableCount + ' rows)' : 'Unreachable / Not created'}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span>{diagResult.bucketReachable ? (diagResult.bucketPublic ? 'âœ…' : 'âš ï¸') : 'â„¹ï¸'}</span>
+              <span className={diagResult.bucketReachable ? (diagResult.bucketPublic ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold') : 'text-slate-400'}>
+                {diagResult.bucketReachable ? (diagResult.bucketPublic ? '[PASS]' : '[WARN]') : '[INFO]'}
+              </span>
               <span>Bucket 'ambient-backgrounds': {diagResult.bucketReachable ? (diagResult.bucketPublic ? 'Public & Active' : 'Private (Should be Public)') : 'Not probed or restricted'}</span>
             </div>
           </div>

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Supabase client & ambient backgrounds synchronization layer.
  * 
  * Manages fetching, caching, and uploading ambient backgrounds to Supabase Storage
@@ -374,10 +374,10 @@ export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult
 
   try {
     const cleanUrl = SUPABASE_URL.replace(/\/+$/, '');
-    const res = await fetch(${cleanUrl}/rest/v1/backgrounds?select=id&limit=1, {
+    const res = await fetch(`${cleanUrl}/rest/v1/backgrounds?select=id&limit=1`, {
       headers: {
         apikey: SUPABASE_ANON_KEY,
-        Authorization: Bearer ,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
     });
 
@@ -389,19 +389,19 @@ export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult
       result.errorMessage = 'HTTP 401 Unauthorized: Invalid Anon Key.';
       return result;
     } else if (res.status === 404 || res.status === 400) {
-      result.errorMessage = HTTP : Table 'backgrounds' not found. Apply schema.sql in Supabase SQL editor.;
+      result.errorMessage = `HTTP ${res.status}: Table 'backgrounds' not found. Apply schema.sql in Supabase SQL editor.`;
       return result;
     } else {
-      result.errorMessage = HTTP  returned from Supabase REST API.;
+      result.errorMessage = `HTTP ${res.status} returned from Supabase REST API.`;
       return result;
     }
 
     // Check bucket
     try {
-      const bRes = await fetch(${cleanUrl}/storage/v1/bucket/, {
+      const bRes = await fetch(`${cleanUrl}/storage/v1/bucket/${STORAGE_BUCKET}`, {
         headers: {
           apikey: SUPABASE_ANON_KEY,
-          Authorization: Bearer ,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
       });
       if (bRes.status === 200) {
@@ -411,7 +411,7 @@ export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult
       }
     } catch {}
   } catch (err: any) {
-    result.errorMessage = Connection error: ;
+    result.errorMessage = `Connection error: ${err?.message || 'Network failure'}`;
   }
 
   return result;
