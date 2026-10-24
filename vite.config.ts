@@ -27,6 +27,8 @@ import publicAmbient from './backend/ambient';
 import media from './backend/media';
 import verifyFlutterwave from './backend/payments/verify';
 import flwWebhook from './backend/payments/webhook';
+import createVirtualAccount from './backend/payments/create-virtual-account';
+import checkTransferStatus from './backend/payments/check-transfer-status';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +88,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/ambient$/, publicAmbient],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
+  [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
+  [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

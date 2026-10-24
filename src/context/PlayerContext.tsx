@@ -1107,27 +1107,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const chapterTitle = `${currentChapter.name_simple} (${currentChapter.name_arabic})${ayahText}`;
     const reciterName = currentReciter.name + (currentReciter.nameArabic ? ` (${currentReciter.nameArabic})` : '');
 
-    const artwork: MediaImage[] = [];
+        const artwork: MediaImage[] = [];
     if (currentReciter.imageUrl) {
       const fullImageUrl = currentReciter.imageUrl.startsWith('http')
         ? currentReciter.imageUrl
         : `${window.location.origin}${currentReciter.imageUrl}`;
-      artwork.push({
-        src: fullImageUrl,
-        sizes: '512x512',
-        type: 'image/jpeg',
-      });
+      artwork.push(
+        { src: fullImageUrl, sizes: '96x96', type: 'image/jpeg' },
+        { src: fullImageUrl, sizes: '256x256', type: 'image/jpeg' },
+        { src: fullImageUrl, sizes: '512x512', type: 'image/jpeg' }
+      );
     }
-    artwork.push({
-      src: `${window.location.origin}/pwa-512x512.png`,
-      sizes: '512x512',
-      type: 'image/png',
-    });
-    artwork.push({
-      src: `${window.location.origin}/pwa-192x192.png`,
-      sizes: '192x192',
-      type: 'image/png',
-    });
+    artwork.push(
+      { src: `${window.location.origin}/pwa-192x192.png`, sizes: '96x96', type: 'image/png' },
+      { src: `${window.location.origin}/pwa-192x192.png`, sizes: '256x256', type: 'image/png' },
+      { src: `${window.location.origin}/pwa-512x512.png`, sizes: '512x512', type: 'image/png' }
+    );
 
     try {
       navigator.mediaSession.metadata = new MediaMetadata({

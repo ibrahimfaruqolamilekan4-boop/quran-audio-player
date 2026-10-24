@@ -522,9 +522,6 @@ function getVideoPoster(url: string | null | undefined): string {
     window.addEventListener('click', unblock, { once: true, passive: true });
     window.addEventListener('keydown', unblock, { once: true, passive: true });
     window.addEventListener('scroll', unblock, { once: true, passive: true });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') unblock();
-    });
     return () => {
       window.removeEventListener('touchstart', unblock);
       window.removeEventListener('pointerdown', unblock);

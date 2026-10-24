@@ -1,40 +1,140 @@
 @import "tailwindcss";
+@import "./styles/design-tokens.css";
 
 @theme {
-  --font-sans: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: 'Cinzel', 'Cinzel Decorative', Georgia, Cambria, "Times New Roman", Times, serif;
-  --font-arabic: 'Amiri Quran', 'Amiri', serif;
+  --font-sans: 'Manrope', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: 'Fraunces', Georgia, serif;
+  --font-arabic: 'Amiri Quran', 'Scheherazade New', 'Noto Naskh Arabic', serif;
+  --font-arabic-ui: 'Noto Naskh Arabic', 'Amiri', serif;
+
+  --color-medina-bg: var(--bg-primary);
+  --color-medina-surface: var(--bg-surface);
+  --color-medina-surface-raised: var(--bg-surface-raised);
+  --color-medina-border: var(--border-color);
+  --color-medina-emerald: var(--primary-emerald);
+  --color-medina-emerald-hover: var(--primary-hover);
+  --color-medina-emerald-pressed: var(--primary-pressed);
+  --color-medina-gold: var(--accent-gold);
+  --color-medina-gold-hover: var(--accent-gold-hover);
+  --color-medina-text: var(--text-primary);
+  --color-medina-muted: var(--text-muted);
+  --color-medina-error: var(--status-error);
+  --color-medina-success: var(--status-success);
 }
 
 @layer base {
-  body {
-    @apply bg-[#020612] text-slate-200 antialiased selection:bg-teal-500/30 selection:text-teal-200;
+  html, body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
     font-family: var(--font-sans);
     letter-spacing: -0.01em;
+    min-height: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  h1, h2, h3, .font-serif {
+  h1, h2, h3, .font-heading {
     font-family: var(--font-serif);
-    letter-spacing: 0.02em;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .font-quran {
+    font-family: var(--font-arabic);
+    line-height: var(--font-size-quran-lh, 2.1);
+    font-size: var(--font-size-quran, 30px);
+  }
+
+  .font-arabic-ui {
+    font-family: var(--font-arabic-ui);
   }
 }
 
+/* Scrollbars */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: #334155; }
+::-webkit-scrollbar-thumb { background: rgba(31, 138, 106, 0.25); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(31, 138, 106, 0.45); }
 
+/* Range sliders */
 input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
 input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%;
-  background: currentColor; cursor: pointer; margin-top: -4px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.5); transition: transform 0.1s ease;
+  -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%;
+  background: var(--primary-emerald); cursor: pointer; margin-top: -5px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.4); transition: transform 0.15s ease;
 }
 input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 input[type=range]::-webkit-slider-runnable-track {
-  width: 100%; height: 4px; cursor: pointer; background: #1e293b; border-radius: 9999px;
+  width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.12); border-radius: 9999px;
 }
 
+/* Smooth micro-animations */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Tap targets */
+.tap-target-min {
+  min-height: var(--min-tap-target, 44px);
+  min-width: var(--min-tap-target, 44px);
+}
+
+/* Card standards */
+.medina-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card, 20px);
+  transition: transform 250ms ease-out, border-color 250ms ease-out, box-shadow 250ms ease-out;
+}
+.medina-card:hover {
+  border-color: rgba(31, 138, 106, 0.3);
+}
+
+/* Primary buttons */
+.medina-btn-primary {
+  background-color: var(--primary-emerald);
+  color: #FFFFFF;
+  border-radius: var(--radius-button, 14px);
+  min-height: 44px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 20px;
+  transition: background-color 200ms ease-out, transform 150ms ease-out;
+}
+.medina-btn-primary:hover {
+  background-color: var(--primary-hover);
+}
+.medina-btn-primary:active {
+  background-color: var(--primary-pressed);
+  transform: scale(0.98);
+}
+
+/* Accent gold button (strict reservation: main play button, active indicators) */
+.medina-btn-play {
+  background: var(--accent-gold);
+  color: #06150F;
+  border-radius: 9999px;
+  transition: background-color 200ms ease-out, transform 200ms ease-out, box-shadow 200ms ease-out;
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.35);
+}
+.medina-btn-play:hover {
+  background: var(--accent-gold-hover);
+  transform: scale(1.05);
+  box-shadow: 0 0 28px rgba(212, 175, 55, 0.5);
+}
+.medina-btn-play:active {
+  transform: scale(0.95);
+}
+
+/* Ambient animations */
 .animate-rain { animation: rainDrop 0.8s linear infinite; }
 .animate-wind { animation: windBlow 1.5s linear infinite; }
 .animate-wave { animation: gentleWave 8s ease-in-out infinite; }
