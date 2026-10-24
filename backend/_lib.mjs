@@ -1,4 +1,4 @@
-// Shared helpers for the /api endpoints.
+﻿// Shared helpers for the /api endpoints.
 //
 // Everything in backend/ is bundled by scripts/build-function.mjs (esbuild)
 // into the single catch-all function at api/[...slug].mjs, which is the only
@@ -880,6 +880,10 @@ export function createSessionToken(userOrUid) {
 }
 
 export function readSessionToken(req) {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
   const cookieHeader = req.headers.cookie || '';
   for (const part of cookieHeader.split(';')) {
     const [name, ...rest] = part.trim().split('=');
@@ -945,17 +949,13 @@ export async function getAuthUser(req) {
         } catch {}
       }
 
-      // Legacy session token with only { uid, exp } created before Neon hit quota:
-      // Return the master admin user so the signed-in owner is never locked out of Admin / Settings
-      const defaultAdmin = serverStore.users?.find(u => u.role === 'admin') || fallbackUsers[0];
-      return mapUser(defaultAdmin);
+      // Legacy session token with only { uid, exp }:
+      if (serverStore.users) {
+        const matching = serverStore.users.find(u => u.uid === payload.uid);
+        if (matching) return mapUser(matching);
+      }
+      return null;
     }
-  }
-
-  // When Neon is unconfigured or in fallback mode, provide default admin user so Admin Console works seamlessly
-  if (isNeonFallbackActive()) {
-    const defaultAdmin = serverStore.users?.find(u => u.role === 'admin') || fallbackUsers[0];
-    return mapUser(defaultAdmin);
   }
 
   return null;
@@ -1027,9 +1027,8 @@ export async function requireAuth(req, res) {
 export async function requireAdmin(req, res) {
   const user = await getAuthUser(req);
   if (!user) {
-    // Allow fallback admin when Neon is in quota fallback
-    const defaultAdmin = serverStore.users?.find(u => u.role === 'admin') || fallbackUsers[0];
-    return mapUser(defaultAdmin);
+    sendJson(res, 401, { error: 'Authentication required' });
+    return null;
   }
   const isAdm = user.role === 'admin' || (user.email && user.email.toLowerCase() === adminEmail());
   if (!isAdm) {

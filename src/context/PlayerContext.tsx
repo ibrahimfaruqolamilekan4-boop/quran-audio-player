@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS } from '../lib/constants';
@@ -289,6 +289,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Sync playback state with window so service worker updates never interrupt recitation
+  useEffect(() => {
+    (window as any).__quranAudioPlaying = isPlaying;
+    if (!isPlaying) {
+      window.dispatchEvent(new CustomEvent('quran-audio-paused'));
+    }
+  }, [isPlaying]);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
