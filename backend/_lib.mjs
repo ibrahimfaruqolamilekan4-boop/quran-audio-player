@@ -1,4 +1,4 @@
-// Shared helpers for the /api endpoints.
+﻿// Shared helpers for the /api endpoints.
 //
 // Everything in backend/ is bundled by scripts/build-function.mjs (esbuild)
 // into the single catch-all function at api/[...slug].mjs, which is the only
@@ -61,6 +61,10 @@ const fallbackUsers = [
     display_name: 'Ibrahim Faruq (Admin)',
     photo_url: null,
     role: 'admin',
+    is_premium: true,
+    subscription_plan: 'lifetime',
+    flw_transaction_id: 'flw_admin_permanent',
+    premium_expires_at: null,
     created_at: '2026-03-01T12:00:00Z',
     last_login_at: '2026-10-10T08:00:00Z',
   },
@@ -810,12 +814,18 @@ export async function q(text, params = []) {
 }
 
 export function mapUser(row) {
+  const isExpired = row.premium_expires_at && new Date(row.premium_expires_at).getTime() < Date.now();
+  const isPremium = Boolean((row.is_premium || row.role === "admin" || row.subscription_plan === "lifetime") && !isExpired);
   return {
     uid: row.uid,
     email: row.email,
     displayName: row.display_name ?? row.displayName ?? null,
     photoURL: row.photo_url ?? row.photoURL ?? null,
     role: row.role,
+    is_premium: isPremium,
+    subscription_plan: row.subscription_plan ?? (row.role === "admin" ? "lifetime" : "free"),
+    flw_transaction_id: row.flw_transaction_id ?? null,
+    premium_expires_at: row.premium_expires_at ?? null,
   };
 }
 
@@ -1060,7 +1070,7 @@ export function cleanImageUrl(value) {
 /**
  * Run each query in order until one succeeds. Used for columns that are added by a
  * migration which may not have been applied to the database yet: Postgres reports
- * 42703 (undefined_column) for those, and the next variant — which omits the column —
+ * 42703 (undefined_column) for those, and the next variant â€” which omits the column â€”
  * is used instead. Without this, a pending migration would break reciter sync.
  */
 export async function qWithFallback(queries) {

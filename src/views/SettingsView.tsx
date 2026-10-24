@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
@@ -35,6 +35,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { ReciterAvatar } from '../components/ReciterAvatar';
+import { DownloadManager } from '../components/DownloadManager';
 import { resizeImageToDataUrl, uploadMediaToServer, mediaStore } from '../lib/upload';
 import {
   uploadRecitation,
@@ -356,7 +357,7 @@ export function SettingsView() {
         await localforage.setItem('customReciters', updated);
       }
 
-      // 2. Global server sync — persist to /api/media and /api/admin/reciters so phones, tablets, and all users get this portrait!
+      // 2. Global server sync â€” persist to /api/media and /api/admin/reciters so phones, tablets, and all users get this portrait!
       let permanentUrl = dataUrl;
       try {
         const hostedUrl = await uploadMediaToServer(dataUrl, {
@@ -922,6 +923,11 @@ export function SettingsView() {
           </div>
         </section>
 
+        {/* Offline Surahs & Storage Manager */}
+        <section>
+          <DownloadManager />
+        </section>
+
         {/* ============================================================ */}
         {/* ADMIN CONTROL: RECITERS, PHONE PHOTOS, BIOS & 114 SURAHS */}
         {/* ============================================================ */}
@@ -956,7 +962,7 @@ export function SettingsView() {
                       </div>
                       <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
                         <span>{managingReciter.category || 'General'}</span>
-                        <span>•</span>
+                        <span>â€¢</span>
                         <span className="text-teal-400 font-semibold">
                           {reciterSurahMap.size} of 114 Surahs uploaded from phone
                         </span>
@@ -1054,7 +1060,7 @@ export function SettingsView() {
                               </span>
                             </div>
                             <span className="text-[11px] text-slate-400">
-                              {surah.verses_count} verses • {surah.translated_name?.name || 'Surah'}
+                              {surah.verses_count} verses â€¢ {surah.translated_name?.name || 'Surah'}
                             </span>
                           </div>
                         </div>
@@ -1137,7 +1143,7 @@ export function SettingsView() {
                       Reciters & Sheikhs Directory ({allReciters.length})
                     </h2>
                     <p className="text-slate-400 text-sm mt-1">
-                      Upload portraits directly from your phone's photo library, edit bios, or click “Upload Surahs” to attach downloaded MP3 files for all 114 surahs.
+                      Upload portraits directly from your phone's photo library, edit bios, or click â€œUpload Surahsâ€ to attach downloaded MP3 files for all 114 surahs.
                     </p>
                   </div>
 
@@ -1285,7 +1291,7 @@ export function SettingsView() {
                               </div>
                             ) : (
                               <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                                {reciter.bio || <span className="text-slate-600 italic">No biography added yet. Click “Edit Bio” to add one.</span>}
+                                {reciter.bio || <span className="text-slate-600 italic">No biography added yet. Click â€œEdit Bioâ€ to add one.</span>}
                               </p>
                             )}
                           </div>
@@ -1424,7 +1430,7 @@ export function SettingsView() {
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. الشيخ بلال الدربالي"
+                      placeholder="e.g. Ø§Ù„Ø´ÙŠØ® Ø¨Ù„Ø§Ù„ Ø§Ù„Ø¯Ø±Ø¨Ø§Ù„ÙŠ"
                       dir="rtl"
                       value={newReciterArabicName}
                       onChange={e => setNewReciterArabicName(e.target.value)}
@@ -1999,7 +2005,7 @@ export function SettingsView() {
                                 : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:border-teal-500/50'
                             }`}
                           >
-                            {isActive ? '✓ Active on All Devices' : 'Set for All Devices & Phone'}
+                            {isActive ? 'âœ“ Active on All Devices' : 'Set for All Devices & Phone'}
                           </button>
                           {vid.isDefault && (
                             <span className="text-[9px] text-amber-400 uppercase font-semibold">Global Default</span>
@@ -2018,10 +2024,10 @@ export function SettingsView() {
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { name: 'Night Cosmos', url: '/videos/cosmos.mp4', icon: '🌌' },
-                    { name: 'Ocean Waves', url: '/videos/ocean.mp4', icon: '🌊' },
-                    { name: 'Gentle Rain', url: '/videos/rain.mp4', icon: '🌧️' },
-                    { name: 'Sacred Nature', url: '/videos/nature.mp4', icon: '🌿' },
+                    { name: 'Night Cosmos', url: '/videos/cosmos.mp4', icon: 'ðŸŒŒ' },
+                    { name: 'Ocean Waves', url: '/videos/ocean.mp4', icon: 'ðŸŒŠ' },
+                    { name: 'Gentle Rain', url: '/videos/rain.mp4', icon: 'ðŸŒ§ï¸' },
+                    { name: 'Sacred Nature', url: '/videos/nature.mp4', icon: 'ðŸŒ¿' },
                   ].map(p => {
                     const isCurActive = activeBackgroundVideoId === p.url;
                     return (
@@ -2044,7 +2050,7 @@ export function SettingsView() {
                               : 'bg-slate-900 text-teal-300 border-teal-500/30 hover:bg-teal-500/20'
                           }`}
                         >
-                          {isCurActive ? '✓ Broadcasting' : 'Broadcast to All'}
+                          {isCurActive ? 'âœ“ Broadcasting' : 'Broadcast to All'}
                         </button>
                       </div>
                     );

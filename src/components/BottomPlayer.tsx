@@ -35,7 +35,7 @@ export function BottomPlayer() {
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="fixed bottom-[58px] md:bottom-0 left-0 right-0 md:ml-72 h-20 md:h-28 bg-[#0A0C10]/95 backdrop-blur-3xl border-t border-white/10 z-40">
+    <div className="fixed bottom-[calc(60px+env(safe-area-inset-bottom,0px))] md:bottom-0 left-0 right-0 md:ml-72 h-20 md:h-28 bg-[#0A0C10]/95 backdrop-blur-3xl border-t border-white/10 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
 
       {/* Always Visible Progress Bar */}
       <div className="absolute top-0 left-0 w-full -mt-2 group">

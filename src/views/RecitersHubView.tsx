@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { usePlayer } from '../context/PlayerContext';
 import { ReciterAvatar } from '../components/ReciterAvatar';
-import { Check, Search, MapPin, Play, Pause, X, Radio, ImageOff, ExternalLink, ShieldCheck, Sparkles, BookOpen } from 'lucide-react';
+import { Check, Search, MapPin, Play, Pause, X, Radio, ImageOff, ExternalLink, ShieldCheck, Sparkles, BookOpen, WifiOff, CheckCircle2 } from 'lucide-react';
+import { SurahDownloadButton } from '../components/SurahDownloadButton';
+import { isSurahDownloaded } from '../lib/offlineManager';
 import type { Reciter } from '../types';
 
 const SECTION_ORDER = [
@@ -27,6 +29,41 @@ export function RecitersHubView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSection, setSelectedSection] = useState<string>('All');
   const [selectedReciter, setSelectedReciter] = useState<string | null>(null);
+  const [downloadedMap, setDownloadedMap] = useState<Record<number, boolean>>({});
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedReciter) return;
+    let cancelled = false;
+    async function check() {
+      const map: Record<number, boolean> = {};
+      for (const ch of chapters) {
+        if (cancelled) return;
+        const dl = await isSurahDownloaded(ch.id, selectedReciter!);
+        if (dl) map[ch.id] = true;
+      }
+      if (!cancelled) setDownloadedMap(map);
+    }
+    void check();
+    const handleChanged = () => { void check(); };
+    window.addEventListener('quran-downloads-changed', handleChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('quran-downloads-changed', handleChanged);
+    };
+  }, [selectedReciter, chapters]);
 
   const query = searchQuery.trim().toLowerCase();
 
@@ -222,34 +259,61 @@ export function RecitersHubView() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {chapters.map(chapter => {
               const playingThis = active && currentChapter?.id === chapter.id;
+              const isDl = Boolean(downloadedMap[chapter.id]);
+              const isUnavail = !isOnline && !isDl;
+
               return (
                 <div
                   key={chapter.id}
                   onClick={() => {
+                    if (isUnavail) {
+                      setOfflineNotice(`Surah ${chapter.name_simple} is not downloaded for ${reciter.name}. Connect to internet to stream.`);
+                      setTimeout(() => setOfflineNotice(null), 4000);
+                      return;
+                    }
                     playChapter(chapter, reciter);
                     if (!active) setReciter(reciter);
                   }}
-                  className={`group flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer ${
-                    playingThis
-                      ? 'bg-teal-500/15 border-teal-500/50 text-teal-300 shadow-md'
-                      : 'bg-[#0F172A]/40 border-slate-800/50 hover:bg-[#1E293B]/60 hover:border-slate-700 text-slate-300'
+                  className={`group flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all ${
+                    isUnavail
+                      ? 'opacity-40 cursor-not-allowed bg-slate-900/30 border-slate-800/40'
+                      : playingThis
+                      ? 'bg-teal-500/15 border-teal-500/50 text-teal-300 shadow-md cursor-pointer'
+                      : 'bg-[#0F172A]/40 border-slate-800/50 hover:bg-[#1E293B]/60 hover:border-slate-700 text-slate-300 cursor-pointer'
                   }`}
                 >
-                  <div className="flex items-center gap-4 min-w-0">
-                    <span className="text-sm font-mono opacity-40 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs font-mono opacity-40 group-hover:opacity-100 transition-opacity">
                       {String(chapter.id).padStart(3, '0')}
                     </span>
                     <div className="flex flex-col min-w-0">
-                      <span className="font-serif text-base truncate group-hover:text-teal-400 transition-colors">
-                        {chapter.name_simple}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-serif text-sm sm:text-base truncate group-hover:text-teal-400 transition-colors">
+                          {chapter.name_simple}
+                        </span>
+                        {isDl && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-medium shrink-0">
+                            <CheckCircle2 size={10} />
+                            <span>Downloaded</span>
+                          </span>
+                        )}
+                        {isUnavail && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[9px] font-medium shrink-0">
+                            <WifiOff size={9} />
+                            <span>Offline</span>
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs text-slate-500 truncate">{chapter.translated_name.name}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-amiri text-slate-400 group-hover:text-teal-400 transition-colors" dir="rtl">
+                  <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                    <span className="text-sm font-amiri text-slate-400 group-hover:text-teal-400 transition-colors hidden sm:inline" dir="rtl">
                       {chapter.name_arabic}
                     </span>
+                    <div onClick={e => e.stopPropagation()}>
+                      <SurahDownloadButton chapter={chapter} reciter={reciter} />
+                    </div>
                     <div
                       className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 transition-opacity ${
                         playingThis ? 'opacity-100 bg-teal-500/20' : 'opacity-0 group-hover:opacity-100'
