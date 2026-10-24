@@ -180,14 +180,14 @@
       "video_url": "/api/media/media_video_1792515937804_988730",
       "description": null,
       "is_default": true,
-      "created_at": "2026-10-24T00:03:11.861Z"
+      "created_at": "2026-10-24T00:03:21.806Z"
     },
     {
       "id": "curated_stars",
       "name": "Night Sky & Cosmos",
       "video_url": "/videos/cosmos.mp4",
       "description": "Serene star-filled night sky loop",
-      "is_default": true
+      "is_default": false
     },
     {
       "id": "curated_rain",
@@ -223,5 +223,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-24T00:03:21.109Z"
+  "updated_at": "2026-10-24T00:03:21.806Z"
 }
