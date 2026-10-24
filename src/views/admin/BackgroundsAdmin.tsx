@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Video,
@@ -34,6 +34,7 @@ import {
   extractVideoPoster,
   uploadToSupabaseStorage,
   fetchActiveBackgrounds,
+  verifyVideoPlayable,
   type BackgroundRow,
 } from '../../lib/supabase';
 import { formatBytes } from '../../lib/recitations';
@@ -254,11 +255,11 @@ export function BackgroundsAdmin({
         throw new Error(`Video data not found in laptop storage for "${item.name}".`);
       }
 
-      // Generate unique cloud filename: e.g. fireplace-a8f9c2.mp4
+      // Generate unique cloud filename with timestamp and random salt
       const safeBase = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24);
-      const hash = Math.random().toString(36).substring(2, 8);
-      const videoFilename = `${safeBase}_${hash}.mp4`;
-      const posterFilename = `${safeBase}_${hash}_poster.jpg`;
+      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const videoFilename = `${safeBase}_${uniqueSuffix}.mp4`;
+      const posterFilename = `${safeBase}_${uniqueSuffix}_poster.jpg`;
 
       // Extract poster thumbnail
       let posterBlob: Blob | null = null;
@@ -268,12 +269,18 @@ export function BackgroundsAdmin({
         console.warn('Poster generation fallback:', posterErr);
       }
 
-      // Upload video to Supabase Storage
+      // Upload video to Supabase Storage with automatic retry
       const uploadedVideoUrl = await uploadToSupabaseStorage(
         videoBlob,
         `videos/${videoFilename}`,
         'video/mp4'
       );
+
+      // Verify that the uploaded video actually plays before proceeding
+      const isPlayable = await verifyVideoPlayable(uploadedVideoUrl);
+      if (!isPlayable) {
+        throw new Error(`Video uploaded but browser failed to verify playback from ${uploadedVideoUrl}. Ensure H.264 encoding.`);
+      }
 
       // Upload poster if available
       let uploadedPosterUrl: string | null = null;
@@ -373,16 +380,23 @@ export function BackgroundsAdmin({
 
       setBgProgress(50);
 
-      // Upload to Supabase Storage
+      // Upload to Supabase Storage with unique filename
       const safeName = (bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, ''))
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '_');
-      const hash = Math.random().toString(36).substring(2, 8);
-      const videoFilename = `${safeName}_${hash}.mp4`;
-      const posterFilename = `${safeName}_${hash}_poster.jpg`;
+      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const videoFilename = `${safeName}_${uniqueSuffix}.mp4`;
+      const posterFilename = `${safeName}_${uniqueSuffix}_poster.jpg`;
 
       const videoUrl = await uploadToSupabaseStorage(file, `videos/${videoFilename}`, 'video/mp4');
-      setBgProgress(80);
+      setBgProgress(75);
+
+      // Verify video actually plays before saving to catalog
+      const isPlayable = await verifyVideoPlayable(videoUrl);
+      if (!isPlayable) {
+        throw new Error('Video uploaded but browser failed to verify playback from public URL. Ensure it is encoded with H.264.');
+      }
+      setBgProgress(85);
 
       let posterUrl: string | null = null;
       if (posterBlob) {
@@ -912,11 +926,21 @@ export function BackgroundsAdmin({
           })}
         </div>
 
-        {filteredBackgrounds.length === 0 && (
-          <div className="text-center py-12 text-xs text-emerald-300/60 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl">
-            No backgrounds found in category "{activeCategory}". Upload an MP4 above to get started!
+        {cloudBackgrounds.length === 0 ? (
+          <div className="text-center py-16 px-6 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl space-y-3">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <Video size={24} />
+            </div>
+            <h3 className="text-sm font-semibold text-white">No backgrounds yet</h3>
+            <p className="text-xs text-emerald-100/60 max-w-md mx-auto">
+              No backgrounds yet, import some! Click "Migrate All to Cloud" above to transfer your laptop backgrounds, or upload an MP4 clip (720p H.264, 3â€“8 MB).
+            </p>
           </div>
-        )}
+        ) : filteredBackgrounds.length === 0 ? (
+          <div className="text-center py-12 text-xs text-emerald-300/60 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl">
+            No backgrounds found in category "{activeCategory}". Upload an MP4 above or pick another tab!
+          </div>
+        ) : null}
       </div>
 
       {/* PREVIEW VIDEO MODAL */}

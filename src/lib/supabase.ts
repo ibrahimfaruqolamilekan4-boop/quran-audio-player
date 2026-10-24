@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Supabase client & ambient backgrounds synchronization layer.
  * 
  * Manages fetching, caching, and uploading ambient backgrounds to Supabase Storage
@@ -51,11 +51,11 @@ export async function validateAmbientVideo(file: File): Promise<{
     };
   }
 
-  const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50MB hard limit
+  const MAX_SIZE_BYTES = 45 * 1024 * 1024; // 45MB strict hard limit
   if (file.size > MAX_SIZE_BYTES) {
     return {
       valid: false,
-      error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed is 50 MB.`,
+      error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed is 45 MB. Compress with 720p H.264 (target 3â€“8 MB).`,
     };
   }
 
@@ -179,49 +179,116 @@ export async function extractVideoPoster(fileOrBlob: Blob): Promise<Blob> {
  * Uploads a file directly to Supabase Storage bucket 'ambient-backgrounds'
  * or falls back to backend proxy.
  */
+/**
+ * Verifies that an uploaded video URL can actually be loaded and played by the browser.
+ */
+export async function verifyVideoPlayable(url: string, timeoutMs = 8000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    (video as any).playsInline = true;
+    let resolved = false;
+
+    const cleanup = () => {
+      video.removeAttribute('src');
+      video.load();
+    };
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve(false);
+      }
+    }, timeoutMs);
+
+    video.onloadeddata = () => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        cleanup();
+        resolve(true);
+      }
+    };
+
+    video.onerror = () => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        cleanup();
+        resolve(false);
+      }
+    };
+
+    video.src = url;
+    video.load();
+  });
+}
+
+/**
+ * Uploads a file directly to Supabase Storage bucket 'ambient-backgrounds'
+ * Sets Cache-Control to 31536000 (1 year immutable) and performs up to 3 automatic retries.
+ */
 export async function uploadToSupabaseStorage(
   fileOrBlob: Blob,
   path: string,
-  contentType: string
+  contentType: string,
+  maxRetries = 3
 ): Promise<string> {
   const cleanPath = path.replace(/^\/+/, '');
+  let lastError: Error | null = null;
 
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    const uploadUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
-    const res = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        apikey: SUPABASE_ANON_KEY,
-        'Content-Type': contentType,
-        'x-upsert': 'true',
-      },
-      body: fileOrBlob,
-    });
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+        const uploadUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
+        const res = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            apikey: SUPABASE_ANON_KEY,
+            'Content-Type': contentType,
+            'x-upsert': 'true',
+            'cache-control': 'max-age=31536000',
+          },
+          body: fileOrBlob,
+        });
 
-    if (res.ok) {
-      return `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
+        if (res.ok) {
+          return `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
+        }
+      }
+
+      // Fallback to backend media API
+      const formData = new FormData();
+      formData.append('file', fileOrBlob, cleanPath);
+      formData.append('bucket', STORAGE_BUCKET);
+      formData.append('path', cleanPath);
+
+      const res = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const finalUrl = data.publicUrl || data.url;
+        if (finalUrl) return finalUrl;
+      }
+
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Upload failed (attempt ${attempt}/${maxRetries}): ${errText || res.statusText}`);
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        // Exponential backoff: 800ms, 1600ms
+        await new Promise((r) => setTimeout(r, attempt * 800));
+      }
     }
   }
 
-  // Fallback to backend media API
-  const formData = new FormData();
-  formData.append('file', fileOrBlob, cleanPath);
-  formData.append('bucket', STORAGE_BUCKET);
-  formData.append('path', cleanPath);
-
-  const res = await fetch('/api/admin/supabase-backgrounds', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Upload failed: ${errText || res.statusText}`);
-  }
-
-  const data = await res.json();
-  return data.publicUrl || data.url;
+  throw lastError || new Error(`Upload failed after ${maxRetries} attempts.`);
 }
 
 /**

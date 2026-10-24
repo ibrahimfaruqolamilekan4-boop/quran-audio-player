@@ -1,5 +1,5 @@
-import { CloudRain, Flame, Waves, Bird, Wind, CloudLightning, Trees, Droplets, AudioWaveform, Zap, Train, Cat, VolumeX } from 'lucide-react';
-import { AmbientTrack, Reciter, AmbientPreset } from '../types';
+﻿import { CloudRain, Flame, Waves, Bird, Wind, CloudLightning, Trees, Droplets, AudioWaveform, Zap, Train, Cat, VolumeX } from 'lucide-react';
+import { AmbientTrack, Reciter } from '../types';
 
 export const AMBIENT_TRACKS: AmbientTrack[] = [
   { id: 'rain', name: 'Rain', url: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg', icon: CloudRain },
@@ -18,84 +18,7 @@ export const AMBIENT_TRACKS: AmbientTrack[] = [
 ];
 
 
-export const AMBIENT_PRESETS: AmbientPreset[] = [
-  {
-    id: 'night-prayer',
-    name: 'Night Prayer',
-    nameArabic: 'قيام الليل',
-    description: 'Gentle midnight crickets and calm starry sky for tahajjud',
-    soundId: 'crickets',
-    audioUrl: 'https://actions.google.com/sounds/v1/animals/crickets_and_night_insects.ogg',
 
-    defaultVolume: 0.35,
-  },
-  {
-    id: 'rain-dua',
-    name: 'Rain Dua',
-    nameArabic: 'دعاء المطر',
-    description: 'Peaceful raindrops on the sanctuary roof during moments of supplication',
-    soundId: 'rain',
-    audioUrl: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg',
-
-    defaultVolume: 0.4,
-  },
-  {
-    id: 'ocean-calm',
-    name: 'Ocean Calm',
-    nameArabic: 'سكينة البحر',
-    description: 'Rhythmic, gentle waves rolling onto shore for deep meditation',
-    soundId: 'waves',
-    audioUrl: 'https://actions.google.com/sounds/v1/water/waves_crashing_on_rock_beach.ogg',
-
-    defaultVolume: 0.35,
-  },
-  {
-    id: 'morning-light',
-    name: 'Morning Light',
-    nameArabic: 'إشراق الصباح',
-    description: 'Crisp dawn birdsong and morning forest breeze for fajr reflection',
-    soundId: 'birds',
-    audioUrl: 'https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg',
-
-    defaultVolume: 0.3,
-  },
-  {
-    id: 'forest-dhikr',
-    name: 'Forest Dhikr',
-    nameArabic: 'ذكر الطبيعة',
-    description: 'Gentle flowing river and rustling canopy for continuous remembrance',
-    soundId: 'river',
-    audioUrl: 'https://actions.google.com/sounds/v1/water/river_stream.ogg',
-
-    defaultVolume: 0.35,
-  },
-  {
-    id: 'cosmos',
-    name: 'Cosmos',
-    nameArabic: 'آفاق الكون',
-    description: 'Transcendent celestial vistas contemplating the majesty of creation',
-    soundId: 'fire',
-    audioUrl: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg',
-
-    defaultVolume: 0.25,
-  },
-];
-
-export const SOUNDSCAPE_VIDEOS: Record<string, string> = {
-
-
-
-
-
-
-
-
-
-
-
-
-
-};
 
 const commons = (file: string) => `https://commons.wikimedia.org/wiki/File:${file}`;
 

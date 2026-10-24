@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import { usePlayer } from '../context/PlayerContext';
@@ -38,6 +38,21 @@ interface Particle {
  * Update colors here to see them in real-time!
  */
 export const THEME_LIBRARY: Record<string, ThemeConfig> = {
+  'medina-emerald': {
+    name: 'Medina Emerald',
+    colors: {
+      primary: '#1F8A6A',      // Medina Emerald
+      secondary: '#11382B',    // Surface Raised
+      background: '#06150F',   // Deep Emerald Night
+      accent: '#D4AF37',       // Medina Gold
+      muted: '#0C2A20',        // Surface Dark
+    },
+    patterns: {
+      primaryColor: '#1F8A6A',
+      secondaryColor: '#D4AF37',
+      opacity: 0.65,
+    },
+  },
   'midnight-scholar': {
     name: 'Midnight Scholar',
     colors: {
@@ -369,10 +384,10 @@ interface QuranicPremiumBackgroundProps {
 }
 
 export function QuranicPremiumBackground({ 
-  themeName = 'midnight-scholar',
+  themeName = 'medina-emerald',
   ambientVolume = 0.6,
 }: QuranicPremiumBackgroundProps) {
-  const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['midnight-scholar'];
+  const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['medina-emerald'];
   const { activeBackgroundVideoId, customVideos } = usePlayer();
 
   // Initial video loop: default to Cosmos star loop immediately to eliminate any blank frame
