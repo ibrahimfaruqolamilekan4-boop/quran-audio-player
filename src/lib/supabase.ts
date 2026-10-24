@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Supabase client & ambient backgrounds synchronization layer.
  * 
  * Manages fetching, caching, and uploading ambient backgrounds to Supabase Storage
@@ -341,4 +341,78 @@ export async function fetchActiveBackgrounds(forceRefresh = false): Promise<Back
   }
 
   return cachedBackgrounds || [];
+}
+
+export interface SupabaseDiagnosticResult {
+  urlConfigured: boolean;
+  anonKeyConfigured: boolean;
+  tableReachable: boolean;
+  tableCount: number;
+  bucketReachable: boolean;
+  bucketPublic: boolean;
+  errorMessage?: string;
+}
+
+/**
+ * Runs a live connection diagnostic against Supabase.
+ * Checks URL, Anon Key, table access to 'backgrounds', and bucket access.
+ */
+export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult> {
+  const result: SupabaseDiagnosticResult = {
+    urlConfigured: Boolean(SUPABASE_URL),
+    anonKeyConfigured: Boolean(SUPABASE_ANON_KEY),
+    tableReachable: false,
+    tableCount: 0,
+    bucketReachable: false,
+    bucketPublic: false,
+  };
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    result.errorMessage = 'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY environment variables.';
+    return result;
+  }
+
+  try {
+    const cleanUrl = SUPABASE_URL.replace(/\/+$/, '');
+    const res = await fetch(`${cleanUrl}/rest/v1/backgrounds?select=id&limit=1`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    });
+
+    if (res.status === 200) {
+      result.tableReachable = true;
+      const data = await res.json();
+      result.tableCount = Array.isArray(data) ? data.length : 0;
+    } else if (res.status === 401) {
+      result.errorMessage = 'HTTP 401 Unauthorized: Invalid Anon Key.';
+      return result;
+    } else if (res.status === 404 || res.status === 400) {
+      result.errorMessage = `HTTP ${res.status}: Table 'backgrounds' not found. Apply schema.sql in Supabase SQL editor.`;
+      return result;
+    } else {
+      result.errorMessage = `HTTP ${res.status} returned from Supabase REST API.`;
+      return result;
+    }
+
+    // Check bucket
+    try {
+      const bRes = await fetch(`${cleanUrl}/storage/v1/bucket/${STORAGE_BUCKET}`, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
+      if (bRes.status === 200) {
+        const bData = await bRes.json();
+        result.bucketReachable = true;
+        result.bucketPublic = Boolean(bData.public);
+      }
+    } catch {}
+  } catch (err: any) {
+    result.errorMessage = `Connection error: ${err?.message || 'Network failure'}`;
+  }
+
+  return result;
 }

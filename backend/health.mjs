@@ -1,4 +1,4 @@
-// Production diagnostics: confirms the API functions load, which environment
+﻿// Production diagnostics: confirms the API functions load, which environment
 // variables are present (values are never exposed) and whether Neon or Cloud Store is active.
 export default async function handler(_req, res) {
   res.statusCode = 200;
@@ -9,6 +9,10 @@ export default async function handler(_req, res) {
     functionRuntime: 'node',
     databaseUrl: Boolean(process.env.DATABASE_URL),
     authSecret: Boolean(process.env.AUTH_SECRET),
+    supabaseUrl: Boolean(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
+    supabaseAnonKey: Boolean(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY),
+    supabaseServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    flwConfigured: Boolean(process.env.FLW_SECRET_KEY),
     timestamp: new Date().toISOString(),
   };
 

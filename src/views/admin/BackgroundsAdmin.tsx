@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Video,
@@ -35,7 +35,9 @@ import {
   uploadToSupabaseStorage,
   fetchActiveBackgrounds,
   verifyVideoPlayable,
+  testSupabaseConnection,
   type BackgroundRow,
+  type SupabaseDiagnosticResult,
 } from '../../lib/supabase';
 import { formatBytes } from '../../lib/recitations';
 import { appApi } from '../../lib/api';
@@ -554,19 +556,78 @@ export function BackgroundsAdmin({
             including iPhone, iPad, Android PWAs, and desktop browsers with battery-saving background decoupling.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            loadCloudCatalog();
-            scanLaptopBackgrounds();
-          }}
-          disabled={loadingCloud || scanningLocal}
-          className="px-4 py-2 rounded-xl bg-emerald-900/30 border border-emerald-700/40 text-xs font-semibold text-emerald-200 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
-        >
-          <RefreshCw size={14} className={loadingCloud || scanningLocal ? 'animate-spin' : ''} />
-          <span>Refresh Catalog</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={testingConn}
+            className="px-4 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <Sparkles size={14} className={testingConn ? 'animate-spin' : ''} />
+            <span>{testingConn ? 'Testing...' : 'Test Connection'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              loadCloudCatalog();
+              scanLaptopBackgrounds();
+            }}
+            disabled={loadingCloud || scanningLocal}
+            className="px-4 py-2 rounded-xl bg-emerald-900/30 border border-emerald-700/40 text-xs font-semibold text-emerald-200 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <RefreshCw size={14} className={loadingCloud || scanningLocal ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
+
+      {/* DIAGNOSTIC MODAL / BANNER */}
+      {diagResult && (
+        <div className="p-4 rounded-2xl bg-[#0C2A20] border border-emerald-500/40 text-xs text-white space-y-2 relative shadow-2xl">
+          <button
+            type="button"
+            onClick={() => setDiagResult(null)}
+            className="absolute top-3 right-3 text-slate-400 hover:text-white"
+          >
+            <X size={16} />
+          </button>
+          <div className="font-bold text-sm text-emerald-300 flex items-center gap-2">
+            <Sparkles size={16} />
+            Supabase Connection Diagnostic Results
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+            <div className="flex items-center gap-2">
+              <span className={diagResult.urlConfigured ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {diagResult.urlConfigured ? '[PASS]' : '[FAIL]'}
+              </span>
+              <span>URL: {diagResult.urlConfigured ? 'Configured' : 'Missing VITE_SUPABASE_URL'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={diagResult.anonKeyConfigured ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {diagResult.anonKeyConfigured ? '[PASS]' : '[FAIL]'}
+              </span>
+              <span>Anon Key: {diagResult.anonKeyConfigured ? 'Configured' : 'Missing VITE_SUPABASE_ANON_KEY'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={diagResult.tableReachable ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {diagResult.tableReachable ? '[PASS]' : '[FAIL]'}
+              </span>
+              <span>Table 'backgrounds': {diagResult.tableReachable ? 'Reachable (' + diagResult.tableCount + ' rows)' : 'Unreachable / Not created'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={diagResult.bucketReachable ? (diagResult.bucketPublic ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold') : 'text-slate-400'}>
+                {diagResult.bucketReachable ? (diagResult.bucketPublic ? '[PASS]' : '[WARN]') : '[INFO]'}
+              </span>
+              <span>Bucket 'ambient-backgrounds': {diagResult.bucketReachable ? (diagResult.bucketPublic ? 'Public & Active' : 'Private (Should be Public)') : 'Not probed or restricted'}</span>
+            </div>
+          </div>
+          {diagResult.errorMessage && (
+            <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs mt-2">
+              <strong>Error:</strong> {diagResult.errorMessage}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* SECTION 1: LAPTOP LOCAL BACKGROUNDS DETECTED (MIGRATION TOOL) */}
       <div className="bg-gradient-to-br from-amber-950/30 via-emerald-950/20 to-black/40 border border-amber-600/30 rounded-3xl p-6 shadow-xl">
