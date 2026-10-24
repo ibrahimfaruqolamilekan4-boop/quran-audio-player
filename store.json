@@ -179,8 +179,8 @@
       "name": "12693832-uhd_3840_2160_25fps",
       "video_url": "/api/media/media_video_1792515937804_988730",
       "description": null,
-      "is_default": false,
-      "created_at": "2026-10-24T00:03:21.806Z"
+      "is_default": true,
+      "created_at": "2026-10-24T00:03:32.933Z"
     },
     {
       "id": "curated_stars",
@@ -223,5 +223,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-24T00:03:32.238Z"
+  "updated_at": "2026-10-24T00:03:32.933Z"
 }
