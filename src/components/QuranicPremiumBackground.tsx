@@ -457,12 +457,20 @@ export function QuranicPremiumBackground({
     }
   }, [videoUrl]);
 
+function getVideoPoster(url: string | null | undefined): string {
+  if (!url) return '/videos/cosmos-poster.jpg';
+  const lower = url.toLowerCase();
+  if (lower.includes('nature')) return '/videos/nature-poster.jpg';
+  if (lower.includes('ocean')) return '/videos/ocean-poster.jpg';
+  if (lower.includes('rain')) return '/videos/rain-poster.jpg';
+  return '/videos/cosmos-poster.jpg';
+}
+
   // Start playback safely on video elements whenever sources are ready (iOS Safari, iPadOS, Android)
   const playVideoSafe = (vid: HTMLVideoElement | null) => {
     if (!vid) return;
     try {
       vid.muted = true;
-      vid.defaultMuted = true;
       (vid as any).playsInline = true;
       vid.setAttribute('muted', '');
       vid.setAttribute('playsinline', '');
@@ -503,7 +511,7 @@ export function QuranicPremiumBackground({
     setVideoUrl(fallbackCloud?.videoUrl || '/videos/cosmos.mp4');
   };
 
-  // Global user interaction unblocker for mobile browser autoplay policy
+  // Global user interaction unblocker for mobile browser autoplay policy & iOS Low Power Mode
   useEffect(() => {
     const unblock = () => {
       if (videoRefA.current && slotAUrl) playVideoSafe(videoRefA.current);
@@ -513,29 +521,13 @@ export function QuranicPremiumBackground({
     window.addEventListener('pointerdown', unblock, { once: true, passive: true });
     window.addEventListener('click', unblock, { once: true, passive: true });
     window.addEventListener('keydown', unblock, { once: true, passive: true });
-
-  // Decoupled Background Video Lifecycle:
-  // Pause background <video> on page hidden to conserve battery/GPU; resume on visible.
-  // Quran recitation audio continues playing independently without interruption.
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden) {
-        if (videoRefA.current && !videoRefA.current.paused) videoRefA.current.pause();
-        if (videoRefB.current && !videoRefB.current.paused) videoRefB.current.pause();
-      } else {
-        if (videoRefA.current && slotAUrl) playVideoSafe(videoRefA.current);
-        if (videoRefB.current && slotBUrl) playVideoSafe(videoRefB.current);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [slotAUrl, slotBUrl]);
-
+    window.addEventListener('scroll', unblock, { once: true, passive: true });
     return () => {
       window.removeEventListener('touchstart', unblock);
       window.removeEventListener('pointerdown', unblock);
       window.removeEventListener('click', unblock);
       window.removeEventListener('keydown', unblock);
+      window.removeEventListener('scroll', unblock);
     };
   }, [slotAUrl, slotBUrl]);
 
@@ -567,6 +559,23 @@ export function QuranicPremiumBackground({
         }}
       />
 
+      {/* High-fidelity static poster fallback layer for instant display before video buffers & iOS Low Power Mode */}
+      <div 
+        className="fixed inset-0 pointer-events-none transition-all duration-1000 ease-in-out"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundImage: `url(${getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+          zIndex: 1,
+        }}
+      />
+
       {/*
        * Dual-Buffer Persistent Video Elements:
        * Fullscreen 100vw x 100vh canvas with object-cover - NO half-screen translations or crop offsets.
@@ -574,6 +583,7 @@ export function QuranicPremiumBackground({
       <video
         ref={videoRefA}
         src={slotAUrl || undefined}
+        poster={getVideoPoster(slotAUrl)}
         autoPlay
         loop
         muted
@@ -611,6 +621,7 @@ export function QuranicPremiumBackground({
       <video
         ref={videoRefB}
         src={slotBUrl || undefined}
+        poster={getVideoPoster(slotBUrl)}
         autoPlay
         loop
         muted

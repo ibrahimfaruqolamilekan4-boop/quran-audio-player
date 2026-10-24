@@ -79,11 +79,11 @@ const handler: Handler = async (req, res) => {
            subscription_plan = $1,
            flw_transaction_id = $2,
            premium_expires_at = $3
-         WHERE id = $4`,
+         WHERE uid = $4`,
         [plan, txRef, expiresAt, user.id]
       );
 
-      const updatedRes = await q(`SELECT * FROM users WHERE id = $1`, [user.id]);
+      const updatedRes = await q(`SELECT * FROM users WHERE uid = $1`, [user.id]);
       const updatedUser = updatedRes.rows[0] ? mapUser(updatedRes.rows[0]) : null;
 
       return sendJson(res, 200, {

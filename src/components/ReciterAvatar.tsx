@@ -21,7 +21,7 @@ export function reciterInitials(name: string): string {
 }
 
 interface ReciterAvatarProps {
-  reciter: Pick<Reciter, 'name' | 'imageUrl'>;
+  reciter: Pick<Reciter, 'name'> & { imageUrl?: string; id?: string };
   /** Size/shape utilities; must include a width+height or sit in a sized parent. */
   className?: string;
   /** Text utilities for the monogram fallback. */
@@ -31,8 +31,8 @@ interface ReciterAvatarProps {
 }
 
 /**
- * Renders a reciter's photograph and never shows a broken image: while loading,
- * or if the photo is missing or fails, a gradient monogram takes its place.
+ * Renders a reciter's photograph and never shows a broken image:
+ * tries primary imageUrl -> bundled local portrait /images/reciters/{id}.jpg -> gradient monogram fallback.
  * Fills its parent (h-full w-full) so it can never collapse to zero height.
  */
 export function ReciterAvatar({
@@ -42,15 +42,33 @@ export function ReciterAvatar({
   shape = 'rounded',
   iconSize = 24,
 }: ReciterAvatarProps) {
+  const [currentSrc, setCurrentSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  // A new photo must clear the previous failure or a good image stays hidden.
   useEffect(() => {
     setFailed(false);
-  }, [reciter.imageUrl]);
+    const raw = reciter.imageUrl?.trim()?.replace(/^https?:\/\/localhost(:\d+)?/, '');
+    if (raw) {
+      setCurrentSrc(raw);
+    } else if (reciter.id) {
+      setCurrentSrc(`/images/reciters/${reciter.id}.jpg`);
+    } else {
+      setCurrentSrc(null);
+      setFailed(true);
+    }
+  }, [reciter.imageUrl, reciter.id]);
 
-  const rawSource = reciter.imageUrl && !failed ? reciter.imageUrl.trim() : null;
-  const source = rawSource ? rawSource.replace(/^https?:\/\/localhost(:\d+)?/, '') : null;
+  const handleError = () => {
+    const bundledPath = reciter.id ? `/images/reciters/${reciter.id}.jpg` : null;
+    if (bundledPath && currentSrc !== bundledPath) {
+      // Fallback from remote failure to bundled asset
+      setCurrentSrc(bundledPath);
+    } else {
+      // Both failed or no bundled asset available -> monogram
+      setFailed(true);
+    }
+  };
+
   const initials = reciterInitials(reciter.name);
 
   return (
@@ -62,16 +80,15 @@ export function ReciterAvatar({
         className
       )}
     >
-      {source ? (
+      {currentSrc && !failed ? (
         <img
-          src={source}
+          src={currentSrc}
           alt={reciter.name}
           loading="lazy"
           decoding="async"
-          onError={() => setFailed(true)}
+          onError={handleError}
           className="absolute inset-0 block h-full w-full object-cover object-center"
         />
-
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
           {initials === '?' ? (
