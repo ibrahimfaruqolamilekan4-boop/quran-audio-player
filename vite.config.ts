@@ -1,4 +1,4 @@
-import tailwindcss from '@tailwindcss/vite';
+﻿import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ import login from './backend/auth/login';
 import logout from './backend/auth/logout';
 import me from './backend/auth/me';
 import preferences from './backend/me/preferences';
+import premiumStatus from './backend/me/premium-status';
 import reciters from './backend/me/reciters';
 import reciterById from './backend/me/reciters/[id]';
 import adminOverview from './backend/admin/overview';
@@ -71,6 +72,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/logout$/, logout],
   [/^\/api\/auth\/me$/, me],
   [/^\/api\/me\/preferences$/, preferences],
+  [/^\/api\/me\/premium-status$/, premiumStatus],
   [/^\/api\/me\/reciters$/, reciters],
   [/^\/api\/me\/reciters\/[^/]+$/, reciterById],
   [/^\/api\/admin\/overview$/, adminOverview],

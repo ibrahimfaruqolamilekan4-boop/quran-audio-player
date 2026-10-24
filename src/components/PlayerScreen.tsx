@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { useAmbientPlayer } from "../hooks/useAmbientPlayer";
 import { usePlayer } from "../context/PlayerContext";
+import { SurahDownloadButton } from "./SurahDownloadButton";
 import { Background } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 function formatTime(seconds: number) {
@@ -131,6 +132,16 @@ export const PlayerScreen: React.FC<{ backgrounds: Background[] }> = ({ backgrou
               ⏭️
             </button>
           </div>
+
+          {currentChapter && currentReciter && (
+            <div className="flex justify-center pb-2">
+              <SurahDownloadButton
+                chapter={currentChapter}
+                reciter={currentReciter}
+                showText={true}
+              />
+            </div>
+          )}
 
           {/* Volume sliders */}
           <div className="flex flex-col space-y-3">

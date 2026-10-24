@@ -1,4 +1,4 @@
-// Entry point for the /api Serverless Functions.
+﻿// Entry point for the /api Serverless Functions.
 //
 // Vercel Hobby allows at most 12 Serverless Functions per deployment. This app
 // used to ship 13 (one file per endpoint under api/) and every production
@@ -9,7 +9,7 @@
 //
 // scripts/build-function.mjs bundles this file (and everything it imports,
 // including pg) into self-contained plain-ESM functions emitted at three path
-// depths under api/ — [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
+// depths under api/ â€” [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
 // `[...slug].js` catch-all does NOT work on Vercel: it matched a single
 // segment only, so /api/auth/login 404'd at the edge. The router here
 // dispatches on the full req.url, so the depth variants are pure route
@@ -23,6 +23,7 @@ import login from './auth/login';
 import logout from './auth/logout';
 import me from './auth/me';
 import preferences from './me/preferences';
+import premiumStatus from './me/premium-status';
 import reciters from './me/reciters';
 import reciterById from './me/reciters/[id]';
 import adminOverview from './admin/overview';
@@ -41,13 +42,14 @@ import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
-// The same table vite.config.ts uses to serve /api in `vite dev` — keep in sync.
+// The same table vite.config.ts uses to serve /api in `vite dev` â€” keep in sync.
 const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/signup$/, signup],
   [/^\/api\/auth\/login$/, login],
   [/^\/api\/auth\/logout$/, logout],
   [/^\/api\/auth\/me$/, me],
   [/^\/api\/me\/preferences$/, preferences],
+  [/^\/api\/me\/premium-status$/, premiumStatus],
   [/^\/api\/me\/reciters$/, reciters],
   [/^\/api\/me\/reciters\/[^/]+$/, reciterById],
   [/^\/api\/admin\/overview$/, adminOverview],

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
 import { FullPlayerPage } from './components/FullPlayerPage';
 import { NowPlayingOverlay } from './components/NowPlayingOverlay';
 import { Sidebar } from './components/Sidebar';
+import { TopNav } from './components/TopNav';
 import { QuranicPremiumBackground, THEME_LIBRARY } from './components/QuranicPremiumBackground';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { HomeView } from './views/HomeView';
@@ -14,7 +15,6 @@ import { AdminView } from './views/AdminView';
 import { useAuth } from './context/AuthContext';
 import { HubView } from './views/HubView';
 import { SurahLibraryView } from './views/SurahLibraryView';
-import { OfflineLibraryView } from './views/OfflineLibraryView';
 import { RecitersHubView } from './views/RecitersHubView';
 import { InsightsView } from './views/InsightsView';
 import { SettingsView } from './views/SettingsView';
@@ -82,8 +82,9 @@ function DashboardLayout() {
   return (
     <div className="min-h-screen flex bg-transparent text-slate-200 font-sans selection:bg-teal-500/30">
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
+      <TopNav currentTab={currentTab} setCurrentTab={setCurrentTab} />
       
-      <main className="flex-1 md:ml-72 pb-48 md:pb-40 overflow-y-auto h-screen relative z-10 transition-all">
+      <main className="flex-1 md:ml-72 pt-[calc(60px+env(safe-area-inset-top,0px))] md:pt-16 pb-[calc(160px+env(safe-area-inset-bottom,0px))] md:pb-40 overflow-y-auto h-screen relative z-10 transition-all">
         <div className="p-4 md:p-10 md:max-w-7xl mx-auto h-full">
           <Routes>
             <Route path="/" element={<Navigate to="home" />} />
@@ -93,7 +94,7 @@ function DashboardLayout() {
             <Route path="qibla" element={<QiblaView />} />
             <Route path="hub" element={<HubView />} />
             <Route path="library" element={<SurahLibraryView />} />
-            <Route path="offline" element={<OfflineLibraryView />} />
+            <Route path="offline" element={<Navigate to="library" replace />} />
             <Route path="reciters" element={<RecitersHubView />} />
             <Route path="insights" element={<InsightsView />} />
             <Route path="settings" element={<SettingsView />} />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { SurahDownloadButton } from './SurahDownloadButton';
 import {
   AnimatePresence,
   motion,
@@ -418,6 +419,14 @@ export function NowPlayingOverlay() {
               >
                 ق
               </button>
+
+              {currentChapter && currentReciter && (
+                <SurahDownloadButton
+                  chapter={currentChapter}
+                  reciter={currentReciter}
+                  showText={false}
+                />
+              )}
 
               {/* Soundscape Mixer quick button */}
               <button
