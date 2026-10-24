@@ -80,7 +80,7 @@
       "category": "Madinah (Prophet's Mosque)",
       "bio": "Born in Medina, Saudi Arabia, son of Chief Imam Sheikh Ali Al-Hudhaify. Serves as Imam and Khateeb of Quba Mosque and has been appointed to lead prayers at the Prophet's Mosque in Medina. Recites with a disciplined, calming cadence strongly echoing the classic Medinan style.",
       "server_url": "https://server8.mp3quran.net/ahmad_huth/",
-      "image_url": "/api/media/media_image_1792449356754_dca69d80"
+      "image_url": "/api/media/media_image_1792779669761_cfb70ab5"
     },
     {
       "id": "mohna",
@@ -223,5 +223,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-24T00:12:22.246Z"
+  "updated_at": "2026-10-24T00:12:23.272Z"
 }
