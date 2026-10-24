@@ -1,4 +1,4 @@
-﻿// Shared helpers for the /api endpoints.
+// Shared helpers for the /api endpoints.
 //
 // Everything in backend/ is bundled by scripts/build-function.mjs (esbuild)
 // into the single catch-all function at api/[...slug].mjs, which is the only
@@ -127,13 +127,13 @@ function defaultStoreShape() {
   return {
     global_reciters: [],
     global_videos: [
-      { id: 'curated_stars', name: 'Night Sky & Cosmos', video_url: '/videos/cosmos.mp4', description: 'Serene star-filled night sky loop', is_default: true },
-      { id: 'curated_rain', name: 'Rain on Water', video_url: '/videos/rain.mp4', description: 'Gentle raindrops rippling on water surface', is_default: false },
-      { id: 'curated_ocean', name: 'Ocean Waves', video_url: '/videos/ocean.mp4', description: 'Gentle rolling ocean waves', is_default: false },
-      { id: 'curated_nature', name: 'Sacred Nature', video_url: '/videos/nature.mp4', description: 'Peaceful nature breeze', is_default: false },
+
+
+
+
     ],
     ambient_sounds: {
-      default: '/videos/cosmos.mp4',
+
     },
     global_media: {},
     global_media_chunks: {},
@@ -153,7 +153,7 @@ function loadStore() {
         if (!Array.isArray(data.users) || data.users.length === 0) data.users = [...fallbackUsers];
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
-        if (!data.ambient_sounds) data.ambient_sounds = { default: '/videos/cosmos.mp4' };
+        if (!data.ambient_sounds) data.ambient_sounds = {};
         return data;
       }
     }
@@ -264,7 +264,7 @@ async function persistStoreToCloud() {
       users: serverStore.users || fallbackUsers,
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
-      ambient_sounds: serverStore.ambient_sounds || { default: '/videos/cosmos.mp4' },
+      ambient_sounds: serverStore.ambient_sounds || {},
       user_preferences: serverStore.user_preferences || {},
       updated_at: new Date().toISOString(),
     };

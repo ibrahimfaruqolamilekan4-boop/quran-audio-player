@@ -1,7 +1,7 @@
-﻿import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { addListeningLog } from '../lib/storage';
-import { CURATED_RECITERS, SOUNDSCAPE_VIDEOS } from '../lib/constants';
+import { CURATED_RECITERS } from '../lib/constants';
 import { candidateUrls, extensionOf, isObjectUrl, rememberFormat } from '../lib/audio';
 import { resolveReciters, type GlobalReciterRow } from '../lib/reciters';
 import localforage from 'localforage';
@@ -167,7 +167,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const [activeBackgroundVideoId, setActiveBackgroundVideoId] = useState<string | null>(() => {
     const saved = normalizePortableMediaUrl(localStorage.getItem('activeBackgroundVideoId'));
-    return saved || '/videos/cosmos.mp4';
+    return saved || null;
   });
 
   const refreshGlobalCatalog = useCallback(async () => {
@@ -220,9 +220,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           setActiveBackgroundVideoId(prev => {
             const prevIsCustom =
               prev &&
-              prev !== '/videos/cosmos.mp4' &&
+
               !prev.startsWith('curated_');
-            if (cleanDefault === '/videos/cosmos.mp4' && prevIsCustom) {
+            if (prevIsCustom) {
               return prev;
             }
             localStorage.setItem('activeBackgroundVideoId', cleanDefault);
@@ -264,7 +264,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   // Update active background video when ambient track changes
   useEffect(() => {
     if (currentAmbient) {
-      const mappedId = ambientVideoMapping[currentAmbient.id] || SOUNDSCAPE_VIDEOS[currentAmbient.id];
+      const mappedId = ambientVideoMapping[currentAmbient.id];
       if (mappedId) {
         setActiveBackgroundVideoId(mappedId);
       }
@@ -465,7 +465,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             activeSaved === v.id ||
             activeSaved === v.videoUrl ||
             !activeSaved ||
-            activeSaved === '/videos/cosmos.mp4');
+            false);
 
         if (blob) {
           try {
@@ -555,13 +555,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
         // Restore user's saved custom background video if activeBackgroundVideoId was reset to cosmos default
         const userCustomVideos = videos.filter(
-          v => !v.id.startsWith('curated_') && v.videoUrl !== '/videos/cosmos.mp4'
+          v => !v.id.startsWith('curated_')
         );
         if (userCustomVideos.length > 0) {
           const preferredVid = userCustomVideos.find(v => v.isDefault) || userCustomVideos[0];
           const preferredTarget = normalizePortableMediaUrl(preferredVid.videoUrl) || preferredVid.id;
           setActiveBackgroundVideoId(prev => {
-            if (!prev || prev === '/videos/cosmos.mp4') {
+            if (!prev) {
               localStorage.setItem('activeBackgroundVideoId', preferredTarget);
               return preferredTarget;
             }
@@ -595,7 +595,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           // Only apply user preference if it's a portable custom URL and not overriding with cosmos default
           if (
             prefVid &&
-            prefVid !== '/videos/cosmos.mp4' &&
+
             (prefVid.startsWith('/api/media/') || prefVid.startsWith('http://') || prefVid.startsWith('https://'))
           ) {
             setActiveBackgroundVideoId(prefVid);

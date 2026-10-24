@@ -5,9 +5,32 @@ import './index.css';
 import './lib/backgroundAudio';
 import { registerSW } from 'virtual:pwa-register';
 
-// Register PWA service worker with auto-update
+// Register PWA service worker with auto-update and periodic revalidation
 if ('serviceWorker' in navigator) {
-  registerSW({ immediate: true });
+  const updateSW = registerSW({
+    immediate: true,
+    onNeedRefresh() {
+      // Auto-update to latest deployment smoothly
+      updateSW(true);
+    },
+    onRegisteredSW(_swUrl, registration) {
+      if (registration) {
+        // Check for updates whenever user returns to the app
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            registration.update().catch(() => {});
+          }
+        });
+        window.addEventListener('focus', () => {
+          registration.update().catch(() => {});
+        });
+        // Check every 15 minutes
+        setInterval(() => {
+          registration.update().catch(() => {});
+        }, 15 * 60 * 1000);
+      }
+    },
+  });
 }
 
 interface ErrorBoundaryProps {

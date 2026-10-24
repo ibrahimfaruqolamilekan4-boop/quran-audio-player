@@ -4,11 +4,11 @@ import './AmbientPlayer.css';
 // Define the available scenes (video + ambient sound)
 const scenes: Record<string, { video: string; sound: string }> = {
   mountain: {
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-mountain-range-under-a-gloomy-sky-40436-large.mp4',
+    video: '',
     sound: 'https://actions.google.com/sounds/v1/weather/rain_heavy.ogg',
   },
   night: {
-    video: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-the-night-sky-22920-large.mp4',
+    video: '',
     sound: 'https://actions.google.com/sounds/v1/environments/crickets_chirping.ogg',
   },
 };

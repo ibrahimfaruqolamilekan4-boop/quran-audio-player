@@ -1,4 +1,4 @@
-﻿import tailwindcss from '@tailwindcss/vite';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,8 @@ import verifyFlutterwave from './backend/payments/verify';
 import flwWebhook from './backend/payments/webhook';
 import createVirtualAccount from './backend/payments/create-virtual-account';
 import checkTransferStatus from './backend/payments/check-transfer-status';
+import publicBackgrounds from './backend/backgrounds';
+import adminSupabaseBackgrounds from './backend/admin/supabase-backgrounds';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +88,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/backgrounds$/, publicBackgrounds],
+  [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
@@ -139,8 +143,8 @@ export default defineConfig(() => {
           name: 'Nooraya - Quran Audio Player',
           short_name: 'Nooraya',
           description: 'Immersive Quran audio player, ambient soundscapes, Qibla compass, and prayer times.',
-          theme_color: '#0d9488',
-          background_color: '#030712',
+          theme_color: '#06150F',
+          background_color: '#06150F',
           display: 'standalone',
           orientation: 'portrait-primary',
           start_url: '/',

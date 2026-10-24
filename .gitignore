@@ -13,4 +13,5 @@ coverage/
 api/*.mjs
 dev-dist/
 .server_store.json
+public/videos_backup/
 

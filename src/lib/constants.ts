@@ -26,7 +26,7 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
     description: 'Gentle midnight crickets and calm starry sky for tahajjud',
     soundId: 'crickets',
     audioUrl: 'https://actions.google.com/sounds/v1/animals/crickets_and_night_insects.ogg',
-    videoUrl: '/videos/cosmos.mp4',
+
     defaultVolume: 0.35,
   },
   {
@@ -36,7 +36,7 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
     description: 'Peaceful raindrops on the sanctuary roof during moments of supplication',
     soundId: 'rain',
     audioUrl: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg',
-    videoUrl: '/videos/rain.mp4',
+
     defaultVolume: 0.4,
   },
   {
@@ -46,7 +46,7 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
     description: 'Rhythmic, gentle waves rolling onto shore for deep meditation',
     soundId: 'waves',
     audioUrl: 'https://actions.google.com/sounds/v1/water/waves_crashing_on_rock_beach.ogg',
-    videoUrl: '/videos/ocean.mp4',
+
     defaultVolume: 0.35,
   },
   {
@@ -56,7 +56,7 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
     description: 'Crisp dawn birdsong and morning forest breeze for fajr reflection',
     soundId: 'birds',
     audioUrl: 'https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg',
-    videoUrl: '/videos/nature.mp4',
+
     defaultVolume: 0.3,
   },
   {
@@ -66,7 +66,7 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
     description: 'Gentle flowing river and rustling canopy for continuous remembrance',
     soundId: 'river',
     audioUrl: 'https://actions.google.com/sounds/v1/water/river_stream.ogg',
-    videoUrl: '/videos/nature.mp4',
+
     defaultVolume: 0.35,
   },
   {
@@ -76,25 +76,25 @@ export const AMBIENT_PRESETS: AmbientPreset[] = [
     description: 'Transcendent celestial vistas contemplating the majesty of creation',
     soundId: 'fire',
     audioUrl: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg',
-    videoUrl: '/videos/cosmos.mp4',
+
     defaultVolume: 0.25,
   },
 ];
 
 export const SOUNDSCAPE_VIDEOS: Record<string, string> = {
-  rain: '/videos/rain.mp4',
-  thunder: '/videos/rain.mp4',
-  storm: '/videos/rain.mp4',
-  waves: '/videos/ocean.mp4',
-  fire: '/videos/cosmos.mp4',
-  wind: '/videos/nature.mp4',
-  crickets: '/videos/cosmos.mp4',
-  birds: '/videos/nature.mp4',
-  river: '/videos/ocean.mp4',
-  whale: '/videos/ocean.mp4',
-  owl: '/videos/cosmos.mp4',
-  train: '/videos/cosmos.mp4',
-  cat: '/videos/cosmos.mp4',
+
+
+
+
+
+
+
+
+
+
+
+
+
 };
 
 const commons = (file: string) => `https://commons.wikimedia.org/wiki/File:${file}`;
