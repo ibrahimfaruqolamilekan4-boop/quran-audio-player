@@ -175,12 +175,12 @@
   ],
   "global_videos": [
     {
-      "id": "custom_vid_1791817104859",
-      "name": "233867_medium",
-      "video_url": "/api/media/media_video_1792801108206_wktieo",
-      "description": null,
+      "id": "bg_vid_media_video_1792801253322_zrzae8",
+      "name": "44703-439940416_medium",
+      "video_url": "/api/media/media_video_1792801253322_zrzae8",
+      "description": "Uploaded by admin",
       "is_default": false,
-      "created_at": "2026-10-24T00:18:36.867Z"
+      "created_at": "2026-10-24T00:20:59.010Z"
     },
     {
       "id": "custom_vid_1791817104859",
@@ -257,6 +257,14 @@
       "description": "Uploaded by admin",
       "is_default": false,
       "created_at": "2026-10-24T00:18:08.579Z"
+    },
+    {
+      "id": "bg_vid_media_video_1792801108206_wktieo",
+      "name": "233867_medium",
+      "video_url": "/api/media/media_video_1792801108206_wktieo",
+      "description": "Uploaded by admin",
+      "is_default": false,
+      "created_at": "2026-10-24T00:18:32.845Z"
     }
   ],
   "ambient_sounds": {
@@ -271,5 +279,5 @@
       "updated_at": "2026-10-22T15:24:59.249Z"
     }
   },
-  "updated_at": "2026-10-24T00:18:36.867Z"
+  "updated_at": "2026-10-24T00:20:59.982Z"
 }
