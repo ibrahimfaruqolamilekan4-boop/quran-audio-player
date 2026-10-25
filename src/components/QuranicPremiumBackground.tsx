@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import { usePlayer } from '../context/PlayerContext';
@@ -344,11 +344,11 @@ const MysticalAurora = ({ intensity, theme }: { intensity: number; theme: ThemeC
 // ============================================
 const QuranicVerseScroll = ({ intensity, theme }: { intensity: number; theme: ThemeConfig }) => {
   const verses = [
-    'الله نور السموات والأرض',
-    'فتبارك الله أحسن الخالقين',
-    'إن الله مع الصابرين',
-    'الحمد لله رب العالمين',
-    'سبحان الله وبحمده',
+    'Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã™â€ Ã™Ë†Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â³Ã™â€¦Ã™Ë†Ã˜Â§Ã˜Âª Ã™Ë†Ã˜Â§Ã™â€žÃ˜Â£Ã˜Â±Ã˜Â¶',
+    'Ã™ÂÃ˜ÂªÃ˜Â¨Ã˜Â§Ã˜Â±Ã™Æ’ Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã˜Â£Ã˜Â­Ã˜Â³Ã™â€  Ã˜Â§Ã™â€žÃ˜Â®Ã˜Â§Ã™â€žÃ™â€šÃ™Å Ã™â€ ',
+    'Ã˜Â¥Ã™â€  Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã™â€¦Ã˜Â¹ Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¨Ã˜Â±Ã™Å Ã™â€ ',
+    'Ã˜Â§Ã™â€žÃ˜Â­Ã™â€¦Ã˜Â¯ Ã™â€žÃ™â€žÃ™â€¡ Ã˜Â±Ã˜Â¨ Ã˜Â§Ã™â€žÃ˜Â¹Ã˜Â§Ã™â€žÃ™â€¦Ã™Å Ã™â€ ',
+    'Ã˜Â³Ã˜Â¨Ã˜Â­Ã˜Â§Ã™â€  Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã™Ë†Ã˜Â¨Ã˜Â­Ã™â€¦Ã˜Â¯Ã™â€¡',
   ];
 
   const displayVerse = verses[Math.floor(Math.random() * verses.length)];
@@ -605,23 +605,23 @@ function getVideoPoster(url: string | null | undefined): string {
       />
 
       {/* High-fidelity static poster fallback layer for instant display before video buffers & iOS Low Power Mode */}
-      <div 
-        className="fixed inset-0 pointer-events-none transition-all duration-1000 ease-in-out"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          backgroundImage: `url(${getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
-          zIndex: 1,
-        }}
-      />
-
-      {/*
+      {Boolean(getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)) && (
+        <div 
+          className="fixed inset-0 pointer-events-none transition-all duration-1000 ease-in-out"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundImage: `url(${getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+            zIndex: 1,
+          }}
+        />
+      )}{/*
        * Dual-Buffer Persistent Video Elements:
        * Fullscreen 100vw x 100vh canvas with object-cover - NO half-screen translations or crop offsets.
        */}
@@ -649,7 +649,7 @@ function getVideoPoster(url: string | null | undefined): string {
           minHeight: '100%',
           objectFit: 'cover',
           opacity: slotAOpacity,
-          filter: `brightness(${0.9 + visualIntensity * 0.2}) contrast(1.08)`,
+            filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
           zIndex: 1,
         }}
         onCanPlay={() => playVideoSafe(videoRefA.current)}
@@ -687,7 +687,7 @@ function getVideoPoster(url: string | null | undefined): string {
           minHeight: '100%',
           objectFit: 'cover',
           opacity: slotBOpacity,
-          filter: `brightness(${0.9 + visualIntensity * 0.2}) contrast(1.08)`,
+            filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
           zIndex: 1,
         }}
         onCanPlay={() => playVideoSafe(videoRefB.current)}

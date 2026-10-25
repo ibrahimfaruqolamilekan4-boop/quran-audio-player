@@ -9,26 +9,21 @@ import {
   Play,
   X,
   Film,
-  Globe,
-  Star,
-  Check,
   Sparkles,
-  CloudUpload,
   AlertTriangle,
-  FolderSync,
   Layers,
   ArrowUp,
   ArrowDown,
-  Eye,
   Flame,
   CloudRain,
   Waves,
   Trees,
   Moon,
   Compass,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
-import { useBackgroundVideoSrc } from '../../lib/backgrounds';
 import {
   validateAmbientVideo,
   extractVideoPoster,
@@ -36,14 +31,12 @@ import {
   fetchActiveBackgrounds,
   verifyVideoPlayable,
   testSupabaseConnection,
+  subscribeToBackgrounds,
   type BackgroundRow,
   type SupabaseDiagnosticResult,
 } from '../../lib/supabase';
 import { formatBytes } from '../../lib/recitations';
 import { appApi } from '../../lib/api';
-import localforage from 'localforage';
-import { mediaStore } from '../../lib/upload';
-import type { CustomVideo } from '../../types';
 
 type Toast = (message: string, type?: 'success' | 'error') => void;
 type AskConfirm = (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
@@ -57,14 +50,6 @@ interface Props {
   savingAmbient: boolean;
 }
 
-interface LocalDetectedItem {
-  id: string;
-  name: string;
-  sizeBytes: number;
-  blob?: Blob;
-  videoUrl?: string;
-}
-
 const CATEGORIES = [
   { id: 'all', label: 'All', icon: Layers },
   { id: 'fireplace', label: 'Fireplace', icon: Flame },
@@ -75,17 +60,22 @@ const CATEGORIES = [
   { id: 'night', label: 'Night', icon: Moon },
 ];
 
+interface UploadQueueItem {
+  id: string;
+  file: File;
+  name: string;
+  category: string;
+  status: 'validating' | 'uploading' | 'verifying' | 'done' | 'error';
+  progress: number;
+  error?: string;
+  warning?: string;
+}
+
 export function BackgroundsAdmin({
   showToast,
   askConfirm,
-  ambientSettings,
-  setAmbientSettings,
-  onSaveAmbient,
-  savingAmbient,
 }: Props) {
   const {
-    customVideos,
-    setCustomVideos,
     activeBackgroundVideoId,
     setActiveBackgroundVideoId,
     refreshGlobalCatalog,
@@ -96,33 +86,27 @@ export function BackgroundsAdmin({
   const [loadingCloud, setLoadingCloud] = useState(false);
   const [activeCategory, setActiveCategory] = useState('all');
 
-  // Local laptop detected backgrounds
-  const [detectedLocal, setDetectedLocal] = useState<LocalDetectedItem[]>([]);
-  const [scanningLocal, setScanningLocal] = useState(false);
-  const [migratingId, setMigratingId] = useState<string | null>(null);
-  const [isMigratingAll, setIsMigratingAll] = useState(false);
+  // Single / Batch upload queue state
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // Upload new background form state
+  // Single upload form fields
   const [bgNameEn, setBgNameEn] = useState('');
   const [bgNameAr, setBgNameAr] = useState('');
   const [bgCategory, setBgCategory] = useState('fireplace');
-  const [bgVideoUrl, setBgVideoUrl] = useState('');
-  const [bgPosterUrl, setBgPosterUrl] = useState('');
   const [bgIsPremium, setBgIsPremium] = useState(false);
   const [bgSortOrder, setBgSortOrder] = useState(0);
 
-  const [bgUploading, setBgUploading] = useState(false);
-  const [bgProgress, setBgProgress] = useState(0);
-  const [bgValidationWarning, setBgValidationWarning] = useState<string | null>(null);
-  const [bgError, setBgError] = useState('');
-
-  // Editing modal
+  // Modals & diagnostics
   const [editingBg, setEditingBg] = useState<BackgroundRow | null>(null);
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+  const [diagResult, setDiagResult] = useState<SupabaseDiagnosticResult | null>(null);
+  const [testingConn, setTestingConn] = useState(false);
 
-  const fileRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. Load cloud backgrounds
+  // 1. Load catalog & subscribe to Realtime updates
   const loadCloudCatalog = async () => {
     setLoadingCloud(true);
     try {
@@ -134,7 +118,6 @@ export function BackgroundsAdmin({
           return;
         }
       }
-      // Fallback
       const fallback = await fetchActiveBackgrounds(true);
       setCloudBackgrounds(fallback);
     } catch (err: any) {
@@ -146,145 +129,100 @@ export function BackgroundsAdmin({
 
   useEffect(() => {
     loadCloudCatalog();
-    scanLaptopBackgrounds();
+    // Subscribe to Supabase Realtime changes
+    const unsubscribe = subscribeToBackgrounds((updated) => {
+      setCloudBackgrounds(updated);
+    });
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
-  // 2. Scan laptop storage (IndexedDB, localforage, mediaStore) for saved backgrounds
-  const scanLaptopBackgrounds = async () => {
-    setScanningLocal(true);
+  // 2. Test Supabase connection
+  const handleTestConnection = async () => {
+    setTestingConn(true);
     try {
-      const detected: LocalDetectedItem[] = [];
-      const seenIds = new Set<string>();
-
-      // Check localforage 'customVideos_list'
-      const list = await localforage.getItem<CustomVideo[]>('customVideos_list');
-      if (Array.isArray(list)) {
-        for (const item of list) {
-          if (!seenIds.has(item.id)) {
-            seenIds.add(item.id);
-            // check if blob exists
-            let blob = await localforage.getItem<Blob>(item.id);
-            if (!blob) blob = await localforage.getItem<Blob>(`customVideo_blob_${item.id}`);
-            detected.push({
-              id: item.id,
-              name: item.name || 'Custom Background',
-              sizeBytes: item.sizeBytes || (blob ? blob.size : 0),
-              blob: blob || undefined,
-              videoUrl: item.videoUrl,
-            });
-          }
-        }
+      const result = await testSupabaseConnection();
+      setDiagResult(result);
+      if (result.tableReachable && result.bucketReachable) {
+        showToast('Supabase connection verified: Table and Storage bucket active!', 'success');
+      } else if (!result.urlConfigured || !result.anonKeyConfigured) {
+        showToast('Supabase environment variables missing on host.', 'error');
+      } else {
+        showToast(`Diagnostics: ${result.errorMessage || 'Check bucket and table setup.'}`, 'error');
       }
-
-      // Check mediaStore ('NoorayaMediaStorage')
-      try {
-        await mediaStore.iterate((val: any, key: string) => {
-          if (val && !seenIds.has(key) && (val.type === 'video' || val.mimeType?.startsWith('video'))) {
-            seenIds.add(key);
-            detected.push({
-              id: key,
-              name: val.name || key,
-              sizeBytes: val.sizeBytes || val.blob?.size || 0,
-              blob: val.blob instanceof Blob ? val.blob : undefined,
-              videoUrl: val.url,
-            });
-          }
-        });
-      } catch {}
-
-      // Check all localforage keys for customVideo_blob_*
-      try {
-        const keys = await localforage.keys();
-        for (const k of keys) {
-          if (k.startsWith('customVideo_blob_') || k.startsWith('custom_vid_')) {
-            const rawId = k.replace('customVideo_blob_', '');
-            if (!seenIds.has(rawId)) {
-              seenIds.add(rawId);
-              const blob = await localforage.getItem<Blob>(k);
-              if (blob instanceof Blob) {
-                detected.push({
-                  id: rawId,
-                  name: rawId.includes('fireplace') ? 'Fireplace Ambient' : `Laptop Video (${rawId.slice(0, 8)})`,
-                  sizeBytes: blob.size,
-                  blob,
-                });
-              }
-            }
-          }
-        }
-      } catch {}
-
-      setDetectedLocal(detected);
-    } catch (err) {
-      console.warn('Error scanning laptop backgrounds:', err);
+    } catch (e: any) {
+      showToast(`Diagnostic check failed: ${e?.message || 'Network error'}`, 'error');
     } finally {
-      setScanningLocal(false);
+      setTestingConn(false);
     }
   };
 
-  // 3. Migrate a single laptop background to Supabase Cloud
-  const handleMigrateLaptopItem = async (item: LocalDetectedItem) => {
-    setMigratingId(item.id);
+  // 3. Process video upload with strict validation, poster extraction, and playback verification
+  const processUploadItem = async (file: File, customNameEn?: string, categoryOverride?: string) => {
+    const rawBase = (customNameEn || file.name.replace(/\.[^/.]+$/, '')).trim();
+    const safeBase = rawBase.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24) || 'ambient';
+    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newItem: UploadQueueItem = {
+      id: queueId,
+      file,
+      name: rawBase,
+      category: categoryOverride || bgCategory,
+      status: 'validating',
+      progress: 10,
+    };
+
+    setUploadQueue((prev) => [newItem, ...prev]);
+
     try {
-      let videoBlob = item.blob;
-      if (!videoBlob) {
-        videoBlob =
-          (await localforage.getItem<Blob>(item.id)) ||
-          (await localforage.getItem<Blob>(`customVideo_blob_${item.id}`)) ||
-          (await mediaStore.getItem<Blob>(item.id));
+      // Step A: Validate video constraints
+      const validation = await validateAmbientVideo(file);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'Video validation failed.');
       }
 
-      if (!videoBlob && item.videoUrl?.startsWith('http')) {
-        // Already hosted
-        showToast(`"${item.name}" is already available via URL. Adding to cloud catalog...`, 'success');
-        await appApi('/admin/supabase-backgrounds', {
-          method: 'POST',
-          body: {
-            action: 'add',
-            id: item.id,
-            name_en: item.name,
-            category: item.name.toLowerCase().includes('fire') ? 'fireplace' : 'general',
-            video_url: item.videoUrl,
-            size_bytes: item.sizeBytes,
-            is_active: true,
-          },
-        });
-        await loadCloudCatalog();
-        return;
-      }
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'uploading', progress: 30, warning: validation.warning }
+            : it
+        )
+      );
 
-      if (!videoBlob) {
-        throw new Error(`Video data not found in laptop storage for "${item.name}".`);
-      }
-
-      // Generate unique cloud filename with timestamp and random salt
-      const safeBase = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24);
-      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const videoFilename = `${safeBase}_${uniqueSuffix}.mp4`;
-      const posterFilename = `${safeBase}_${uniqueSuffix}_poster.jpg`;
-
-      // Extract poster thumbnail
+      // Step B: Generate Poster Thumbnail via Canvas
       let posterBlob: Blob | null = null;
       try {
-        posterBlob = await extractVideoPoster(videoBlob);
-      } catch (posterErr) {
-        console.warn('Poster generation fallback:', posterErr);
+        posterBlob = await extractVideoPoster(file);
+      } catch (pErr) {
+        console.warn('Poster thumbnail extraction fallback:', pErr);
       }
 
-      // Upload video to Supabase Storage with automatic retry
+      // Step C: Generate unique salt filename
+      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const videoFilename = `bg_${safeBase}_${uniqueSuffix}.mp4`;
+      const posterFilename = `poster_${safeBase}_${uniqueSuffix}.jpg`;
+
+      // Step D: Upload video to Supabase Storage ('ambient-backgrounds' bucket) with cacheControl: 31536000
       const uploadedVideoUrl = await uploadToSupabaseStorage(
-        videoBlob,
+        file,
         `videos/${videoFilename}`,
         'video/mp4'
       );
 
-      // Verify that the uploaded video actually plays before proceeding
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === queueId ? { ...it, status: 'verifying', progress: 75 } : it))
+      );
+
+      // Step E: Verify browser can stream and play the uploaded public URL before saving
       const isPlayable = await verifyVideoPlayable(uploadedVideoUrl);
       if (!isPlayable) {
-        throw new Error(`Video uploaded but browser failed to verify playback from ${uploadedVideoUrl}. Ensure H.264 encoding.`);
+        throw new Error(
+          `Video uploaded to storage, but browser playback check timed out. Ensure H.264 video encoding.`
+        );
       }
 
-      // Upload poster if available
+      // Step F: Upload poster if available
       let uploadedPosterUrl: string | null = null;
       if (posterBlob) {
         try {
@@ -296,131 +234,18 @@ export function BackgroundsAdmin({
         } catch {}
       }
 
-      // Insert row into 'backgrounds' table
-      const category = item.name.toLowerCase().includes('fire')
-        ? 'fireplace'
-        : item.name.toLowerCase().includes('rain')
-        ? 'rain'
-        : item.name.toLowerCase().includes('ocean')
-        ? 'ocean'
-        : item.name.toLowerCase().includes('forest')
-        ? 'forest'
-        : 'general';
-
-      await appApi('/admin/supabase-backgrounds', {
-        method: 'POST',
-        body: {
-          action: 'add',
-          id: `bg_${safeBase}_${hash}`,
-          name_en: item.name,
-          category,
-          video_url: uploadedVideoUrl,
-          poster_url: uploadedPosterUrl,
-          size_bytes: videoBlob.size,
-          is_active: true,
-          is_premium: false,
-        },
-      });
-
-      showToast(`Migrated "${item.name}" to cloud! Now playable on all phones & tablets.`, 'success');
-      await loadCloudCatalog();
-      await refreshGlobalCatalog();
-    } catch (err: any) {
-      showToast(err?.message || 'Migration failed.', 'error');
-    } finally {
-      setMigratingId(null);
-    }
-  };
-
-  // 4. Migrate ALL detected laptop backgrounds
-  const handleMigrateAllLaptop = async () => {
-    if (detectedLocal.length === 0) return;
-    setIsMigratingAll(true);
-    let successCount = 0;
-    try {
-      for (const item of detectedLocal) {
-        try {
-          await handleMigrateLaptopItem(item);
-          successCount++;
-        } catch (e) {
-          console.error('Failed to migrate', item.name, e);
-        }
-      }
-      showToast(`Successfully migrated ${successCount} backgrounds to cloud for all devices!`, 'success');
-      await scanLaptopBackgrounds();
-    } finally {
-      setIsMigratingAll(false);
-    }
-  };
-
-  // 5. Upload new background from file
-  const handleUploadNewFile = async (file: File) => {
-    setBgError('');
-    setBgValidationWarning(null);
-    setBgUploading(true);
-    setBgProgress(10);
-
-    try {
-      // Validate video constraints
-      const validation = await validateAmbientVideo(file);
-      if (!validation.valid) {
-        throw new Error(validation.error || 'Video validation failed.');
-      }
-      if (validation.warning) {
-        setBgValidationWarning(validation.warning);
-      }
-
-      setBgProgress(30);
-
-      // Extract poster
-      let posterBlob: Blob | null = null;
-      try {
-        posterBlob = await extractVideoPoster(file);
-      } catch (pErr) {
-        console.warn('Poster extraction note:', pErr);
-      }
-
-      setBgProgress(50);
-
-      // Upload to Supabase Storage with unique filename
-      const safeName = (bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, ''))
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '_');
-      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const videoFilename = `${safeName}_${uniqueSuffix}.mp4`;
-      const posterFilename = `${safeName}_${uniqueSuffix}_poster.jpg`;
-
-      const videoUrl = await uploadToSupabaseStorage(file, `videos/${videoFilename}`, 'video/mp4');
-      setBgProgress(75);
-
-      // Verify video actually plays before saving to catalog
-      const isPlayable = await verifyVideoPlayable(videoUrl);
-      if (!isPlayable) {
-        throw new Error('Video uploaded but browser failed to verify playback from public URL. Ensure it is encoded with H.264.');
-      }
-      setBgProgress(85);
-
-      let posterUrl: string | null = null;
-      if (posterBlob) {
-        try {
-          posterUrl = await uploadToSupabaseStorage(posterBlob, `posters/${posterFilename}`, 'image/jpeg');
-        } catch {}
-      }
-
-      setBgProgress(90);
-
-      // Save row to 'backgrounds' table
-      const id = `bg_${safeName}_${hash}`;
+      // Step G: Insert row into Supabase 'backgrounds' table
+      const id = `bg_${safeBase}_${uniqueSuffix}`;
       await appApi('/admin/supabase-backgrounds', {
         method: 'POST',
         body: {
           action: 'add',
           id,
-          name_en: bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, ''),
+          name_en: rawBase,
           name_ar: bgNameAr.trim() || null,
-          category: bgCategory,
-          video_url: videoUrl,
-          poster_url: posterUrl,
+          category: categoryOverride || bgCategory,
+          video_url: uploadedVideoUrl,
+          poster_url: uploadedPosterUrl,
           size_bytes: file.size,
           sort_order: bgSortOrder,
           is_active: true,
@@ -428,33 +253,57 @@ export function BackgroundsAdmin({
         },
       });
 
-      setBgProgress(100);
-      showToast(`Added background "${bgNameEn || file.name}" to cloud for all devices!`, 'success');
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === queueId ? { ...it, status: 'done', progress: 100 } : it))
+      );
 
-      // Reset form
-      setBgNameEn('');
-      setBgNameAr('');
-      setBgVideoUrl('');
-      setBgPosterUrl('');
-      setBgSortOrder(0);
-      setBgIsPremium(false);
-      if (fileRef.current) fileRef.current.value = '';
-
+      showToast(`Uploaded and published "${rawBase}" to all devices!`, 'success');
       await loadCloudCatalog();
       await refreshGlobalCatalog();
     } catch (err: any) {
-      setBgError(err?.message || 'Upload failed');
-      showToast(err?.message || 'Upload failed', 'error');
-    } finally {
-      setBgUploading(false);
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed.' }
+            : it
+        )
+      );
+      showToast(err?.message || 'Upload failed.', 'error');
     }
   };
 
-  // 6. Delete background
+  // 4. Multi-file handler
+  const handleFilesSelected = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+
+    setIsProcessingQueue(true);
+    for (const f of list) {
+      // Automatic category inference if multiple files
+      let autoCategory = bgCategory;
+      const lower = f.name.toLowerCase();
+      if (lower.includes('fire') || lower.includes('flame')) autoCategory = 'fireplace';
+      else if (lower.includes('rain') || lower.includes('waterfall')) autoCategory = 'rain';
+      else if (lower.includes('ocean') || lower.includes('sea') || lower.includes('wave')) autoCategory = 'ocean';
+      else if (lower.includes('forest') || lower.includes('tree') || lower.includes('nature')) autoCategory = 'forest';
+      else if (lower.includes('star') || lower.includes('space') || lower.includes('cosmos')) autoCategory = 'cosmos';
+      else if (lower.includes('night') || lower.includes('moon')) autoCategory = 'night';
+
+      await processUploadItem(f, list.length === 1 ? bgNameEn : undefined, autoCategory);
+    }
+    setIsProcessingQueue(false);
+
+    // Reset single upload inputs
+    setBgNameEn('');
+    setBgNameAr('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // 5. Delete background
   const handleDeleteBackground = (id: string, name: string) => {
     askConfirm(
       'Delete Ambient Background',
-      `Are you sure you want to delete "${name}"? It will no longer play on user devices.`,
+      `Are you sure you want to delete "${name}"? It will be removed from Supabase and will no longer play on any device.`,
       async () => {
         try {
           await appApi('/admin/supabase-backgrounds', {
@@ -471,7 +320,7 @@ export function BackgroundsAdmin({
     );
   };
 
-  // 7. Toggle active / inactive
+  // 6. Toggle active / inactive
   const handleToggleActive = async (bg: BackgroundRow) => {
     try {
       await appApi('/admin/supabase-backgrounds', {
@@ -490,7 +339,7 @@ export function BackgroundsAdmin({
     }
   };
 
-  // 8. Move sort order
+  // 7. Move sort order
   const handleReorder = async (bg: BackgroundRow, direction: 'up' | 'down') => {
     const newOrder = direction === 'up' ? Math.max(0, bg.sort_order - 1) : bg.sort_order + 1;
     try {
@@ -508,7 +357,7 @@ export function BackgroundsAdmin({
     }
   };
 
-  // 9. Save Edit Modal
+  // 8. Save edit modal
   const handleSaveEdit = async () => {
     if (!editingBg) return;
     try {
@@ -537,7 +386,7 @@ export function BackgroundsAdmin({
   };
 
   // Filtered backgrounds
-  const filteredBackgrounds = cloudBackgrounds.filter(b => {
+  const filteredBackgrounds = cloudBackgrounds.filter((b) => {
     if (activeCategory === 'all') return true;
     return b.category.toLowerCase() === activeCategory.toLowerCase();
   });
@@ -549,11 +398,11 @@ export function BackgroundsAdmin({
         <div>
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <Video className="text-emerald-400" size={26} />
-            Ambient Backgrounds (Cloud Source of Truth)
+            Ambient Backgrounds (Supabase Single Source of Truth)
           </h2>
           <p className="text-xs text-emerald-200/70 mt-1 max-w-2xl">
-            All backgrounds stored in Supabase Storage and database table. Synced in real-time across all devices,
-            including iPhone, iPad, Android PWAs, and desktop browsers with battery-saving background decoupling.
+            Live storage and catalog managed directly in Supabase Storage and database table. Synced in real-time
+            across all mobile phones, tablets, and desktop browsers without manual refreshes or redeploys.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -568,14 +417,11 @@ export function BackgroundsAdmin({
           </button>
           <button
             type="button"
-            onClick={() => {
-              loadCloudCatalog();
-              scanLaptopBackgrounds();
-            }}
-            disabled={loadingCloud || scanningLocal}
+            onClick={loadCloudCatalog}
+            disabled={loadingCloud}
             className="px-4 py-2 rounded-xl bg-emerald-900/30 border border-emerald-700/40 text-xs font-semibold text-emerald-200 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
           >
-            <RefreshCw size={14} className={loadingCloud || scanningLocal ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={loadingCloud ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
         </div>
@@ -587,7 +433,7 @@ export function BackgroundsAdmin({
           <button
             type="button"
             onClick={() => setDiagResult(null)}
-            className="absolute top-3 right-3 text-slate-400 hover:text-white"
+            className="absolute top-3 right-3 text-slate-400 hover:text-white cursor-pointer"
           >
             <X size={16} />
           </button>
@@ -612,7 +458,7 @@ export function BackgroundsAdmin({
               <span className={diagResult.tableReachable ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
                 {diagResult.tableReachable ? '[PASS]' : '[FAIL]'}
               </span>
-              <span>Table 'backgrounds': {diagResult.tableReachable ? 'Reachable (' + diagResult.tableCount + ' rows)' : 'Unreachable / Not created'}</span>
+              <span>Table 'backgrounds': {diagResult.tableReachable ? `Reachable (${diagResult.tableCount} rows)` : 'Unreachable / Not created'}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className={diagResult.bucketReachable ? (diagResult.bucketPublic ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold') : 'text-slate-400'}>
@@ -629,156 +475,82 @@ export function BackgroundsAdmin({
         </div>
       )}
 
-      {/* SECTION 1: LAPTOP LOCAL BACKGROUNDS DETECTED (MIGRATION TOOL) */}
-      <div className="bg-gradient-to-br from-amber-950/30 via-emerald-950/20 to-black/40 border border-amber-600/30 rounded-3xl p-6 shadow-xl">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-              <FolderSync size={24} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                Laptop Saved Backgrounds Detected
-                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[11px] font-semibold border border-amber-500/30">
-                  {detectedLocal.length} Available
-                </span>
-              </h3>
-              <p className="text-xs text-amber-200/80 mt-0.5">
-                Saved on this laptop (Fireplace and others). Click below to migrate them to Supabase Storage so every
-                phone, tablet, and user can play them seamlessly!
-              </p>
-            </div>
-          </div>
-          {detectedLocal.length > 0 && (
-            <button
-              type="button"
-              onClick={handleMigrateAllLaptop}
-              disabled={isMigratingAll}
-              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <CloudUpload size={16} />
-              <span>{isMigratingAll ? 'Migrating to Cloud...' : 'Migrate All to Supabase Cloud'}</span>
-            </button>
-          )}
+      {/* MULTI-FILE DRAG & DROP UPLOAD AREA */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          if (e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+        }}
+        className={`relative border-2 border-dashed rounded-3xl p-8 transition-all text-center ${
+          isDragging
+            ? 'border-emerald-400 bg-emerald-950/40 scale-[1.005]'
+            : 'border-emerald-900/50 bg-[#0A1A14]/70 hover:border-emerald-700/60'
+        }`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/mp4"
+          multiple
+          onChange={(e) => {
+            if (e.target.files) handleFilesSelected(e.target.files);
+          }}
+          className="hidden"
+        />
+
+        <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4">
+          <Upload size={28} />
         </div>
 
-        {detectedLocal.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 mt-5 pt-5 border-t border-amber-500/20">
-            {detectedLocal.map((item) => (
-              <div
-                key={item.id}
-                className="p-3.5 rounded-2xl bg-black/40 border border-amber-500/20 flex items-center justify-between gap-3"
-              >
-                <div className="truncate">
-                  <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
-                    {item.name.toLowerCase().includes('fire') && <Flame size={13} className="text-orange-400" />}
-                    <span>{item.name}</span>
-                  </div>
-                  <div className="text-[10px] text-amber-300/70 mt-0.5">
-                    {item.sizeBytes > 0 ? formatBytes(item.sizeBytes) : 'Local Storage Blob'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleMigrateLaptopItem(item)}
-                  disabled={migratingId === item.id || isMigratingAll}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-all shrink-0 cursor-pointer"
-                >
-                  {migratingId === item.id ? 'Uploading...' : 'Sync to Cloud'}
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-4 pt-4 border-t border-amber-500/10 text-xs text-amber-200/60">
-            No un-migrated backgrounds found on this browser. All backgrounds are stored in the cloud catalog below.
-          </div>
-        )}
-      </div>
-
-      {/* SECTION 2: UPLOAD & ADD NEW BACKGROUND */}
-      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-sm">
-        <h3 className="text-base font-bold text-white flex items-center gap-2 mb-4">
-          <Upload size={18} className="text-emerald-400" />
-          Upload New Ambient Background
+        <h3 className="text-base font-bold text-white mb-1">
+          Drag & Drop Background MP4 Videos Here
         </h3>
+        <p className="text-xs text-emerald-200/70 max-w-lg mx-auto mb-5">
+          Multi-file upload supported. Automatically compresses thumbnails, validates 720p H.264 constraints,
+          and publishes to Supabase Storage with 1-year immutable caching.
+        </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Upload Form Details for Single or Batch Upload */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl mx-auto mb-5 text-left">
           <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
-              English Name *
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
+              Title (Optional for multi-file)
             </label>
             <input
               type="text"
               value={bgNameEn}
               onChange={(e) => setBgNameEn(e.target.value)}
-              placeholder="e.g. Cozy Fireplace Hearth"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white placeholder-emerald-700 focus:outline-none focus:border-emerald-500"
+              placeholder="e.g. Fireplace Hearth"
+              className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white placeholder-emerald-700 focus:outline-none focus:border-emerald-500"
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
-              Arabic Name (Optional)
-            </label>
-            <input
-              type="text"
-              value={bgNameAr}
-              onChange={(e) => setBgNameAr(e.target.value)}
-              placeholder="e.g. دفء الموقد"
-              dir="rtl"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white placeholder-emerald-700 focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
-              Category *
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-emerald-300 mb-1">
+              Category
             </label>
             <select
               value={bgCategory}
               onChange={(e) => setBgCategory(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white focus:outline-none focus:border-emerald-500"
+              className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white focus:outline-none focus:border-emerald-500"
             >
-              <option value="fireplace">Fireplace (Hearth & Campfire)</option>
-              <option value="rain">Rain (Sanctuary Roof & Lake)</option>
-              <option value="ocean">Ocean (Waves & Sunset Coast)</option>
-              <option value="forest">Forest (Canopy & Mountain Stream)</option>
-              <option value="cosmos">Cosmos (Night Sky & Deep Galaxy)</option>
+              <option value="fireplace">Fireplace (Hearth & Flame)</option>
+              <option value="rain">Rain (Sanctuary & Droplets)</option>
+              <option value="ocean">Ocean (Coast & Waves)</option>
+              <option value="forest">Forest (Canopy & Stream)</option>
+              <option value="cosmos">Cosmos (Deep Galaxy)</option>
               <option value="night">Night (Starry Midnight)</option>
               <option value="general">General Sacred</option>
             </select>
           </div>
-        </div>
 
-        {/* Video File Pick & Validation */}
-        <div className="mt-4 pt-4 border-t border-emerald-900/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="video/mp4"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleUploadNewFile(f);
-              }}
-              className="hidden"
-            />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={bgUploading}
-              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <Upload size={15} />
-              <span>{bgUploading ? 'Processing & Uploading...' : 'Pick Video File (H.264 MP4)'}</span>
-            </button>
-            <div className="text-[11px] text-emerald-400/80 mt-1.5">
-              Requirements: MP4 format, 720p max resolution, no audio track, target 3–8 MB for smooth mobile looping.
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
+          <div className="flex items-center sm:justify-center pt-3 sm:pt-0">
             <label className="flex items-center gap-2 text-xs text-emerald-200 cursor-pointer">
               <input
                 type="checkbox"
@@ -786,41 +558,96 @@ export function BackgroundsAdmin({
                 onChange={(e) => setBgIsPremium(e.target.checked)}
                 className="rounded accent-emerald-500"
               />
-              <span>Premium Only</span>
+              <span>Premium Background</span>
             </label>
           </div>
         </div>
 
-        {bgUploading && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs text-emerald-300 mb-1">
-              <span>Uploading to Supabase Storage & generating poster thumbnail...</span>
-              <span>{bgProgress}%</span>
-            </div>
-            <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
-                style={{ width: `${bgProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {bgValidationWarning && (
-          <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">
-            <AlertTriangle size={15} className="shrink-0" />
-            <span>{bgValidationWarning}</span>
-          </div>
-        )}
-
-        {bgError && (
-          <div className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs">
-            {bgError}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isProcessingQueue}
+          className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer"
+        >
+          {isProcessingQueue ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              <span>Processing Videos...</span>
+            </>
+          ) : (
+            <>
+              <Film size={16} />
+              <span>Browse Video Files (MP4)</span>
+            </>
+          )}
+        </button>
       </div>
 
-      {/* SECTION 3: CLOUD CATALOG MANAGEMENT */}
+      {/* UPLOAD QUEUE PROGRESS CARDS */}
+      {uploadQueue.length > 0 && (
+        <div className="space-y-2.5">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+            Upload Queue & Playback Verification
+          </h4>
+          <div className="grid grid-cols-1 gap-2.5">
+            {uploadQueue.map((item) => (
+              <div
+                key={item.id}
+                className="p-3.5 rounded-2xl bg-black/40 border border-emerald-900/40 flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 truncate">
+                    {item.status === 'done' ? (
+                      <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                    ) : item.status === 'error' ? (
+                      <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                    ) : (
+                      <Loader2 size={16} className="text-teal-400 animate-spin shrink-0" />
+                    )}
+                    <span className="font-semibold text-white truncate">{item.name}</span>
+                    <span className="text-[10px] text-emerald-400/60 uppercase">({item.category})</span>
+                  </div>
+                  <div className="text-[11px] font-mono text-emerald-300">
+                    {item.status === 'validating' && 'Validating H.264...'}
+                    {item.status === 'uploading' && `Uploading (${item.progress}%)`}
+                    {item.status === 'verifying' && 'Verifying Stream Playback...'}
+                    {item.status === 'done' && 'Published Live'}
+                    {item.status === 'error' && 'Failed'}
+                  </div>
+                </div>
+
+                <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      item.status === 'error'
+                        ? 'bg-red-500'
+                        : item.status === 'done'
+                        ? 'bg-emerald-400'
+                        : 'bg-teal-500'
+                    }`}
+                    style={{ width: `${item.progress}%` }}
+                  />
+                </div>
+
+                {item.warning && (
+                  <div className="text-[11px] text-amber-300/80 flex items-center gap-1.5">
+                    <AlertTriangle size={12} />
+                    <span>{item.warning}</span>
+                  </div>
+                )}
+                {item.error && (
+                  <div className="text-[11px] text-red-300 flex items-center gap-1.5">
+                    <X size={12} />
+                    <span>{item.error}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* SECTION: CLOUD CATALOG MANAGEMENT */}
       <div className="space-y-4">
         {/* Category Filter Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
@@ -847,7 +674,7 @@ export function BackgroundsAdmin({
 
         {/* Background Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredBackgrounds.map((bg, idx) => {
+          {filteredBackgrounds.map((bg) => {
             const isCurrentBroadcast =
               activeBackgroundVideoId === bg.video_url || activeBackgroundVideoId === bg.id;
 
@@ -857,7 +684,7 @@ export function BackgroundsAdmin({
                 className={`p-4 rounded-3xl border transition-all flex flex-col justify-between gap-4 ${
                   isCurrentBroadcast
                     ? 'bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_20px_rgba(31,138,106,0.15)]'
-                    : 'bg-[var(--color-surface)] border-[var(--color-border)] hover:border-emerald-900/50'
+                    : 'bg-[#0A1A14]/70 border-emerald-900/40 hover:border-emerald-700/50'
                 }`}
               >
                 <div>
@@ -928,7 +755,7 @@ export function BackgroundsAdmin({
                       </div>
                     )}
                     <div className="text-[11px] text-emerald-400/60 mt-1">
-                      Order: {bg.sort_order} • Size: {bg.size_bytes ? formatBytes(bg.size_bytes) : 'CDN Stream'}
+                      Order: {bg.sort_order} • Size: {bg.size_bytes ? formatBytes(bg.size_bytes) : 'Supabase Storage'}
                     </div>
                   </div>
                 </div>
@@ -987,19 +814,21 @@ export function BackgroundsAdmin({
           })}
         </div>
 
+        {/* EMPTY STATE */}
         {cloudBackgrounds.length === 0 ? (
-          <div className="text-center py-16 px-6 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl space-y-3">
+          <div className="text-center py-16 px-6 bg-[#0A1A14]/70 border border-emerald-900/40 rounded-3xl space-y-3">
             <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
               <Video size={24} />
             </div>
-            <h3 className="text-sm font-semibold text-white">No backgrounds yet</h3>
-            <p className="text-xs text-emerald-100/60 max-w-md mx-auto">
-              No backgrounds yet, import some! Click "Migrate All to Cloud" above to transfer your laptop backgrounds, or upload an MP4 clip (720p H.264, 3â€“8 MB).
+            <h3 className="text-base font-semibold text-white">No Ambient Backgrounds in Cloud</h3>
+            <p className="text-xs text-emerald-100/70 max-w-md mx-auto">
+              Supabase Storage is ready and empty. Drag and drop your MP4 videos (such as Fireplace and others, 720p H.264,
+              3–8 MB optimal) into the dropzone above to stream them live to all phones and tablets!
             </p>
           </div>
         ) : filteredBackgrounds.length === 0 ? (
-          <div className="text-center py-12 text-xs text-emerald-300/60 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl">
-            No backgrounds found in category "{activeCategory}". Upload an MP4 above or pick another tab!
+          <div className="text-center py-12 text-xs text-emerald-300/60 bg-[#0A1A14]/70 border border-emerald-900/40 rounded-3xl">
+            No backgrounds found in category "{activeCategory}". Pick another category tab or upload a new video.
           </div>
         ) : null}
       </div>
@@ -1049,11 +878,14 @@ export function BackgroundsAdmin({
             onClick={() => setEditingBg(null)}
           >
             <div
-              className="max-w-md w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-2xl space-y-4"
+              className="bg-[#0C241B] border border-emerald-900/80 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-emerald-900/30 pb-3">
-                <h3 className="text-sm font-bold text-white">Edit Background Metadata</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Video size={16} className="text-emerald-400" />
+                  Edit Ambient Background Metadata
+                </h3>
                 <button
                   type="button"
                   onClick={() => setEditingBg(null)}
@@ -1064,79 +896,102 @@ export function BackgroundsAdmin({
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">English Name</label>
+                <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
+                  English Name
+                </label>
                 <input
                   type="text"
                   value={editingBg.name_en}
                   onChange={(e) => setEditingBg({ ...editingBg, name_en: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Arabic Name</label>
+                <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
+                  Arabic Name
+                </label>
                 <input
                   type="text"
+                  dir="rtl"
                   value={editingBg.name_ar || ''}
                   onChange={(e) => setEditingBg({ ...editingBg, name_ar: e.target.value })}
-                  dir="rtl"
-                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Category</label>
-                <select
-                  value={editingBg.category}
-                  onChange={(e) => setEditingBg({ ...editingBg, category: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
-                >
-                  <option value="fireplace">Fireplace</option>
-                  <option value="rain">Rain</option>
-                  <option value="ocean">Ocean</option>
-                  <option value="forest">Forest</option>
-                  <option value="cosmos">Cosmos</option>
-                  <option value="night">Night</option>
-                  <option value="general">General</option>
-                </select>
-              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={editingBg.category}
+                    onChange={(e) => setEditingBg({ ...editingBg, category: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="fireplace">Fireplace</option>
+                    <option value="rain">Rain</option>
+                    <option value="ocean">Ocean</option>
+                    <option value="forest">Forest</option>
+                    <option value="cosmos">Cosmos</option>
+                    <option value="night">Night</option>
+                    <option value="general">General Sacred</option>
+                  </select>
+                </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Sort Order</label>
-                <input
-                  type="number"
-                  value={editingBg.sort_order}
-                  onChange={(e) => setEditingBg({ ...editingBg, sort_order: parseInt(e.target.value, 10) || 0 })}
-                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/40 text-xs text-white"
-                />
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
+                    Sort Order
+                  </label>
+                  <input
+                    type="number"
+                    value={editingBg.sort_order}
+                    onChange={(e) =>
+                      setEditingBg({ ...editingBg, sort_order: parseInt(e.target.value, 10) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-4 pt-2">
-                <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-emerald-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingBg.is_active}
+                    onChange={(e) => setEditingBg({ ...editingBg, is_active: e.target.checked })}
+                    className="rounded accent-emerald-500"
+                  />
+                  <span>Active & Broadcastable</span>
+                </label>
+
+                <label className="flex items-center gap-2 text-xs text-emerald-200 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={editingBg.is_premium}
                     onChange={(e) => setEditingBg({ ...editingBg, is_premium: e.target.checked })}
-                    className="accent-emerald-500"
+                    className="rounded accent-emerald-500"
                   />
                   <span>Premium Only</span>
                 </label>
               </div>
 
-              <div className="pt-4 border-t border-emerald-900/30 flex justify-end gap-2">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-emerald-900/40">
                 <button
                   type="button"
                   onClick={() => setEditingBg(null)}
-                  className="px-4 py-2 rounded-xl bg-black/40 text-xs text-slate-400 hover:text-white cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveEdit}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow-md cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                 >
-                  Save Changes
+                  <Save size={14} />
+                  <span>Save Changes</span>
                 </button>
               </div>
             </div>
@@ -1146,5 +1001,3 @@ export function BackgroundsAdmin({
     </div>
   );
 }
-
-export default BackgroundsAdmin;

@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { appApi } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import { fetchAdminProfiles, updateProfileAdmin, subscribeToProfiles, type ProfileRow } from '../lib/supabase';
+import { Search, Crown, Check, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
 import {
   Shield,
   Users,
@@ -104,6 +107,104 @@ export function AdminView() {
   const [newUserRole, setNewUserRole] = useState<'user' | 'admin'>('user');
   const [addingUser, setAddingUser] = useState(false);
 
+  // Real Supabase profiles state
+  const { user: currentUser, role: currentRole, loading: authLoading } = useAuth();
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [totalProfiles, setTotalProfiles] = useState(0);
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userSortBy, setUserSortBy] = useState<'created_at' | 'last_seen_at' | 'email' | 'full_name'>('created_at');
+  const [userPage, setUserPage] = useState(1);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [premiumModalUser, setPremiumModalUser] = useState<ProfileRow | null>(null);
+
+  const loadProfiles = useCallback(async () => {
+    setProfilesLoading(true);
+    try {
+      const data = await fetchAdminProfiles({
+        search: userSearch,
+        role: userRoleFilter,
+        page: userPage,
+        pageSize: 15,
+        sortBy: userSortBy,
+        sortAsc: userSortBy === 'email' || userSortBy === 'full_name',
+      });
+      setProfiles(data.profiles);
+      setTotalProfiles(data.total);
+    } catch (e) {
+      console.warn('Failed to load profiles:', e);
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, [userSearch, userRoleFilter, userPage, userSortBy]);
+
+  useEffect(() => {
+    loadProfiles();
+  }, [loadProfiles]);
+
+  useEffect(() => {
+    const unsub = subscribeToProfiles(loadProfiles);
+    return unsub;
+  }, [loadProfiles]);
+
+  const handleToggleProfileRole = (p: ProfileRow) => {
+    const newRole = p.role === 'admin' ? 'user' : 'admin';
+    askConfirm(
+      'Update User Role',
+      `Are you sure you want to change ${p.full_name || p.email}'s role to ${newRole.toUpperCase()}?`,
+      async () => {
+        try {
+          const res = await updateProfileAdmin(p.id, { role: newRole });
+          if (res.ok) {
+            showToast(`Role updated to ${newRole}.`, 'success');
+            await loadProfiles();
+          } else {
+            showToast(res.error || 'Failed to update role.', 'error');
+          }
+        } catch (e: any) {
+          showToast(e?.message || 'Error updating role.', 'error');
+        }
+      }
+    );
+  };
+
+  const handleSetPremium = async (p: ProfileRow, duration: '30d' | '1y' | 'lifetime' | 'revoke') => {
+    try {
+      let isPremium = true;
+      let expiresAt: string | null = null;
+      if (duration === '30d') {
+        expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (duration === '1y') {
+        expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (duration === 'lifetime') {
+        expiresAt = null;
+      } else if (duration === 'revoke') {
+        isPremium = false;
+        expiresAt = null;
+      }
+
+      const res = await updateProfileAdmin(p.id, {
+        is_premium: isPremium,
+        premium_expires_at: expiresAt,
+      });
+
+      if (res.ok) {
+        showToast(
+          duration === 'revoke'
+            ? `Revoked premium from ${p.full_name || p.email}.`
+            : `Granted ${duration.toUpperCase()} premium to ${p.full_name || p.email}!`,
+          'success'
+        );
+        setPremiumModalUser(null);
+        await loadProfiles();
+      } else {
+        showToast(res.error || 'Failed to update premium status.', 'error');
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Error updating premium.', 'error');
+    }
+  };
+
   const showToast: Toast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -206,7 +307,7 @@ export function AdminView() {
       return;
     }
     setEditPhotoData(dataUrl);
-    showToast('Photo ready — save the reciter to apply it.', 'success');
+    showToast('Photo ready Ã¢â‚¬â€ save the reciter to apply it.', 'success');
   };
 
   const handleSaveReciter = async () => {
@@ -227,7 +328,7 @@ export function AdminView() {
         bio: editBio.trim() || undefined,
         ...(photoUrl ? { imageUrl: photoUrl } : {}),
       });
-      // 2) Global catalog — visible to every visitor and device (phones, tablets, and computers).
+      // 2) Global catalog Ã¢â‚¬â€ visible to every visitor and device (phones, tablets, and computers).
       let publicPhotoUrl = photoUrl;
       if (photoUrl && photoUrl.startsWith('data:image/')) {
         try {
@@ -285,7 +386,7 @@ export function AdminView() {
       showToast(`Saved and synced ${name || editing.name} to all phones, tablets, and computers!`, 'success');
       setEditing(null);
     } catch (e: any) {
-      showToast(e?.message || 'Saved on this device only — the server rejected the change.', 'error');
+      showToast(e?.message || 'Saved on this device only Ã¢â‚¬â€ the server rejected the change.', 'error');
     } finally {
       setEditSaving(false);
     }
@@ -302,7 +403,7 @@ export function AdminView() {
             body: { id: reciter.id, action: 'delete' },
           });
         } catch {
-          // Not in the global catalog (device-local only) — local removal is enough.
+          // Not in the global catalog (device-local only) Ã¢â‚¬â€ local removal is enough.
         }
         const updated = customReciters.filter((r) => r.id !== reciter.id);
         setCustomReciters(updated);
@@ -374,11 +475,25 @@ export function AdminView() {
     });
   };
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
-      <div className="flex items-center justify-center p-20 text-teal-400 gap-3">
+      <div className="flex items-center justify-center p-20 text-emerald-400 gap-3">
         <RefreshCw className="animate-spin" size={20} />
         <span>Loading Admin Panel...</span>
+      </div>
+    );
+  }
+
+  if (currentRole !== 'admin') {
+    return (
+      <div className="max-w-md mx-auto text-center py-24 px-6 space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-3xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center">
+          <ShieldAlert size={32} />
+        </div>
+        <h2 className="text-xl font-bold text-white">403 — Administrator Access Restricted</h2>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          This control room is strictly restricted to verified system administrators. Your account ({currentUser?.email || 'Guest'}) does not have administrator privileges.
+        </p>
       </div>
     );
   }
@@ -446,6 +561,7 @@ export function AdminView() {
             ['recitations', 'Recitations', Music],
             ['backgrounds', 'Backgrounds', Video],
             ['media', 'File Library', Upload],
+            ['users', 'Community & Users', Shield],
           ] as Array<[TabId, string, any]>).map(([id, label, Icon]) => (
             <button
               key={id}
@@ -498,7 +614,7 @@ export function AdminView() {
                     </div>
                     <p className="text-xs text-slate-500 truncate">
                       {reciter.style || 'Reciter'}
-                      {reciter.serverUrl ? ` · ${reciter.serverUrl}` : ''}
+                      {reciter.serverUrl ? ` Ã‚Â· ${reciter.serverUrl}` : ''}
                     </p>
                     {reciter.bio && <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{reciter.bio}</p>}
                   </div>
@@ -677,7 +793,7 @@ export function AdminView() {
                       </div>
                       <h4 className="text-xs font-semibold text-white truncate mb-1" title={item.name}>{item.name}</h4>
                       <p className="text-[10px] text-slate-500">
-                        {(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB • {new Date(item.createdAt).toLocaleDateString()}
+                        {(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB Ã¢â‚¬Â¢ {new Date(item.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/60">
@@ -719,117 +835,272 @@ export function AdminView() {
 
       {/* TAB: USERS */}
       {activeTab === 'users' && (
-        <section className="bg-[#0A0F1C]/80 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-8 shadow-xl animate-in fade-in duration-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <section className="bg-[#0A0F1C]/80 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 lg:p-8 shadow-xl animate-in fade-in duration-200 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Users className="text-teal-400" size={20} />
-                User Roles & Community Management ({users.length})
+                <Users className="text-emerald-400" size={20} />
+                User Profiles & Community Management ({totalProfiles})
               </h2>
-              <p className="text-xs text-slate-400 mt-1">View all registered users, restore accounts, or assign Administrator privileges.</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Real database profiles synced live via Supabase. Assign Administrator roles and manage Premium memberships with server-enforced RLS.
+              </p>
             </div>
             <button
-              onClick={fetchAdminData}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-teal-500/40 text-xs font-semibold text-slate-300 hover:text-white transition-all"
+              type="button"
+              onClick={loadProfiles}
+              disabled={profilesLoading}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-semibold text-slate-300 hover:text-white transition-all cursor-pointer"
             >
-              <RefreshCw size={13} /> Refresh Users
+              <RefreshCw size={13} className={profilesLoading ? 'animate-spin' : ''} />
+              <span>Refresh Profiles</span>
             </button>
           </div>
 
-          <form
-            onSubmit={handleAddUser}
-            className="bg-[#050811]/90 border border-slate-800/80 rounded-2xl p-4 mb-6 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
-          >
-            <div className="sm:col-span-4">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
-                Member Email
-              </label>
-              <input
-                type="email"
-                value={newUserEmail}
-                onChange={(e) => setNewUserEmail(e.target.value)}
-                placeholder="user@example.com"
-                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
-              />
-            </div>
-            <div className="sm:col-span-4">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
-                Display Name
-              </label>
+          {/* Search, Filter, and Sort Controls */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div className="sm:col-span-5 relative">
+              <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
-                value={newUserName}
-                onChange={(e) => setNewUserName(e.target.value)}
-                placeholder="Full Name (optional)"
-                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                value={userSearch}
+                onChange={(e) => {
+                  setUserSearch(e.target.value);
+                  setUserPage(1);
+                }}
+                placeholder="Search by name or email..."
+                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
-            <div className="sm:col-span-2">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
-                Role
-              </label>
+
+            <div className="sm:col-span-3">
               <select
-                value={newUserRole}
-                onChange={(e) => setNewUserRole(e.target.value as 'user' | 'admin')}
-                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
+                value={userRoleFilter}
+                onChange={(e) => {
+                  setUserRoleFilter(e.target.value);
+                  setUserPage(1);
+                }}
+                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
               >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
+                <option value="all">All Roles (Admins & Users)</option>
+                <option value="admin">Administrators Only</option>
+                <option value="user">Standard Users Only</option>
               </select>
             </div>
-            <div className="sm:col-span-2">
-              <button
-                type="submit"
-                disabled={addingUser}
-                className="w-full py-2 px-3 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
-              >
-                <span>{addingUser ? 'Saving...' : 'Add / Restore'}</span>
-              </button>
-            </div>
-          </form>
 
-          <div className="overflow-x-auto">
+            <div className="sm:col-span-4">
+              <select
+                value={userSortBy}
+                onChange={(e) => setUserSortBy(e.target.value as any)}
+                className="w-full bg-[#0D121F] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="created_at">Sort by: Joined (Newest first)</option>
+                <option value="last_seen_at">Sort by: Last Active</option>
+                <option value="email">Sort by: Email (A-Z)</option>
+                <option value="full_name">Sort by: Name (A-Z)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Profiles Table */}
+          <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  <th className="pb-3 px-4">User</th>
-                  <th className="pb-3 px-4">Email</th>
-                  <th className="pb-3 px-4">Role</th>
-                  <th className="pb-3 px-4 text-right">Actions</th>
+                <tr className="bg-[#050811] border-b border-slate-800 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3 px-4">User Profile</th>
+                  <th className="py-3 px-4">Email</th>
+                  <th className="py-3 px-4">Role</th>
+                  <th className="py-3 px-4">Subscription</th>
+                  <th className="py-3 px-4">Joined</th>
+                  <th className="py-3 px-4">Last Seen</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="text-sm divide-y divide-slate-800/60">
-                {users.map((u) => (
-                  <tr key={u.userId} className="hover:bg-slate-800/30">
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-3">
-                        {u.photoURL ? (
-                          <img src={u.photoURL} alt="" className="w-8 h-8 rounded-full" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-slate-800 text-teal-400 font-bold flex items-center justify-center text-xs">
-                            {(u.displayName || u.email || 'U')[0].toUpperCase()}
+              <tbody className="text-xs divide-y divide-slate-800/60">
+                {profiles.map((p) => {
+                  const displayName = p.full_name || p.email?.split('@')[0] || 'Member';
+                  const initial = displayName.charAt(0).toUpperCase();
+                  const isCurrent = currentUser?.uid === p.id || currentUser?.email === p.email;
+
+                  return (
+                    <tr key={p.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          {p.avatar_url ? (
+                            <img src={p.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 font-bold flex items-center justify-center text-xs">
+                              {initial}
+                            </div>
+                          )}
+                          <div className="truncate">
+                            <span className="font-semibold text-white truncate block">{displayName}</span>
+                            {isCurrent && (
+                              <span className="text-[10px] text-emerald-400 font-mono">(You)</span>
+                            )}
                           </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-300 select-all">{p.email || '—'}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                            p.role === 'admin'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {p.role}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {p.is_premium ? (
+                          <div className="flex items-center gap-1.5 text-amber-300 font-semibold">
+                            <Crown size={13} className="text-amber-400" />
+                            <span>
+                              {p.premium_expires_at
+                                ? `Premium (${new Date(p.premium_expires_at).toLocaleDateString()})`
+                                : 'Lifetime Premium'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-500">Free Tier</span>
                         )}
-                        <span className="font-semibold text-white">{u.displayName || 'Unnamed User'}</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">{u.email}</td>
-                    <td className="py-3.5 px-4">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                        {u.role || 'user'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <button onClick={() => handleRoleToggle(u.userId, u.role || 'user')} className="text-teal-400 hover:text-teal-300 text-xs font-semibold underline">
-                        Toggle Role
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-4 text-slate-400">
+                        {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-slate-400">
+                        {p.last_seen_at ? new Date(p.last_seen_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleProfileRole(p)}
+                            className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                          >
+                            {p.role === 'admin' ? 'Demote' : 'Make Admin'}
+                          </button>
+                          <span className="text-slate-700">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setPremiumModalUser(p)}
+                            className="text-xs font-semibold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                          >
+                            {p.is_premium ? 'Edit Premium' : 'Grant Premium'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+
+          {profiles.length === 0 && !profilesLoading && (
+            <div className="text-center py-12 text-slate-400 text-xs">
+              No user profiles found matching your search.
+            </div>
+          )}
+
+          {/* Pagination Controls */}
+          {totalProfiles > 15 && (
+            <div className="flex items-center justify-between pt-2">
+              <div className="text-xs text-slate-400">
+                Showing {Math.min((userPage - 1) * 15 + 1, totalProfiles)} to{' '}
+                {Math.min(userPage * 15, totalProfiles)} of {totalProfiles} users
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={userPage <= 1}
+                  onClick={() => setUserPage((p) => Math.max(1, p - 1))}
+                  className="p-2 rounded-xl bg-slate-900 border border-slate-800 disabled:opacity-40 text-slate-300 hover:text-white cursor-pointer"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-xs text-slate-300 font-mono">
+                  Page {userPage} of {Math.ceil(totalProfiles / 15)}
+                </span>
+                <button
+                  type="button"
+                  disabled={userPage * 15 >= totalProfiles}
+                  onClick={() => setUserPage((p) => p + 1)}
+                  className="p-2 rounded-xl bg-slate-900 border border-slate-800 disabled:opacity-40 text-slate-300 hover:text-white cursor-pointer"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
         </section>
+      )}
+
+      {/* GRANT / REVOKE PREMIUM MODAL */}
+      {premiumModalUser && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0A0F1C] border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Crown size={16} className="text-amber-400" />
+                Manage Premium Access
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPremiumModalUser(null)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Select premium duration to grant for{' '}
+              <strong className="text-white">{premiumModalUser.full_name || premiumModalUser.email}</strong>.
+            </p>
+
+            <div className="grid grid-cols-3 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => handleSetPremium(premiumModalUser, '30d')}
+                className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 text-center transition-all cursor-pointer"
+              >
+                <div className="text-sm font-bold text-white">30 Days</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">Monthly Pass</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetPremium(premiumModalUser, '1y')}
+                className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 text-center transition-all cursor-pointer"
+              >
+                <div className="text-sm font-bold text-amber-300">1 Year</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">Annual Pass</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetPremium(premiumModalUser, 'lifetime')}
+                className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 text-center transition-all cursor-pointer"
+              >
+                <div className="text-sm font-bold text-amber-300">Lifetime</div>
+                <div className="text-[10px] text-amber-200/70 mt-0.5">Permanent</div>
+              </button>
+            </div>
+
+            {premiumModalUser.is_premium && (
+              <div className="pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => handleSetPremium(premiumModalUser, 'revoke')}
+                  className="w-full py-2.5 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 hover:bg-red-900/50 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Revoke Premium Membership
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Reciter editor modal (prompt 3.1: name, bio, device photo upload, preview) */}

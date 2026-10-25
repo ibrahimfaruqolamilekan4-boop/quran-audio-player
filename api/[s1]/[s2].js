@@ -1,4 +1,4 @@
-﻿// GENERATED FILE - DO NOT EDIT BY HAND.
+// GENERATED FILE - DO NOT EDIT BY HAND.
 // Built from backend/ by scripts/build-function.mjs (run `npm run build`).
 // Committed because Vercel discovers /api functions from the source tree;
 // the build regenerates every copy, so they can never go stale on deploy.
@@ -2446,7 +2446,7 @@ var require_buffer_writer = __commonJS({
       }
       // Write an Int32 byte-length prefix immediately followed by the string's UTF-8
       // bytes. Postgres' Bind wire format prefixes every parameter with its length,
-      // and doing it in one method computes Buffer.byteLength ONCE — the previous
+      // and doing it in one method computes Buffer.byteLength ONCE � the previous
       // `addInt32(Buffer.byteLength(s)).addString(s)` pairing scanned the string
       // three times (byteLength for the prefix, byteLength again inside addString,
       // then the encode), which is costly for large text parameters.
@@ -6322,58 +6322,7 @@ var init_lib = __esm({
     SESSION_DAYS = 30;
     neonDownUntil = 0;
     lastDbError = null;
-    fallbackUsers = [
-      {
-        uid: "usr_admin_ibrahim",
-        email: "ibrahimfaruqolamilekan4@gmail.com",
-        password_hash: null,
-        display_name: "Ibrahim Faruq (Admin)",
-        photo_url: null,
-        role: "admin",
-        created_at: "2026-03-01T12:00:00Z",
-        last_login_at: "2026-10-10T08:00:00Z"
-      },
-      {
-        uid: "usr_member_omar",
-        email: "omar.zaid@nooraya.app",
-        password_hash: null,
-        display_name: "Omar Zaid",
-        photo_url: null,
-        role: "user",
-        created_at: "2026-04-12T14:30:00Z",
-        last_login_at: "2026-10-09T18:20:00Z"
-      },
-      {
-        uid: "usr_member_ahmed",
-        email: "hafiz.ahmed@example.com",
-        password_hash: null,
-        display_name: "Ahmed Al-Banna",
-        photo_url: null,
-        role: "user",
-        created_at: "2026-05-20T09:15:00Z",
-        last_login_at: "2026-10-10T05:40:00Z"
-      },
-      {
-        uid: "usr_member_mariam",
-        email: "mariam.khalid@example.com",
-        password_hash: null,
-        display_name: "Mariam Khalid",
-        photo_url: null,
-        role: "user",
-        created_at: "2026-06-18T16:00:00Z",
-        last_login_at: "2026-10-08T21:10:00Z"
-      },
-      {
-        uid: "usr_member_yusuf",
-        email: "yusuf.mansour@example.com",
-        password_hash: null,
-        display_name: "Yusuf Mansour",
-        photo_url: null,
-        role: "user",
-        created_at: "2026-08-05T11:45:00Z",
-        last_login_at: "2026-10-09T12:05:00Z"
-      }
-    ];
+    fallbackUsers = [];
     STORE_FILE = process.env.VERCEL ? "/tmp/.server_store.json" : path.resolve(process.cwd(), ".server_store.json");
     CLOUD_REPO = "ibrahimfaruqolamilekan4-boop/quran-audio-player";
     CLOUD_BRANCH = "nooraya-cloud-store";

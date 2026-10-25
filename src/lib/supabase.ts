@@ -1,9 +1,12 @@
 /**
  * Supabase client & ambient backgrounds synchronization layer.
  * 
- * Manages fetching, caching, and uploading ambient backgrounds to Supabase Storage
- * ('ambient-backgrounds' bucket) and the 'backgrounds' table.
+ * Manages fetching, caching, Realtime live subscriptions, and uploading
+ * ambient backgrounds to Supabase Storage ('ambient-backgrounds' bucket)
+ * and the 'backgrounds' / 'profiles' tables.
  */
+
+import { createClient, type SupabaseClient, type RealtimeChannel } from '@supabase/supabase-js';
 
 export interface BackgroundRow {
   id: string;
@@ -19,20 +22,56 @@ export interface BackgroundRow {
   created_at: string;
 }
 
+export interface ProfileRow {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: 'user' | 'admin';
+  is_premium: boolean;
+  premium_expires_at: string | null;
+  created_at: string;
+  last_seen_at: string;
+}
+
 // In-memory cache for fast, stale-while-revalidate lookups
 let cachedBackgrounds: BackgroundRow[] | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 60_000; // 1 minute
 
-export const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+export const SUPABASE_URL = ((import.meta as any).env?.VITE_SUPABASE_URL || '').replace(/\/+$/, '');
 export const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 export const STORAGE_BUCKET = 'ambient-backgrounds';
+
+let supabaseInstance: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient | null {
+  if (supabaseInstance) return supabaseInstance;
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  try {
+    supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
+    });
+    return supabaseInstance;
+  } catch (err) {
+    console.warn('Failed to initialize Supabase client:', err);
+    return null;
+  }
+}
 
 /**
  * Validates a video file for mobile-friendly ambient background playback.
  * Constraints:
- * - Format: video/mp4
- * - Max size: 50 MB (optimal 3-8 MB)
+ * - Format: video/mp4 (H.264)
+ * - Max size: 45 MB hard limit (optimal 3-8 MB)
  * - Resolution: Up to 1280x720 (720p max for battery & mobile data efficiency)
  */
 export async function validateAmbientVideo(file: File): Promise<{
@@ -55,7 +94,7 @@ export async function validateAmbientVideo(file: File): Promise<{
   if (file.size > MAX_SIZE_BYTES) {
     return {
       valid: false,
-      error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed is 45 MB. Compress with 720p H.264 (target 3â€“8 MB).`,
+      error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed is 45 MB. Compress with 720p H.264 (target 3–8 MB).`,
     };
   }
 
@@ -71,7 +110,6 @@ export async function validateAmbientVideo(file: File): Promise<{
 
     const timer = setTimeout(() => {
       URL.revokeObjectURL(objectUrl);
-      // If metadata probe times out, allow with warning
       resolve({
         valid: true,
         warning: 'Could not probe video dimensions; file size is acceptable.',
@@ -168,17 +206,13 @@ export async function extractVideoPoster(fileOrBlob: Blob): Promise<Blob> {
       }
     };
 
-    video.onerror = (e) => {
+    video.onerror = () => {
       cleanup();
       reject(new Error('Failed to load video frame for poster'));
     };
   });
 }
 
-/**
- * Uploads a file directly to Supabase Storage bucket 'ambient-backgrounds'
- * or falls back to backend proxy.
- */
 /**
  * Verifies that an uploaded video URL can actually be loaded and played by the browser.
  */
@@ -242,7 +276,7 @@ export async function uploadToSupabaseStorage(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-        const uploadUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
+        const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
         const res = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
@@ -256,7 +290,7 @@ export async function uploadToSupabaseStorage(
         });
 
         if (res.ok) {
-          return `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
+          return `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
         }
       }
 
@@ -282,7 +316,6 @@ export async function uploadToSupabaseStorage(
     } catch (err: any) {
       lastError = err;
       if (attempt < maxRetries) {
-        // Exponential backoff: 800ms, 1600ms
         await new Promise((r) => setTimeout(r, attempt * 800));
       }
     }
@@ -303,7 +336,7 @@ export async function fetchActiveBackgrounds(forceRefresh = false): Promise<Back
   // 1. Try Supabase REST API directly if credentials exist
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     try {
-      const restUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/backgrounds?is_active=eq.true&order=sort_order.asc,created_at.desc`;
+      const restUrl = `${SUPABASE_URL}/rest/v1/backgrounds?is_active=eq.true&order=sort_order.asc,created_at.desc`;
       const res = await fetch(restUrl, {
         headers: {
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
@@ -314,7 +347,7 @@ export async function fetchActiveBackgrounds(forceRefresh = false): Promise<Back
 
       if (res.ok) {
         const rows: BackgroundRow[] = await res.json();
-        if (Array.isArray(rows) && rows.length > 0) {
+        if (Array.isArray(rows)) {
           cachedBackgrounds = rows;
           lastFetchTime = now;
           return rows;
@@ -341,6 +374,234 @@ export async function fetchActiveBackgrounds(forceRefresh = false): Promise<Back
   }
 
   return cachedBackgrounds || [];
+}
+
+/**
+ * Subscribes to Realtime updates on the 'backgrounds' table.
+ * Emits updated background rows whenever an insert, update, or delete occurs.
+ * Also refetches when tab visibility returns to visible or network reconnects.
+ */
+export function subscribeToBackgrounds(onChange: (backgrounds: BackgroundRow[]) => void): () => void {
+  const client = getSupabaseClient();
+  let channel: RealtimeChannel | null = null;
+
+  const triggerRefresh = async () => {
+    try {
+      const updated = await fetchActiveBackgrounds(true);
+      onChange(updated);
+    } catch (e) {
+      console.warn('Failed to refresh backgrounds on realtime event:', e);
+    }
+  };
+
+  if (client) {
+    try {
+      channel = client
+        .channel('public:backgrounds')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'backgrounds' },
+          () => {
+            triggerRefresh();
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Could not subscribe to Supabase backgrounds channel:', err);
+    }
+  }
+
+  // Resilience: Refetch when returning to app or coming online
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') {
+      triggerRefresh();
+    }
+  };
+  const handleOnline = () => triggerRefresh();
+
+  window.addEventListener('visibilitychange', handleVisibility);
+  window.addEventListener('focus', handleVisibility);
+  window.addEventListener('online', handleOnline);
+
+  return () => {
+    if (channel && client) {
+      client.removeChannel(channel).catch(() => {});
+    }
+    window.removeEventListener('visibilitychange', handleVisibility);
+    window.removeEventListener('focus', handleVisibility);
+    window.removeEventListener('online', handleOnline);
+  };
+}
+
+/**
+ * Subscribes to Realtime updates on the 'profiles' table for admin community dashboard.
+ */
+export function subscribeToProfiles(onChange: () => void): () => void {
+  const client = getSupabaseClient();
+  let channel: RealtimeChannel | null = null;
+
+  if (client) {
+    try {
+      channel = client
+        .channel('public:profiles')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles' },
+          () => {
+            onChange();
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Could not subscribe to Supabase profiles channel:', err);
+    }
+  }
+
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') {
+      onChange();
+    }
+  };
+
+  window.addEventListener('visibilitychange', handleVisibility);
+  window.addEventListener('focus', handleVisibility);
+
+  return () => {
+    if (channel && client) {
+      client.removeChannel(channel).catch(() => {});
+    }
+    window.removeEventListener('visibilitychange', handleVisibility);
+    window.removeEventListener('focus', handleVisibility);
+  };
+}
+
+/**
+ * Fetches real profiles from Supabase for Admin management, supporting pagination,
+ * search filtering, role filtering, and sort order.
+ */
+export async function fetchAdminProfiles(options: {
+  search?: string;
+  role?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: 'created_at' | 'last_seen_at' | 'email' | 'full_name';
+  sortAsc?: boolean;
+} = {}): Promise<{ profiles: ProfileRow[]; total: number }> {
+  const {
+    search = '',
+    role = 'all',
+    page = 1,
+    pageSize = 20,
+    sortBy = 'created_at',
+    sortAsc = false,
+  } = options;
+
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      let query = client.from('profiles').select('*', { count: 'exact' });
+
+      if (role && role !== 'all') {
+        query = query.eq('role', role);
+      }
+
+      if (search.trim()) {
+        const term = `%${search.trim()}%`;
+        query = query.or(`email.ilike.${term},full_name.ilike.${term}`);
+      }
+
+      query = query.order(sortBy, { ascending: sortAsc });
+
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+
+      const { data, count, error } = await query;
+      if (!error && Array.isArray(data)) {
+        return {
+          profiles: data as ProfileRow[],
+          total: count || data.length,
+        };
+      }
+    } catch (err) {
+      console.warn('Supabase profiles query error, falling back to API:', err);
+    }
+  }
+
+  // Fallback to /api/admin/overview
+  const res = await fetch('/api/admin/overview');
+  if (res.ok) {
+    const data = await res.json();
+    const rawUsers: any[] = data.users || [];
+    let mapped: ProfileRow[] = rawUsers.map((u) => ({
+      id: u.userId || u.uid || u.id,
+      email: u.email || '',
+      full_name: u.displayName || u.display_name || u.full_name || null,
+      avatar_url: u.photoURL || u.photo_url || u.avatar_url || null,
+      role: u.role || 'user',
+      is_premium: Boolean(u.is_premium),
+      premium_expires_at: u.premium_expires_at || null,
+      created_at: u.createdAt || u.created_at || new Date().toISOString(),
+      last_seen_at: u.lastLoginAt || u.last_seen_at || new Date().toISOString(),
+    }));
+
+    if (role && role !== 'all') {
+      mapped = mapped.filter((p) => p.role === role);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      mapped = mapped.filter(
+        (p) => (p.email && p.email.toLowerCase().includes(q)) || (p.full_name && p.full_name.toLowerCase().includes(q))
+      );
+    }
+
+    const total = mapped.length;
+    const from = (page - 1) * pageSize;
+    return {
+      profiles: mapped.slice(from, from + pageSize),
+      total,
+    };
+  }
+
+  return { profiles: [], total: 0 };
+}
+
+/**
+ * Updates a user profile's role or premium status as an Admin.
+ */
+export async function updateProfileAdmin(
+  userId: string,
+  updates: {
+    role?: 'user' | 'admin';
+    is_premium?: boolean;
+    premium_expires_at?: string | null;
+    full_name?: string;
+  }
+): Promise<{ ok: boolean; error?: string }> {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { error } = await client.from('profiles').update(updates).eq('id', userId);
+      if (!error) return { ok: true };
+      console.warn('Direct Supabase profile update failed:', error.message);
+    } catch (e: any) {
+      console.warn('Direct Supabase update exception:', e);
+    }
+  }
+
+  // Fallback to /api/admin/role
+  try {
+    const res = await fetch('/api/admin/role', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, ...updates }),
+    });
+    if (res.ok) return { ok: true };
+    const err = await res.json().catch(() => ({}));
+    return { ok: false, error: err.error || 'Failed to update user profile.' };
+  } catch (err: any) {
+    return { ok: false, error: err.message || 'Network error updating user.' };
+  }
 }
 
 export interface SupabaseDiagnosticResult {
@@ -373,8 +634,7 @@ export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult
   }
 
   try {
-    const cleanUrl = SUPABASE_URL.replace(/\/+$/, '');
-    const res = await fetch(`${cleanUrl}/rest/v1/backgrounds?select=id&limit=1`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/backgrounds?select=id&limit=1`, {
       headers: {
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
@@ -398,7 +658,7 @@ export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult
 
     // Check bucket
     try {
-      const bRes = await fetch(`${cleanUrl}/storage/v1/bucket/${STORAGE_BUCKET}`, {
+      const bRes = await fetch(`${SUPABASE_URL}/storage/v1/bucket/${STORAGE_BUCKET}`, {
         headers: {
           apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
