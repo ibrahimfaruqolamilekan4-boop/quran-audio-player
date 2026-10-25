@@ -71,6 +71,22 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NO
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
 
+-- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role' AND data_type != 'text'
+  ) THEN
+    ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.profiles ALTER COLUMN role TYPE text USING role::text;
+    ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'user';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
 -- Fast indexes for admin filtering & searches
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles (role);
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles (email);
@@ -365,6 +381,22 @@ $$;
 -- ------------------------------------------------------------------------------
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+
+-- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role' AND data_type != 'text'
+  ) THEN
+    ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.profiles ALTER COLUMN role TYPE text USING role::text;
+    ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'user';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.plans (
   id TEXT PRIMARY KEY,

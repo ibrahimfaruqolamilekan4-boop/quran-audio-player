@@ -22,6 +22,22 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NO
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
 
+-- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role' AND data_type != 'text'
+  ) THEN
+    ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.profiles ALTER COLUMN role TYPE text USING role::text;
+    ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'user';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
 -- ------------------------------------------------------------------------------
 -- 2. PLANS TABLE (PRICING SOURCE OF TRUTH)
 -- No amounts may be hardcoded in UI or backend; this table is the single authority.
