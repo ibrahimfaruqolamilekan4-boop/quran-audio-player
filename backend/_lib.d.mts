@@ -62,3 +62,5 @@ export function requireAdmin(req: IncomingMessage, res: ServerResponse): Promise
 export function validEmail(email: unknown): email is string;
 export function adminEmail(): string;
 export function cleanImageUrl(value: unknown): string | null;
+export const serverStore: any;
+export function saveStore(): Promise<void>;

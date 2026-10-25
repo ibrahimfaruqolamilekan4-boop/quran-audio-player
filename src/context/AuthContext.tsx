@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { appApi, type AppUser } from '../lib/api';
+import { isPremiumActive } from '../lib/offlineManager';
 
 interface AuthContextType {
   user: AppUser | null;
   role: 'user' | 'admin' | null;
+  isPremium: boolean;
   loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
   signup: (email: string, pass: string, name: string) => Promise<void>;
@@ -31,19 +33,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     appApi<{ user: AppUser | null }>('/auth/me')
-      .then(data => { if (!cancelled) setUser(data.user); })
-      .catch(err => console.error('Failed to restore session', err))
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .then((data) => {
+        if (!cancelled) setUser(data.user);
+      })
+      .catch((err) => console.error('Failed to restore session', err))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (email: string, pass: string) => {
-    const data = await appApi<{ user: AppUser }>('/auth/login', { method: 'POST', body: { email, password: pass } });
+    const data = await appApi<{ user: AppUser }>('/auth/login', {
+      method: 'POST',
+      body: { email, password: pass },
+    });
     setUser(data.user);
   };
 
   const signup = async (email: string, pass: string, name: string) => {
-    const data = await appApi<{ user: AppUser }>('/auth/signup', { method: 'POST', body: { email, password: pass, name } });
+    const data = await appApi<{ user: AppUser }>('/auth/signup', {
+      method: 'POST',
+      body: { email, password: pass, name },
+    });
     setUser(data.user);
   };
 
@@ -55,8 +69,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const isPremium = isPremiumActive(user);
+
   return (
-    <AuthContext.Provider value={{ user, role: user?.role ?? null, loading, login, signup, logOut, refreshUser, setUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        role: user?.role ?? null,
+        isPremium,
+        loading,
+        login,
+        signup,
+        logOut,
+        refreshUser,
+        setUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -676,3 +676,219 @@ export async function testSupabaseConnection(): Promise<SupabaseDiagnosticResult
 
   return result;
 }
+
+// ==============================================================================
+// PLANS & PAYMENTS CLIENT LAYER
+// ==============================================================================
+
+export interface PlanRow {
+  id: string;
+  code: string;
+  name_en: string;
+  name_ar?: string | null;
+  amount: number;
+  currency: string;
+  duration_days: number;
+  is_active: boolean;
+  sort_order: number;
+  features: string[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PlanPriceLogRow {
+  id: string;
+  plan_code: string;
+  old_amount: number;
+  new_amount: number;
+  changed_by: string;
+  changed_at: string;
+}
+
+export interface PaymentRow {
+  id: string;
+  user_id: string;
+  plan_code: string;
+  amount: number;
+  currency: string;
+  tx_ref: string;
+  method: string;
+  status: 'pending' | 'successful' | 'failed' | 'expired' | 'underpaid' | 'overpaid';
+  flw_ref?: string | null;
+  flw_id?: string | null;
+  bank_name?: string | null;
+  account_number?: string | null;
+  account_name?: string | null;
+  expiry_date?: string | null;
+  amount_paid?: number | null;
+  metadata?: Record<string, any>;
+  created_at: string;
+  paid_at?: string | null;
+  user_email?: string | null;
+  user_name?: string | null;
+}
+
+/** Formats plan price cleanly using Intl.NumberFormat based on currency */
+export function formatPlanPrice(amount: number, currency = 'NGN'): string {
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: currency || 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency === 'NGN' ? '₦' : currency} ${amount.toLocaleString()}`;
+  }
+}
+
+let cachedActivePlans: PlanRow[] | null = null;
+let lastPlansFetch = 0;
+
+/**
+ * Fetches active plans from Supabase.
+ * Falls back to /api/plans if Supabase client is not ready.
+ */
+export async function fetchActivePlans(force = false): Promise<PlanRow[]> {
+  const now = Date.now();
+  if (!force && cachedActivePlans && now - lastPlansFetch < 30_000) {
+    return cachedActivePlans;
+  }
+
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from('plans')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        cachedActivePlans = data.map((p) => ({
+          ...p,
+          amount: Number(p.amount),
+          features: Array.isArray(p.features) ? p.features : [],
+        }));
+        lastPlansFetch = now;
+        return cachedActivePlans;
+      }
+    } catch (e) {
+      console.warn('[supabase] Error fetching plans from Supabase client:', e);
+    }
+  }
+
+  // Fallback to server endpoint
+  try {
+    const res = await fetch('/api/plans', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.plans) && data.plans.length > 0) {
+        cachedActivePlans = data.plans.map((p: any) => ({
+          ...p,
+          amount: Number(p.amount),
+          features: Array.isArray(p.features) ? p.features : [],
+        }));
+        lastPlansFetch = now;
+        return cachedActivePlans;
+      }
+    }
+  } catch (e) {
+    console.warn('[api] Error fetching plans from API:', e);
+  }
+
+  return cachedActivePlans || [];
+}
+
+/**
+ * Subscribes to Realtime updates on the plans table.
+ */
+export function subscribeToPlans(onUpdate: () => void): () => void {
+  const client = getSupabaseClient();
+  if (!client) return () => {};
+
+  const channel = client
+    .channel('plans-live-sync')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'plans' },
+      () => {
+        cachedActivePlans = null;
+        onUpdate();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    try {
+      client.removeChannel(channel);
+    } catch {}
+  };
+}
+
+/**
+ * Subscribes to Realtime updates on the user's payments.
+ */
+export function subscribeToUserPayments(userId: string, onUpdate: (payload: any) => void): () => void {
+  const client = getSupabaseClient();
+  if (!client || !userId) return () => {};
+
+  const channel = client
+    .channel(`user-payments-${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'payments',
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        onUpdate(payload);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    try {
+      client.removeChannel(channel);
+    } catch {}
+  };
+}
+
+/**
+ * Fetch payments for a specific user (their history & receipts).
+ */
+export async function fetchUserPayments(userId: string): Promise<PaymentRow[]> {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from('payments')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        return data.map((p) => ({
+          ...p,
+          amount: Number(p.amount),
+          amount_paid: p.amount_paid ? Number(p.amount_paid) : null,
+        }));
+      }
+    } catch (e) {
+      console.warn('[supabase] Fetch user payments error:', e);
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/me/payments?user_id=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data?.payments) ? data.payments : [];
+    }
+  } catch {}
+
+  return [];
+}
+

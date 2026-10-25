@@ -9,7 +9,7 @@
 //
 // scripts/build-function.mjs bundles this file (and everything it imports,
 // including pg) into self-contained plain-ESM functions emitted at three path
-// depths under api/ â€” [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
+// depths under api/ — [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
 // `[...slug].js` catch-all does NOT work on Vercel: it matched a single
 // segment only, so /api/auth/login 404'd at the edge. The router here
 // dispatches on the full req.url, so the depth variants are pure route
@@ -42,11 +42,14 @@ import createVirtualAccount from './payments/create-virtual-account';
 import checkTransferStatus from './payments/check-transfer-status';
 import publicBackgrounds from './backgrounds';
 import adminSupabaseBackgrounds from './admin/supabase-backgrounds';
+import publicPlans from './plans';
+import adminPlans from './admin/plans';
+import adminPayments from './admin/payments';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
-// The same table vite.config.ts uses to serve /api in `vite dev` â€” keep in sync.
+// The same table vite.config.ts uses to serve /api in `vite dev` — keep in sync.
 const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/signup$/, signup],
   [/^\/api\/auth\/login$/, login],
@@ -65,6 +68,11 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/plans$/, publicPlans],
+  [/^\/api\/admin\/plans(\/.*)?$/, adminPlans],
+  [/^\/api\/admin\/plan-price-logs$/, adminPlans],
+  [/^\/api\/admin\/payments$/, adminPayments],
+  [/^\/api\/admin\/reconcile-payments$/, adminPayments],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],

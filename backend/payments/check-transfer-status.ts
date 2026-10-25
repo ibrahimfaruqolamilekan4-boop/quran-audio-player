@@ -1,14 +1,16 @@
 // GET /api/payments/check-transfer-status?tx_ref=...
-// Polls transfer status and activates Premium upon confirmed payment
-import { type Handler, requireAuth, sendJson, q, mapUser } from '../_lib.mjs';
-import { pendingTransfers } from './create-virtual-account';
+// Polls transfer status from database and verifies with Flutterwave API.
+// Activates Premium with stacking upon confirmed payment.
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { requireAuth, sendJson } from '../_lib.mjs';
+import {
+  getPaymentByTxRef,
+  updatePaymentStatus,
+  activateUserPremium,
+  getPlanByCode,
+} from '../lib/supabase-server';
 
-const PLAN_DAYS: Record<string, number> = {
-  monthly: 30,
-  yearly: 365,
-};
-
-const handler: Handler = async (req, res) => {
+export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== 'GET') {
     return sendJson(res, 405, { error: 'Method not allowed' });
   }
@@ -24,16 +26,29 @@ const handler: Handler = async (req, res) => {
       return sendJson(res, 400, { error: 'tx_ref query param is required' });
     }
 
-    const flwSecretKey = process.env.FLW_SECRET_KEY;
-    let isSuccess = false;
-    let plan: 'monthly' | 'yearly' = 'yearly';
-
-    const localTx = pendingTransfers.get(txRef);
-    if (localTx) {
-      plan = localTx.plan;
+    const payment = await getPaymentByTxRef(txRef);
+    if (!payment) {
+      return sendJson(res, 404, { error: 'Payment transaction not found' });
     }
 
-    // Try verifying by reference with Flutterwave if key is configured
+    // 1. If already marked successful or overpaid in database, return immediately
+    if (payment.status === 'successful' || payment.status === 'overpaid') {
+      return sendJson(res, 200, {
+        status: 'successful',
+        isPremium: true,
+        amount: payment.amount,
+        paidAt: payment.paid_at,
+        txRef: payment.tx_ref,
+      });
+    }
+
+    // 2. Query Flutterwave API by tx_ref to verify if transfer completed
+    const flwSecretKey = process.env.FLW_SECRET_KEY;
+    let isSuccess = false;
+    let flwTxId: string | undefined = undefined;
+    let flwRef: string | undefined = undefined;
+    let amountPaid = 0;
+
     if (flwSecretKey && !flwSecretKey.includes('placeholder')) {
       try {
         const flwRes = await fetch(
@@ -49,61 +64,80 @@ const handler: Handler = async (req, res) => {
         if (flwRes.ok) {
           const flwData = (await flwRes.json()) as any;
           if (flwData?.status === 'success' && flwData?.data?.status === 'successful') {
-            isSuccess = true;
+            const data = flwData.data;
+            if ((data.currency || 'NGN').toUpperCase() === (payment.currency || 'NGN').toUpperCase()) {
+              amountPaid = Number(data.amount);
+              flwTxId = String(data.id || '');
+              flwRef = data.flw_ref;
+              isSuccess = true;
+            }
           }
         }
       } catch (err) {
-        console.warn('[Payments] Flutterwave check status call:', err);
+        console.warn('[Payments] Flutterwave check status call error:', err);
       }
     }
 
-    // If local record exists and user clicked "I've Sent the Money"
+    // Test simulation fallback when no live secret key is available
     const forceSimulate = parsedUrl.searchParams.get('simulate') === 'true';
-    if (!isSuccess && (forceSimulate || (!flwSecretKey && localTx))) {
+    if (!isSuccess && (!flwSecretKey || flwSecretKey.includes('placeholder')) && forceSimulate) {
       isSuccess = true;
+      amountPaid = payment.amount;
     }
 
+    // 3. If verified, activate premium and update payment status
     if (isSuccess) {
-      if (localTx) {
-        localTx.status = 'successful';
+      const requiredAmount = payment.amount;
+
+      if (amountPaid < requiredAmount) {
+        await updatePaymentStatus(txRef, {
+          status: 'underpaid',
+          flw_id: flwTxId,
+          flw_ref: flwRef,
+          amount_paid: amountPaid,
+        });
+        return sendJson(res, 200, {
+          status: 'underpaid',
+          isPremium: false,
+          message: `Received ₦${amountPaid}, but required amount is ₦${requiredAmount}.`,
+        });
       }
 
-      const days = PLAN_DAYS[plan] || 365;
-      const expDate = new Date();
-      expDate.setDate(expDate.getDate() + days);
-      const expiresAt = expDate.toISOString();
+      const finalStatus = amountPaid > requiredAmount ? 'overpaid' : 'successful';
+      await updatePaymentStatus(txRef, {
+        status: finalStatus,
+        flw_id: flwTxId,
+        flw_ref: flwRef,
+        amount_paid: amountPaid,
+        paid_at: new Date().toISOString(),
+      });
 
-      await q(
-        `UPDATE users SET
-           is_premium = true,
-           subscription_plan = $1,
-           flw_transaction_id = $2,
-           premium_expires_at = $3
-         WHERE uid = $4`,
-        [plan, txRef, expiresAt, user.id]
+      const plan = await getPlanByCode(payment.plan_code);
+      const durationDays = plan?.duration_days || 30;
+
+      const { isPremium, expiresAt } = await activateUserPremium(
+        payment.user_id,
+        user.email,
+        payment.plan_code,
+        durationDays,
+        flwTxId
       );
-
-      const updatedRes = await q(`SELECT * FROM users WHERE uid = $1`, [user.id]);
-      const updatedUser = updatedRes.rows[0] ? mapUser(updatedRes.rows[0]) : null;
 
       return sendJson(res, 200, {
         status: 'successful',
-        isPremium: true,
-        plan,
+        isPremium,
         expiresAt,
-        user: updatedUser,
+        amountPaid,
       });
     }
 
     return sendJson(res, 200, {
-      status: 'pending',
+      status: payment.status || 'pending',
       isPremium: false,
-      message: 'Payment has not been detected yet. Please transfer the exact amount and allow 1-2 minutes for bank clearing.',
+      message: 'Transfer not yet confirmed. Inter-bank transfers typically take 30–90 seconds to clear.',
     });
   } catch (err: any) {
     console.error('[Payments] Check transfer status error:', err);
     return sendJson(res, 500, { error: 'Failed to verify transfer status' });
   }
-};
-
-export default handler;
+}

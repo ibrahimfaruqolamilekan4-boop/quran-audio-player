@@ -106,7 +106,7 @@ function loadStore() {
   return defaultStoreShape();
 }
 
-let serverStore = loadStore();
+export let serverStore = loadStore();
 let lastCloudSyncAt = 0;
 let cloudStoreSha = null;
 
@@ -339,7 +339,7 @@ async function loadMediaFromCloud(id) {
   return null;
 }
 
-async function saveStore() {
+export async function saveStore() {
   try {
     fs.writeFileSync(STORE_FILE, JSON.stringify(serverStore, null, 2), 'utf8');
   } catch (err) {
