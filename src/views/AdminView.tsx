@@ -37,10 +37,13 @@ import { usePlayer } from '../context/PlayerContext';
 import { countRecitationsByReciter } from '../lib/recitations';
 import { RecitationsAdmin } from './admin/RecitationsAdmin';
 import { BackgroundsAdmin } from './admin/BackgroundsAdmin';
+import { PlansAdmin } from './admin/PlansAdmin';
+import { PaymentsAdmin } from './admin/PaymentsAdmin';
+import { Coins, CreditCard } from 'lucide-react';
 import localforage from 'localforage';
 import type { Reciter } from '../types';
 
-type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'media' | 'users';
+type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'media' | 'users' | 'plans' | 'payments';
 
 type Toast = (message: string, type?: 'success' | 'error') => void;
 type AskConfirm = (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
@@ -562,6 +565,8 @@ export function AdminView() {
             ['backgrounds', 'Backgrounds', Video],
             ['media', 'File Library', Upload],
             ['users', 'Community & Users', Shield],
+            ['plans', 'Pricing Plans', Coins],
+            ['payments', 'Payments & Rec', CreditCard],
           ] as Array<[TabId, string, any]>).map(([id, label, Icon]) => (
             <button
               key={id}
@@ -645,6 +650,16 @@ export function AdminView() {
             ))}
           </div>
         </section>
+      )}
+
+      {/* TAB: PRICING PLANS */}
+      {activeTab === 'plans' && (
+        <PlansAdmin showToast={showToast} askConfirm={askConfirm} />
+      )}
+
+      {/* TAB: PAYMENTS */}
+      {activeTab === 'payments' && (
+        <PaymentsAdmin showToast={showToast} askConfirm={askConfirm} />
       )}
 
       {/* TAB: RECITATIONS */}
@@ -1037,6 +1052,8 @@ export function AdminView() {
           )}
         </section>
       )}
+
+
 
       {/* GRANT / REVOKE PREMIUM MODAL */}
       {premiumModalUser && (

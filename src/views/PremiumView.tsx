@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles,
@@ -17,69 +17,52 @@ import {
   Building2,
   RefreshCw,
   ExternalLink,
+  Receipt,
+  FileText,
+  Printer,
+  X,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { appApi } from '../lib/api';
-
-interface PlanConfig {
-  id: 'monthly' | 'yearly';
-  name: string;
-  tagline: string;
-  amountNGN: number;
-  amountUSD: number;
-  period: string;
-  badge?: string;
-  savings?: string;
-}
-
-const PLANS: PlanConfig[] = [
-  {
-    id: 'monthly',
-    name: 'Monthly Focus',
-    tagline: 'Flexible spiritual companion with full offline audio access',
-    amountNGN: 2500,
-    amountUSD: 3.99,
-    period: 'per month',
-  },
-  {
-    id: 'yearly',
-    name: 'Annual Sanctuary',
-    tagline: 'Deep year-long commitment with uninterrupted offline downloads',
-    amountNGN: 24000,
-    amountUSD: 34.99,
-    period: 'per year',
-    badge: 'Best Value',
-    savings: 'Save 20%',
-  },
-];
+import {
+  fetchActivePlans,
+  subscribeToPlans,
+  subscribeToUserPayments,
+  fetchUserPayments,
+  formatPlanPrice,
+  type PlanRow,
+  type PaymentRow,
+} from '../lib/supabase';
 
 const FEATURES = [
   {
     icon: WifiOff,
     title: 'Offline Surah Audio Downloads',
-    desc: 'Download any surah from any reciter and listen without internet.',
+    desc: 'Download any surah from all 30+ sheikhs and listen anytime with zero internet or cellular data.',
   },
   {
     icon: Film,
-    title: '6+ Atmospheric Video Soundscapes',
-    desc: 'Immersive Medina night prayer, rain dua, ocean calm & cosmos visuals.',
+    title: 'All Atmospheric HD Video Soundscapes',
+    desc: 'Immersive Medina night prayer, rain dua, ocean calm, firelight, and mountain mist loops.',
   },
   {
     icon: Headphones,
     title: 'Studio High-Bitrate Recitation',
-    desc: 'Uncompressed audio across 30+ classical and contemporary sheikhs.',
+    desc: 'Uncompressed, crystal-clear audio streams across every classical and modern reciter.',
   },
   {
     icon: ShieldCheck,
     title: 'Pure Spiritual Sanctuary',
-    desc: 'Zero distracting clutter, ad-free forever, designed for sincere focus.',
+    desc: 'Zero distracting clutter, ad-free forever, designed purely for sincere worship and focus.',
   },
 ];
 
 export function PremiumView() {
   const { user, isPremium, refreshUser, setUser } = useAuth();
-  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
-  const [currency, setCurrency] = useState<'NGN' | 'USD'>('NGN');
+  const [plans, setPlans] = useState<PlanRow[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [selectedPlanCode, setSelectedPlanCode] = useState<string>('premium_monthly');
   const [paymentMethod, setPaymentMethod] = useState<'transfer' | 'card'>('transfer');
 
   // Transfer Modal & Dynamic Virtual Account state
@@ -92,6 +75,7 @@ export function PremiumView() {
     currency: string;
     txRef: string;
     expiresAt: string;
+    expiresInSeconds: number;
   } | null>(null);
   const [isGeneratingAccount, setIsGeneratingAccount] = useState(false);
   const [isPollingStatus, setIsPollingStatus] = useState(false);
@@ -100,16 +84,105 @@ export function PremiumView() {
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(3600);
   const [successNotice, setSuccessNotice] = useState(false);
 
-  const activePlan = PLANS.find(p => p.id === selectedPlan) || PLANS[1];
+  // User payment history & receipt
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [receiptPayment, setReceiptPayment] = useState<PaymentRow | null>(null);
 
-  // 60-Minute Countdown Timer for Virtual Account
+  const pollingTimerRef = useRef<any>(null);
+
+  // 1. Load active plans
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      setPlansLoading(true);
+      try {
+        const loaded = await fetchActivePlans();
+        if (mounted && loaded.length > 0) {
+          setPlans(loaded);
+          if (!loaded.some((p) => p.code === selectedPlanCode)) {
+            setSelectedPlanCode(loaded[0].code);
+          }
+        }
+      } finally {
+        if (mounted) setPlansLoading(false);
+      }
+    }
+
+    load();
+    const unsub = subscribeToPlans(load);
+    return () => {
+      mounted = false;
+      unsub();
+    };
+  }, []);
+
+  const activePlan = plans.find((p) => p.code === selectedPlanCode) || plans[0];
+
+  // 2. Load payment history for the current user
+  const loadUserPayments = async () => {
+    const userId = user?.uid || (user as any)?.id;
+    if (!userId) return;
+    setPaymentsLoading(true);
+    try {
+      const history = await fetchUserPayments(userId);
+      setPayments(history);
+    } finally {
+      setPaymentsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUserPayments();
+  }, [user]);
+
+  // 3. 60-Minute Countdown Timer for Virtual Account
   useEffect(() => {
     if (!isTransferModalOpen || !virtualAccount) return;
     const interval = setInterval(() => {
-      setTimeLeftSeconds(prev => (prev > 0 ? prev - 1 : 0));
+      setTimeLeftSeconds((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(interval);
   }, [isTransferModalOpen, virtualAccount]);
+
+  // 4. Realtime & polling listeners while transfer modal is open
+  useEffect(() => {
+    if (!isTransferModalOpen || !virtualAccount || successNotice) return;
+
+    const userId = user?.uid || (user as any)?.id;
+    const unsub = subscribeToUserPayments(userId, (payload) => {
+      if (
+        payload.new?.tx_ref === virtualAccount.txRef &&
+        (payload.new?.status === 'successful' || payload.new?.status === 'overpaid')
+      ) {
+        handleTransferSuccess();
+      }
+    });
+
+    pollingTimerRef.current = setInterval(async () => {
+      try {
+        const res = await appApi<{ status: string; isPremium: boolean }>(
+          `/payments/check-transfer-status?tx_ref=${encodeURIComponent(virtualAccount.txRef)}`
+        );
+        if (res.isPremium || res.status === 'successful') {
+          handleTransferSuccess();
+        }
+      } catch {}
+    }, 5000);
+
+    return () => {
+      unsub();
+      if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+    };
+  }, [isTransferModalOpen, virtualAccount, successNotice]);
+
+  const handleTransferSuccess = async () => {
+    if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+    setSuccessNotice(true);
+    setIsTransferModalOpen(false);
+    await refreshUser();
+    await loadUserPayments();
+  };
 
   const formatCountdown = (secs: number) => {
     const mins = Math.floor(secs / 60);
@@ -120,20 +193,23 @@ export function PremiumView() {
   const handleCopy = (text: string, field: string) => {
     void navigator.clipboard.writeText(text);
     setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2500);
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // Start Bank Transfer Flow
+  // Start Bank Transfer Flow (< 3 seconds target)
   const handleInitiateBankTransfer = async () => {
     if (!user) {
       window.location.href = '/auth';
       return;
     }
 
+    if (!activePlan) return;
+
     try {
       setIsGeneratingAccount(true);
       setPollingError(null);
       const res = await appApi<{
+        success: boolean;
         bankName: string;
         accountNumber: string;
         accountName: string;
@@ -141,32 +217,31 @@ export function PremiumView() {
         currency: string;
         txRef: string;
         expiresAt: string;
+        expiresInSeconds: number;
       }>('/payments/create-virtual-account', {
         method: 'POST',
-        body: { plan: selectedPlan },
+        body: { plan_code: activePlan.code },
       });
 
       setVirtualAccount(res);
-      setTimeLeftSeconds(3600);
+      setTimeLeftSeconds(res.expiresInSeconds || 3600);
       setIsTransferModalOpen(true);
     } catch (err: any) {
-      setPollingError(err?.message || 'Failed to generate virtual account details. Please try again.');
+      setPollingError(err?.message || 'Failed to generate bank transfer details. Please retry.');
     } finally {
       setIsGeneratingAccount(false);
     }
   };
 
-  // Check Transfer Status ("I've Sent the Money")
-  const handleCheckTransferStatus = async (simulate = false) => {
+  // Manual Check Transfer Status ("I've Sent the Money")
+  const handleCheckTransferStatus = async () => {
     if (!virtualAccount) return;
 
     try {
       setIsPollingStatus(true);
       setPollingError(null);
 
-      const query = `/payments/check-transfer-status?tx_ref=${encodeURIComponent(virtualAccount.txRef)}${
-        simulate ? '&simulate=true' : ''
-      }`;
+      const query = `/payments/check-transfer-status?tx_ref=${encodeURIComponent(virtualAccount.txRef)}`;
       const res = await appApi<{
         status: string;
         isPremium: boolean;
@@ -174,24 +249,22 @@ export function PremiumView() {
         message?: string;
       }>(query);
 
-      if (res.isPremium) {
+      if (res.isPremium || res.status === 'successful') {
         if (res.user) setUser(res.user);
-        await refreshUser();
-        setSuccessNotice(true);
-        setIsTransferModalOpen(false);
+        handleTransferSuccess();
       } else {
         setPollingError(
-          res.message || 'Payment not yet confirmed by the bank. Please allow 1-2 minutes for inter-bank clearance.'
+          res.message || 'Payment not yet confirmed by the inter-bank network. Please allow 30–60 seconds for clearance.'
         );
       }
     } catch (err: any) {
-      setPollingError(err?.message || 'Verification failed. Please retry in a few moments.');
+      setPollingError(err?.message || 'Verification failed. Retrying automatically.');
     } finally {
       setIsPollingStatus(false);
     }
   };
 
-  // Flutterwave Card Standard Checkout Fallback
+  // Standard Flutterwave Checkout for Card / USSD
   const handleCardCheckout = () => {
     if (!user) {
       window.location.href = '/auth';
@@ -199,31 +272,32 @@ export function PremiumView() {
     }
 
     const flwKey =
-      (import.meta as any).env.VITE_FLW_PUBLIC_KEY ||
-      (import.meta as any).env.FLW_PUBLIC_KEY ||
+      (import.meta as any).env?.VITE_FLW_PUBLIC_KEY ||
+      (import.meta as any).env?.FLW_PUBLIC_KEY ||
       'FLWPUBK_TEST-SANDBOX';
 
     if (typeof window.FlutterwaveCheckout !== 'function') {
-      alert('Flutterwave checkout script is loading. Please retry in a few seconds.');
+      alert('Flutterwave checkout script is loading. Please check internet connection.');
       return;
     }
 
-    const txRef = `qf-card-${Date.now()}-${user.id.slice(0, 8)}`;
-    const amount = currency === 'NGN' ? activePlan.amountNGN : activePlan.amountUSD;
+    if (!activePlan) return;
+
+    const txRef = `qf-card-${Date.now()}-${user.uid.slice(0, 8)}`;
 
     window.FlutterwaveCheckout({
       public_key: flwKey,
       tx_ref: txRef,
-      amount,
-      currency,
-      payment_options: 'card,ussd',
+      amount: activePlan.amount,
+      currency: activePlan.currency || 'NGN',
+      payment_options: 'card, ussd',
       customer: {
         email: user.email,
         name: user.displayName || user.email.split('@')[0],
       },
       customizations: {
-        title: 'Quranify Focus Premium',
-        description: `${activePlan.name} (${currency} ${amount})`,
+        title: 'Nooraya Quranic Sanctuary',
+        description: `${activePlan.name_en} (${formatPlanPrice(activePlan.amount, activePlan.currency)})`,
         logo: `${window.location.origin}/icon.svg`,
       },
       callback: async (data: any) => {
@@ -234,10 +308,11 @@ export function PremiumView() {
             body: {
               transaction_id: transactionId,
               tx_ref: txRef,
-              plan: selectedPlan,
+              plan_code: activePlan.code,
             },
           });
           await refreshUser();
+          await loadUserPayments();
           setSuccessNotice(true);
         } catch (e: any) {
           alert(`Verification: ${e?.message || 'Payment completed but verification pending.'}`);
@@ -247,389 +322,499 @@ export function PremiumView() {
     });
   };
 
+  // Expiry date calculation & reminder banners
+  const expiryDate = user?.premium_expires_at ? new Date(user.premium_expires_at) : null;
+  const now = Date.now();
+  const msRemaining = expiryDate ? expiryDate.getTime() - now : 0;
+  const daysRemaining = Math.max(0, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+  const isExpiringSoon = isPremium && daysRemaining <= 7 && daysRemaining > 0;
+  const isExpired = user?.is_premium && msRemaining <= 0;
+
   return (
-    <div className="max-w-5xl mx-auto space-y-10 pb-16">
-      {/* Hero Header */}
-      <div className="text-center space-y-4">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#11382B] border border-[#1F8A6A]/30 text-[#D4AF37] text-xs font-semibold tracking-wide">
-          <Sparkles size={14} />
-          <span>Sacred Sanctuary Premium</span>
-        </div>
-        <h1 className="text-3xl sm:text-5xl font-serif font-bold text-[#F6F1E4] tracking-tight">
-          Uncompromised Focus & Full Offline Recitations
-        </h1>
-        <p className="text-[#A8BFB3] text-base sm:text-lg max-w-2xl mx-auto">
-          Save entire chapters from your favorite reciters for airplane mode, unlock all ambient soundscapes, and immerse in flawless sound quality.
-        </p>
-      </div>
-
-      {/* Active Subscription Banner */}
-      {isPremium && (
-        <div className="p-6 rounded-3xl bg-[#0C2A20] border border-[#34C38F]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#34C38F]/20 text-[#34C38F] flex items-center justify-center">
-              <CheckCircle2 size={24} />
+    <div className="min-h-screen bg-[#060913] text-slate-100 p-4 sm:p-8 space-y-8 max-w-5xl mx-auto pb-32">
+      {/* SUCCESS BANNER */}
+      <AnimatePresence>
+        {successNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="p-5 rounded-3xl bg-emerald-950/60 border border-emerald-500/60 shadow-[0_0_40px_rgba(16,185,129,0.2)] flex items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <CheckCircle2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Payment Confirmed — Premium Active!</h3>
+                <p className="text-xs text-slate-300">
+                  Your 30-day access has been stacked onto your account. Enjoy full offline downloads.
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-serif font-bold text-[#F6F1E4]">
-                Your Premium Membership is Active
-              </h3>
-              <p className="text-sm text-[#A8BFB3]">
-                Full offline downloads and all soundscape presets are fully unlocked on this account.
-              </p>
-            </div>
-          </div>
-          <span className="px-4 py-2 rounded-xl bg-[#11382B] text-[#D4AF37] border border-[#D4AF37]/30 text-xs font-bold tracking-wide text-center">
-            Active Sanctuary Member
-          </span>
-        </div>
-      )}
+            <button
+              type="button"
+              onClick={() => setSuccessNotice(false)}
+              className="p-2 rounded-xl bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Success Modal Toast */}
-      {successNotice && (
-        <div className="p-5 rounded-2xl bg-[#0C2A20] border border-[#34C38F] text-[#34C38F] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <CheckCircle2 size={20} />
-            <span className="font-semibold text-sm">
-              Alhamdulillah! Your Premium subscription has been successfully activated.
+      {/* EXPIRY REMINDER BANNERS */}
+      {isExpiringSoon && (
+        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 text-amber-200">
+            <Clock size={16} className="text-amber-400 shrink-0" />
+            <span>
+              Your Premium pass expires in <strong>{daysRemaining} day{daysRemaining === 1 ? '' : 's'}</strong>. Renew today to keep your offline library active!
             </span>
           </div>
           <button
-            onClick={() => setSuccessNotice(false)}
-            className="text-xs px-3 py-1 rounded-lg bg-[#11382B] hover:bg-[#176B53] text-[#F6F1E4]"
+            type="button"
+            onClick={handleInitiateBankTransfer}
+            className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 cursor-pointer shrink-0"
           >
-            Dismiss
+            Renew Now
           </button>
         </div>
       )}
 
-      {/* Pricing Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {PLANS.map(plan => {
-          const isSelected = selectedPlan === plan.id;
-          const displayPrice =
-            currency === 'NGN' ? `₦${plan.amountNGN.toLocaleString()}` : `$${plan.amountUSD}`;
+      {isExpired && (
+        <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/40 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 text-rose-200">
+            <Lock size={16} className="text-rose-400 shrink-0" />
+            <span>
+              Your Premium pass has expired. Your downloaded files are preserved and safely locked. Tap Renew to unlock immediately.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleInitiateBankTransfer}
+            className="px-3 py-1.5 rounded-xl bg-rose-500 text-white font-bold hover:bg-rose-400 cursor-pointer shrink-0"
+          >
+            Renew Pass
+          </button>
+        </div>
+      )}
 
-          return (
+      {/* HERO SECTION */}
+      <div className="text-center space-y-3 pt-4">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold uppercase tracking-widest shadow-sm">
+          <Sparkles size={14} className="text-emerald-400" />
+          <span>Nooraya Sanctuary Membership</span>
+        </div>
+        <h1 className="text-3xl sm:text-5xl font-serif font-bold text-white tracking-tight">
+          Deepen Your Spiritual Focus
+        </h1>
+        <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
+          One simple monthly pass. Full offline audio downloads, all 7+ video soundscapes, and undisturbed Quranic reflection.
+        </p>
+      </div>
+
+      {/* MEMBERSHIP STATUS CARD */}
+      <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+            Current Account Status
+          </span>
+          <div className="flex items-center gap-2.5">
             <div
-              key={plan.id}
-              onClick={() => setSelectedPlan(plan.id)}
-              className={`medina-card p-7 sm:p-8 cursor-pointer relative flex flex-col justify-between transition-all duration-300 ${
-                isSelected
-                  ? 'border-[#1F8A6A] bg-[#0C2A20] shadow-[0_0_30px_rgba(31,138,106,0.25)] ring-1 ring-[#1F8A6A]'
-                  : 'bg-[#0C2A20]/60 border-white/8 hover:border-white/15'
+              className={`w-3 h-3 rounded-full ${
+                isPremium ? 'bg-emerald-400 shadow-[0_0_10px_#10b981]' : 'bg-slate-600'
               }`}
+            />
+            <span className="text-lg font-bold text-white">
+              {isPremium ? 'Active Sanctuary Member' : 'Free Tier Account'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            {isPremium && expiryDate ? (
+              <>
+                Valid until <strong className="text-slate-200">{expiryDate.toLocaleDateString()}</strong> ({daysRemaining} days remaining).
+              </>
+            ) : (
+              'Upgrade to unlock unlimited offline surah audio downloads and high-bitrate streaming.'
+            )}
+          </p>
+        </div>
+
+        {isPremium && (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleInitiateBankTransfer}
+              className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wide shadow-lg transition-all flex items-center gap-2 cursor-pointer"
             >
-              {plan.badge && (
-                <div className="absolute top-5 right-5 px-3 py-1 rounded-full bg-[#D4AF37] text-[#06150F] text-xs font-bold tracking-wide flex items-center gap-1 shadow-md">
-                  <Sparkles size={12} />
-                  <span>{plan.badge}</span>
-                </div>
-              )}
+              <span>Extend / Stack 30 Days</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+        )}
+      </div>
 
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <h3 className="text-2xl font-serif font-bold text-[#F6F1E4]">{plan.name}</h3>
-                  <p className="text-sm text-[#A8BFB3]">{plan.tagline}</p>
-                </div>
+      {/* PLAN SELECTION & PRICING (READ DYNAMICALLY FROM SUPABASE) */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-bold text-white font-serif flex items-center gap-2">
+          <span>Choose Your Sanctuary Pass</span>
+        </h2>
 
-                <div className="pt-2 flex items-baseline gap-2">
-                  <span className="text-4xl sm:text-5xl font-serif font-bold text-[#F6F1E4]">
-                    {displayPrice}
-                  </span>
-                  <span className="text-sm text-[#A8BFB3]">{plan.period}</span>
-                  {plan.savings && (
-                    <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-md bg-[#1F8A6A]/20 text-[#34C38F] border border-[#1F8A6A]/30">
-                      {plan.savings}
-                    </span>
-                  )}
-                </div>
+        {plansLoading ? (
+          <div className="h-44 rounded-3xl bg-slate-900/50 animate-pulse border border-slate-800" />
+        ) : activePlan ? (
+          <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-slate-900/90 to-[#0A1224] border-2 border-emerald-500/50 shadow-[0_0_50px_rgba(16,185,129,0.12)] flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="space-y-2 max-w-lg">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">
+                {activePlan.duration_days} Days Full Access
+              </div>
+              <h3 className="text-2xl font-serif font-bold text-white">{activePlan.name_en}</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Download any surah from any sheikh for seamless offline listening with zero internet. Includes all
+                panoramic Medina & nature video soundscapes.
+              </p>
+              <div className="text-[11px] text-emerald-400 font-medium pt-1">
+                ✓ Stacking duration: renewing adds 30 full days to your existing date.
+              </div>
+            </div>
 
-                <div className="h-px bg-white/8 my-6" />
-
-                <ul className="space-y-3">
-                  {FEATURES.map((feat, i) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-[#F6F1E4]">
-                      <div className="w-5 h-5 rounded-full bg-[#1F8A6A]/20 text-[#34C38F] flex items-center justify-center shrink-0 mt-0.5">
-                        <Check size={12} strokeWidth={3} />
-                      </div>
-                      <div>
-                        <span className="font-semibold">{feat.title}</span>
-                        <p className="text-xs text-[#A8BFB3] mt-0.5">{feat.desc}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+            <div className="text-center md:text-right shrink-0 space-y-3">
+              <div>
+                <span className="text-3xl sm:text-4xl font-serif font-bold text-emerald-300">
+                  {formatPlanPrice(activePlan.amount, activePlan.currency)}
+                </span>
+                <span className="text-xs text-slate-400 block mt-0.5">30 days per payment</span>
               </div>
 
-              <div className="pt-8 mt-auto">
+              <div className="flex flex-col sm:flex-row gap-2.5">
                 <button
                   type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    setSelectedPlan(plan.id);
-                    if (paymentMethod === 'transfer') {
-                      void handleInitiateBankTransfer();
-                    } else {
-                      handleCardCheckout();
-                    }
-                  }}
-                  className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 text-base transition-all ${
-                    isSelected
-                      ? 'medina-btn-primary shadow-lg shadow-[#1F8A6A]/30'
-                      : 'bg-[#11382B] hover:bg-[#176B53] text-[#F6F1E4]'
-                  }`}
+                  onClick={handleInitiateBankTransfer}
+                  disabled={isGeneratingAccount}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                 >
-                  <span>Select {plan.name}</span>
-                  <ArrowRight size={18} />
+                  {isGeneratingAccount ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Opening Transfer...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Building2 size={14} />
+                      <span>Pay with Bank Transfer</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCardCheckout}
+                  className="px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 hover:text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <CreditCard size={14} />
+                  <span>Card / USSD</span>
                 </button>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ) : null}
       </div>
 
-      {/* Payment Selection Section */}
-      <div className="medina-card p-6 sm:p-8 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-xl font-serif font-bold text-[#F6F1E4]">Payment Method</h3>
-            <p className="text-sm text-[#A8BFB3] mt-1">
-              Select your preferred payment method. Direct bank transfer provides instant Nigerian bank account generation.
-            </p>
+      {/* BENEFIT HIGHLIGHTS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {FEATURES.map((f, idx) => (
+          <div key={idx} className="p-5 rounded-3xl bg-slate-900/40 border border-slate-800/80 space-y-2">
+            <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <f.icon size={18} />
+            </div>
+            <h4 className="text-sm font-bold text-white">{f.title}</h4>
+            <p className="text-xs text-slate-400 leading-relaxed">{f.desc}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* MANUAL RENEWAL GUARANTEE */}
+      <div className="p-6 rounded-3xl bg-[#090E1C] border border-slate-800 text-center space-y-2">
+        <h3 className="text-sm font-bold text-white flex items-center justify-center gap-2">
+          <ShieldCheck size={16} className="text-emerald-400" />
+          <span>Manual Renewal Guarantee (Zero Auto-Debits)</span>
+        </h3>
+        <p className="text-xs text-slate-400 max-w-xl mx-auto leading-relaxed">
+          We will <strong>never</strong> silently charge your card or account. Every subscription pass is manually
+          initiated by you. If your pass expires, your downloaded files remain safely stored on your device and
+          immediately unlock the moment you renew.
+        </p>
+      </div>
+
+      {/* USER PAYMENT HISTORY & RECEIPTS */}
+      {user && (
+        <div className="space-y-4 pt-4 border-t border-slate-800/80">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white font-serif flex items-center gap-2">
+              <Receipt size={18} className="text-emerald-400" />
+              <span>Payment History & Receipts</span>
+            </h2>
+            <button
+              type="button"
+              onClick={loadUserPayments}
+              className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
+            >
+              Refresh History
+            </button>
           </div>
 
-          <div className="flex items-center gap-2 bg-[#11382B] p-1.5 rounded-2xl border border-white/8">
-            <button
-              onClick={() => setPaymentMethod('transfer')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                paymentMethod === 'transfer'
-                  ? 'bg-[#1F8A6A] text-white shadow-md'
-                  : 'text-[#A8BFB3] hover:text-[#F6F1E4]'
-              }`}
-            >
-              <Building2 size={16} />
-              <span>Bank Transfer (NGN)</span>
-            </button>
-            <button
-              onClick={() => setPaymentMethod('card')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                paymentMethod === 'card'
-                  ? 'bg-[#1F8A6A] text-white shadow-md'
-                  : 'text-[#A8BFB3] hover:text-[#F6F1E4]'
-              }`}
-            >
-              <CreditCard size={16} />
-              <span>Card / International</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="pt-2">
-          {paymentMethod === 'transfer' ? (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl bg-[#06150F]/70 border border-white/8 gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-[#F6F1E4] text-sm">Direct Virtual Bank Transfer</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#34C38F]/20 text-[#34C38F]">
-                    Fast & Zero Card Needed
-                  </span>
-                </div>
-                <p className="text-xs text-[#A8BFB3]">
-                  A dedicated Nigerian virtual account is generated exclusively for your payment. Transfer via your bank app to activate immediately.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleInitiateBankTransfer}
-                disabled={isGeneratingAccount}
-                className="medina-btn-primary px-6 shrink-0"
-              >
-                {isGeneratingAccount ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" />
-                    <span>Generating Account...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Pay with Bank Transfer (₦{activePlan.amountNGN.toLocaleString()})</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
+          {paymentsLoading ? (
+            <div className="py-8 text-center text-xs text-slate-500">Loading your transaction receipts...</div>
+          ) : payments.length === 0 ? (
+            <div className="p-8 rounded-3xl bg-slate-900/30 border border-slate-800/60 text-center text-xs text-slate-500">
+              No payments recorded yet. Upgrade above to receive your first official receipt.
             </div>
           ) : (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl bg-[#06150F]/70 border border-white/8 gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-[#F6F1E4] text-sm">Debit / Credit Card Checkout</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#1F8A6A]/20 text-[#A8BFB3]">
-                    Flutterwave v3 Secure
-                  </span>
-                </div>
-                <p className="text-xs text-[#A8BFB3]">
-                  Supports Visa, Mastercard, Verve, and international bank cards securely encrypted.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleCardCheckout}
-                className="medina-btn-primary px-6 shrink-0"
-              >
-                <span>Pay with Card ({currency === 'NGN' ? `₦${activePlan.amountNGN.toLocaleString()}` : `$${activePlan.amountUSD}`})</span>
-                <ArrowRight size={16} />
-              </button>
+            <div className="overflow-x-auto rounded-3xl border border-slate-800/80">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#050811] border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Plan</th>
+                    <th className="py-3 px-4">Amount</th>
+                    <th className="py-3 px-4">Method</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Receipt</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {payments.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-800/20 transition-colors">
+                      <td className="py-3 px-4 text-slate-300">
+                        {new Date(p.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-white">Monthly Pass</td>
+                      <td className="py-3 px-4 font-mono font-bold text-emerald-300">
+                        {formatPlanPrice(p.amount, p.currency)}
+                      </td>
+                      <td className="py-3 px-4 capitalize text-slate-400">
+                        {p.method.replace('_', ' ')}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                            p.status === 'successful' || p.status === 'overpaid'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : p.status === 'pending'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setReceiptPayment(p)}
+                          className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 underline font-semibold cursor-pointer"
+                        >
+                          <FileText size={12} />
+                          <span>View Receipt</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Dynamic Bank Transfer Modal */}
+      {/* DYNAMIC VIRTUAL ACCOUNT MODAL */}
       <AnimatePresence>
         {isTransferModalOpen && virtualAccount && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="w-full max-w-lg bg-[#0C2A20] border border-white/12 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl relative"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#0B101E] border border-emerald-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-white/8 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-[#1F8A6A]/20 text-[#34C38F] flex items-center justify-center">
-                    <Building2 size={20} />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-serif font-bold text-[#F6F1E4]">
-                      Pay with Bank Transfer
-                    </h3>
-                    <p className="text-xs text-[#A8BFB3]">
-                      Transfer the exact amount to activate your subscription
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#11382B] text-[#D4AF37] text-xs font-mono font-bold">
-                  <Clock size={13} />
-                  <span>{formatCountdown(timeLeftSeconds)}</span>
-                </div>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Building2 size={16} className="text-emerald-400" />
+                  Bank Transfer Details
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsTransferModalOpen(false)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
               </div>
 
-              {/* Amount Display */}
-              <div className="text-center py-3 bg-[#06150F]/80 rounded-2xl border border-white/8 space-y-1">
-                <span className="text-xs text-[#A8BFB3] uppercase tracking-wider font-semibold">
-                  Exact Amount to Transfer
-                </span>
-                <div className="text-3xl sm:text-4xl font-serif font-bold text-[#F6F1E4] tracking-tight">
-                  ₦{virtualAccount.amount.toLocaleString()}
-                </div>
-                <span className="text-[11px] text-[#D4AF37] font-medium">
-                  Do not add extra kobo or fees.
+              {/* Countdown Bar */}
+              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+                <span className="text-slate-400">Account Expires In:</span>
+                <span className="font-mono font-bold text-amber-300 flex items-center gap-1">
+                  <Clock size={12} />
+                  {formatCountdown(timeLeftSeconds)}
                 </span>
               </div>
 
-              {/* Account Details Box */}
-              <div className="space-y-3">
-                <div className="p-4 rounded-2xl bg-[#11382B]/60 border border-white/8 flex items-center justify-between">
+              {/* Account Box */}
+              <div className="p-4 rounded-2xl bg-[#060913] border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-[#A8BFB3]">Bank Name</span>
-                    <div className="text-base font-bold text-[#F6F1E4]">{virtualAccount.bankName}</div>
-                  </div>
-                  <button
-                    onClick={() => handleCopy(virtualAccount.bankName, 'bank')}
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-[#A8BFB3] hover:text-white transition-colors"
-                  >
-                    {copiedField === 'bank' ? <Check size={16} className="text-[#34C38F]" /> : <Copy size={16} />}
-                  </button>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-[#11382B]/60 border border-white/8 flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-[#A8BFB3]">Account Number</span>
-                    <div className="text-xl font-mono font-bold text-[#F6F1E4] tracking-wider">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                      Account Number
+                    </span>
+                    <span className="text-2xl font-mono font-bold text-emerald-400 tracking-wider">
                       {virtualAccount.accountNumber}
-                    </div>
+                    </span>
                   </div>
                   <button
-                    onClick={() => handleCopy(virtualAccount.accountNumber, 'account')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1F8A6A] hover:bg-[#27A37E] text-white text-xs font-bold transition-all shadow-md"
+                    type="button"
+                    onClick={() => handleCopy(virtualAccount.accountNumber, 'modal_acc')}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
                   >
-                    {copiedField === 'account' ? (
+                    {copiedField === 'modal_acc' ? (
                       <>
-                        <Check size={14} />
+                        <Check size={13} />
                         <span>Copied!</span>
                       </>
                     ) : (
                       <>
-                        <Copy size={14} />
+                        <Copy size={13} />
                         <span>Copy</span>
                       </>
                     )}
                   </button>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-[#11382B]/60 border border-white/8 flex items-center justify-between">
+                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800">
                   <div>
-                    <span className="text-xs text-[#A8BFB3]">Beneficiary Account Name</span>
-                    <div className="text-sm font-semibold text-[#F6F1E4]">{virtualAccount.accountName}</div>
+                    <span className="text-[10px] text-slate-400 block">Bank</span>
+                    <strong className="text-white">{virtualAccount.bankName}</strong>
                   </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 block">Amount to Send</span>
+                    <strong className="text-emerald-300 font-serif text-sm">
+                      {formatPlanPrice(virtualAccount.amount, virtualAccount.currency)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-slate-400 pt-1">
+                  Account Name: <span className="text-slate-300">{virtualAccount.accountName}</span>
                 </div>
               </div>
 
-              {/* Instructions */}
-              <div className="text-xs text-[#A8BFB3] space-y-1">
-                <p>• Open your mobile banking app or internet banking.</p>
-                <p>• Make a transfer of <strong>₦{virtualAccount.amount.toLocaleString()}</strong> to the account above.</p>
-                <p>• Once completed, tap the button below to confirm.</p>
-              </div>
-
-              {/* Error Notice */}
               {pollingError && (
-                <div className="p-3.5 rounded-xl bg-[#E5675B]/15 border border-[#E5675B]/30 text-[#E5675B] text-xs flex items-center gap-2">
-                  <AlertCircle size={16} className="shrink-0" />
-                  <span>{pollingError}</span>
+                <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs text-center">
+                  {pollingError}
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleCheckTransferStatus(false)}
-                  disabled={isPollingStatus}
-                  className="flex-1 medina-btn-primary py-3.5"
-                >
-                  {isPollingStatus ? (
-                    <>
-                      <RefreshCw size={16} className="animate-spin" />
-                      <span>Checking Bank Confirmation...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={18} />
-                      <span>I've Sent the Money</span>
-                    </>
-                  )}
-                </button>
+              <button
+                type="button"
+                onClick={handleCheckTransferStatus}
+                disabled={isPollingStatus}
+                className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs tracking-wide shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {isPollingStatus ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>Verifying Transfer with Bank...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>I Have Sent the Money</span>
+                    <ArrowRight size={14} />
+                  </>
+                )}
+              </button>
 
+              <p className="text-[10px] text-slate-400 text-center leading-relaxed">
+                Transfers typically clear in 30–60 seconds. This screen will automatically update as soon as the bank
+                confirms receipt.
+              </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* OFFICIAL RECEIPT MODAL */}
+      <AnimatePresence>
+        {receiptPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white text-slate-900 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b pb-4">
+                <div>
+                  <h3 className="text-base font-serif font-bold text-slate-950">Nooraya Quranic Sanctuary</h3>
+                  <span className="text-[10px] text-slate-500">Official Payment Receipt</span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setIsTransferModalOpen(false)}
-                  className="px-5 py-3.5 rounded-2xl bg-[#11382B] hover:bg-[#176B53] text-[#A8BFB3] hover:text-[#F6F1E4] text-sm font-semibold transition-colors"
+                  onClick={() => setReceiptPayment(null)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-900 cursor-pointer"
                 >
-                  Close
+                  <X size={18} />
                 </button>
               </div>
 
-              {/* Test mode button when testing in sandbox */}
-              <div className="text-center pt-2">
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Receipt Reference:</span>
+                  <span className="font-mono font-bold text-slate-900">{receiptPayment.tx_ref}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment Date:</span>
+                  <span className="font-semibold">{new Date(receiptPayment.created_at).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Customer Email:</span>
+                  <span className="font-semibold">{user?.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Sanctuary Plan:</span>
+                  <span className="font-semibold">30-Day Monthly Access Pass</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment Channel:</span>
+                  <span className="font-semibold capitalize">{receiptPayment.method.replace('_', ' ')}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t text-sm">
+                  <span className="font-bold text-slate-950">Amount Paid:</span>
+                  <span className="font-serif font-bold text-emerald-700 text-lg">
+                    {formatPlanPrice(receiptPayment.amount, receiptPayment.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment Status:</span>
+                  <span className="font-bold uppercase text-emerald-600">{receiptPayment.status}</span>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t flex gap-2">
                 <button
                   type="button"
-                  onClick={() => handleCheckTransferStatus(true)}
-                  className="text-[11px] text-[#A8BFB3]/60 hover:text-[#D4AF37] underline transition-colors"
+                  onClick={() => window.print()}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  [Sandbox / Demo] Simulate Instant Transfer Confirmation
+                  <Printer size={13} />
+                  <span>Print Receipt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReceiptPayment(null)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </motion.div>
