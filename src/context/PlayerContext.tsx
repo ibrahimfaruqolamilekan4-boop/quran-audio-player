@@ -1,5 +1,7 @@
-﻿import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
+import { getQuranAudio, getAmbientAudio } from '../lib/persistentAudio';
+import { fetchActiveBackgrounds, subscribeToBackgrounds } from '../lib/supabase';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS } from '../lib/constants';
 import { candidateUrls, extensionOf, isObjectUrl, rememberFormat } from '../lib/audio';
@@ -115,16 +117,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     loadRecitations().then(list => {
       recitationsRef.current = list;
       setRecitations(list);
-    }).catch(() => { /* storage unavailable — streaming still works */ });
+    }).catch(() => { /* storage unavailable â€” streaming still works */ });
   }, []);
   useEffect(() => { recitationsRef.current = recitations; }, [recitations]);
 
-  // Device-local reciter edits (portrait/bio, incl. curated sheikhs) — design.md D6.
+  // Device-local reciter edits (portrait/bio, incl. curated sheikhs) â€” design.md D6.
   const [reciterOverrides, setReciterOverrides] = useState<Record<string, Partial<Reciter>>>({});
   useEffect(() => {
     localforage.getItem<Record<string, Partial<Reciter>>>('reciterOverrides').then(saved => {
       if (saved && typeof saved === 'object') setReciterOverrides(saved);
-    }).catch(() => { /* storage unavailable — curated defaults still show */ });
+    }).catch(() => { /* storage unavailable â€” curated defaults still show */ });
   }, []);
 
   const updateReciterOverride = useCallback((id: string, patch: Partial<Reciter>) => {
@@ -369,7 +371,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (imageUrl) {
           // If imageUrl is a data URL or a local /videos/uploads/ file, upload it to /api/media
           const isData = imageUrl.startsWith('data:image/');
-          const isLocalUploadFile = imageUrl.startsWith('/videos/uploads/');
+          const isLocalUploadFile = false;
 
           if (isData || isLocalUploadFile) {
             try {
@@ -432,112 +434,23 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         await localforage.setItem('customReciters', localReciters);
       }
 
-      // 2. Sync all local background videos to /api/media (chunked) and /api/admin/ambient
-      const localVideos = (await localforage.getItem<CustomVideo[]>('customVideos_list')) || [];
-      let hasUpdatedVideos = false;
-      const updatedVideos = [...localVideos];
-      const activeSaved = normalizePortableMediaUrl(localStorage.getItem('activeBackgroundVideoId'));
-      let defaultAssigned = false;
-
-      for (let i = 0; i < updatedVideos.length; i++) {
-        const v = updatedVideos[i];
-        if (v.id.startsWith('curated_')) continue;
-        const cleanVidUrl = normalizePortableMediaUrl(v.videoUrl);
-        const isPortableCloudUrl =
-          cleanVidUrl &&
-          (cleanVidUrl.startsWith('/api/media/') ||
-            cleanVidUrl.startsWith('https://') ||
-            cleanVidUrl.startsWith('http://'));
-
-        let blob: Blob | null = null;
-        if (!isPortableCloudUrl) {
-          blob =
-            (await localforage.getItem<Blob>(v.id)) ||
-            (await localforage.getItem<Blob>(`customVideo_blob_${v.id}`)) ||
-            (await mediaStore.getItem<Blob>(v.id));
-
-          // If it was saved to /videos/uploads/ on this computer's disk, fetch the blob from local server
-          if (!blob && cleanVidUrl && cleanVidUrl.startsWith('/videos/uploads/')) {
-            try {
-              const resp = await fetch(cleanVidUrl);
-              if (resp.ok) {
-                blob = await resp.blob();
-              }
-            } catch {}
-          }
+      // Backgrounds are synced directly from Supabase Storage and database table
+      try {
+        const cloudBgs = await fetchActiveBackgrounds(true);
+        if (Array.isArray(cloudBgs)) {
+          setCustomVideos(cloudBgs.map((b, idx) => ({
+            id: b.id,
+            name: b.name_en,
+            videoUrl: b.video_url,
+            posterUrl: b.poster_url || undefined,
+            poster_url: b.poster_url || undefined,
+            category: b.category,
+            isDefault: idx === 0,
+            isPremium: b.is_premium,
+            sizeBytes: b.size_bytes || undefined,
+          })));
         }
-
-        const shouldBeDefault =
-          !defaultAssigned &&
-          (Boolean(v.isDefault) ||
-            activeSaved === v.id ||
-            activeSaved === v.videoUrl ||
-            !activeSaved ||
-            false);
-
-        if (blob) {
-          try {
-            onStatus?.(`Uploading video "${v.name}" to cloud...`);
-            const hostedUrl = await uploadMediaToServer(blob, {
-              filename: `${(v.name || 'video').replace(/[^a-zA-Z0-9._-]/g, '_')}.mp4`,
-              name: v.name || 'Background Video',
-              type: blob.type || 'video/mp4',
-              isDefault: shouldBeDefault,
-            });
-
-            if (hostedUrl) {
-              updatedVideos[i] = { ...v, videoUrl: hostedUrl, isDefault: shouldBeDefault || v.isDefault };
-              hasUpdatedVideos = true;
-              syncedVideos++;
-
-              await appApi('/admin/ambient', {
-                method: 'POST',
-                body: {
-                  action: 'add_video',
-                  id: v.id,
-                  name: v.name,
-                  videoUrl: hostedUrl,
-                  description: v.description,
-                  isDefault: shouldBeDefault,
-                },
-              }).catch(() => {});
-
-              if (shouldBeDefault) {
-                defaultAssigned = true;
-                await appApi('/admin/ambient', {
-                  method: 'POST',
-                  body: { action: 'set_default', id: v.id, videoUrl: hostedUrl },
-                }).catch(() => {});
-                setActiveBackgroundVideoId(hostedUrl);
-                localStorage.setItem('activeBackgroundVideoId', hostedUrl);
-              }
-            }
-          } catch (vidErr) {
-            console.warn('Video cloud sync failed for', v.name, vidErr);
-          }
-        } else if (isPortableCloudUrl && cleanVidUrl) {
-          if (shouldBeDefault) {
-            defaultAssigned = true;
-          }
-          // Ensure already-portable video is registered in global_background_videos
-          await appApi('/admin/ambient', {
-            method: 'POST',
-            body: {
-              action: 'add_video',
-              id: v.id,
-              name: v.name,
-              videoUrl: cleanVidUrl,
-              description: v.description,
-              isDefault: shouldBeDefault || v.isDefault,
-            },
-          }).catch(() => {});
-        }
-      }
-
-      if (hasUpdatedVideos) {
-        setCustomVideos(updatedVideos);
-        await localforage.setItem('customVideos_list', updatedVideos);
-      }
+      } catch {}
 
       await refreshGlobalCatalog();
     } catch (err) {
@@ -641,8 +554,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Move to the next candidate URL after a failure. Guarded on the element still pointing at the
-   * URL that failed, because a bad source reports itself twice — once by rejecting play() and
-   * once through the error event — and both must not burn a candidate.
+   * URL that failed, because a bad source reports itself twice â€” once by rejecting play() and
+   * once through the error event â€” and both must not burn a candidate.
    */
   const failAndAdvance = useCallback((failedUrl: string, reason: unknown) => {
     const audio = quranAudioRef.current;
@@ -682,7 +595,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (isObjectUrl(url)) objectUrlRef.current = url;
 
     audio.src = url;
-    audio.load();
     if (attempt.resumeAt > 0) {
       const resume = attempt.resumeAt;
       audio.addEventListener('loadedmetadata', () => { audio.currentTime = resume; }, { once: true });
@@ -703,7 +615,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           console.warn('Autoplay blocked by the browser:', error?.message || error);
           setIsLoading(false);
           setIsPlaying(false);
-          setPlaybackError('Tap play to begin — the browser needs a touch before audio can start.');
+          setPlaybackError('Tap play to begin â€” the browser needs a touch before audio can start.');
           return;
         }
         failAndAdvance(url, error);
@@ -714,8 +626,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize audio elements
   useEffect(() => {
-    quranAudioRef.current = new Audio();
-    ambientAudioRef.current = new Audio();
+    quranAudioRef.current = getQuranAudio();
+    ambientAudioRef.current = getAmbientAudio();
     ambientAudioRef.current.loop = true;
 
     try {
@@ -729,7 +641,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const updateDuration = () => setDuration(quranAudioRef.current?.duration || 0);
     const handleEnded = () => nextChapterRef.current();
     const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
+    const handlePause = () => { if (document.visibilityState === 'hidden') return; setIsPlaying(false); };
     // 'playing' means real decoded audio is flowing: this is the only place a format is trusted.
     const handlePlaying = () => {
       const attempt = attemptRef.current;
@@ -847,10 +759,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Load one surah for one reciter: the cached copy if we already have it, otherwise the first
-   * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens — the whole file
+   * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens â€” the whole file
    * is never downloaded up front, which used to make every surah start dead silent.
    */
-  const startChapter = useCallback(async (
+  const startChapter = useCallback((
     chapter: Chapter,
     reciter: Reciter,
     options: { resumeAt?: number; autoplay?: boolean; ayah?: number | null } = {}
@@ -859,26 +771,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!audio) return;
     const { resumeAt = 0, autoplay = true } = options;
 
-    // An admin-uploaded recitation for this exact sheikh + surah outranks every
-    // streamed source: it is what the app owner deliberately put there.
-    const uploadedEntry = recitationsRef.current.find(
-      r => r.reciterId === reciter.id && r.surah === chapter.id
-    ) ?? null;
-    const uploadedUrl = uploadedEntry ? await recitationObjectUrl(uploadedEntry) : null;
-
-    // Ayah mode (design §4.1): only reciters with a verified CDN voice can stream single
-    // ayahs; anything else transparently falls back to the full-surah mirror files.
     const voice = cdnVoiceFor(reciter);
     let ayahNumber: number | null = null;
-    if (!uploadedUrl) {
-      if (options.ayah === undefined) {
-        if (playModeRef.current === 'ayah' && voice) {
-          const prev = currentAyahRef.current;
-          ayahNumber = prev && prev.surah === chapter.id ? clampAyah(chapter.id, prev.ayah) : 1;
-        }
-      } else if (options.ayah !== null) {
-        ayahNumber = clampAyah(chapter.id, options.ayah);
+    if (options.ayah === undefined) {
+      if (playModeRef.current === 'ayah' && voice) {
+        const prev = currentAyahRef.current;
+        ayahNumber = prev && prev.surah === chapter.id ? clampAyah(chapter.id, prev.ayah) : 1;
       }
+    } else if (options.ayah !== null) {
+      ayahNumber = clampAyah(chapter.id, options.ayah);
     }
     if (ayahNumber !== null && !voice) ayahNumber = null;
     const useAyahStream = ayahNumber !== null;
@@ -892,17 +793,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       useAyahStream && voice
         ? [ayahStreamUrl(voice, chapter.id, ayahNumber as number)]
         : candidateUrls(reciter, chapter.id);
-    const urls = uploadedUrl ? [uploadedUrl, ...streamUrls] : streamUrls;
+
     const cacheKey =
       useAyahStream && voice
         ? `quran_ayah_${voice.voice}_${chapter.id}_${ayahNumber}`
         : `quran_audio_${reciter.id}_${chapter.id}`;
 
-    // Critical for background continuous playback: initiate playback synchronously
-    // without awaiting IndexedDB or remote calls, preventing mobile browsers from dropping autoplay privilege on track end.
     attemptRef.current = {
       reciterId: reciter.id,
-      urls,
+      urls: streamUrls,
       index: 0,
       cacheKey,
       resumeAt: useAyahStream ? 0 : resumeAt,
@@ -913,17 +812,28 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     currentReciterRef.current = reciter;
     attemptPlayback(0);
 
-    // Check offline cache in background without delaying immediate audio start
-    if (!uploadedUrl) {
-      localforage.getItem<Blob>(cacheKey).then(cached => {
-        if (cached && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.paused) {
-          const blobUrl = URL.createObjectURL(cached);
-          if (attemptRef.current) {
-            attemptRef.current.urls = [blobUrl, ...urls];
-          }
+    // Asynchronously prepend admin-uploaded recitation if available
+    const uploadedEntry = recitationsRef.current.find(
+      r => r.reciterId === reciter.id && r.surah === chapter.id
+    );
+    if (uploadedEntry) {
+      recitationObjectUrl(uploadedEntry).then(upUrl => {
+        if (upUrl && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.src !== upUrl) {
+          attemptRef.current.urls = [upUrl, ...streamUrls];
+          attemptPlayback(0);
         }
       }).catch(() => {});
     }
+
+    // Check offline cache in background without delaying immediate playback start
+    localforage.getItem<Blob>(cacheKey).then(cached => {
+      if (cached && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.paused) {
+        const blobUrl = URL.createObjectURL(cached);
+        if (attemptRef.current) {
+          attemptRef.current.urls = [blobUrl, ...streamUrls];
+        }
+      }
+    }).catch(() => {});
   }, [attemptPlayback]);
 
   const setPlayMode = (mode: 'surah' | 'ayah') => {
@@ -994,7 +904,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(e => {
         console.error("Play blocked", e?.message || String(e));
-        setPlaybackError('Tap play again — the browser needs a gesture before audio can start.');
+        setPlaybackError('Tap play again â€” the browser needs a gesture before audio can start.');
       });
   };
   
@@ -1111,7 +1021,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const ayahText = currentAyah ? ` • Ayah ${currentAyah.ayah}` : '';
+    const ayahText = currentAyah ? ` â€¢ Ayah ${currentAyah.ayah}` : '';
     const chapterTitle = `${currentChapter.name_simple} (${currentChapter.name_arabic})${ayahText}`;
     const reciterName = currentReciter.name + (currentReciter.nameArabic ? ` (${currentReciter.nameArabic})` : '');
 
@@ -1136,7 +1046,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: chapterTitle,
         artist: reciterName,
-        album: 'The Noble Quran • القرآن الكريم',
+        album: 'The Noble Quran â€¢ ?????? ??????',
         artwork,
       });
     } catch (e) {
@@ -1162,7 +1072,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentTime, duration, playbackRate, currentChapter]);
 
-  // MediaSession action handlers (next, prev, play, pause, seek) — registered once via refs
+  // MediaSession action handlers (next, prev, play, pause, seek) â€” registered once via refs
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 

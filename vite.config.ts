@@ -182,7 +182,7 @@ export default defineConfig(() => {
           clientsClaim: true,
           skipWaiting: true,
           cleanupOutdatedCaches: true,
-          navigateFallbackDenylist: [/^\/api\/.*/],
+          navigateFallbackDenylist: [/^\/api\/.*/, /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i],
           runtimeCaching: [
             {
               urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/,

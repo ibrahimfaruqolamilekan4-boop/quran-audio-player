@@ -99,6 +99,7 @@ export function NowPlayingOverlay() {
   const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
   const sleepTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sleepTimerTargetTimeRef = useRef<number | null>(null);
 
   // Favorites state
   const [isFavorite, setIsFavorite] = useState(false);
@@ -149,12 +150,25 @@ export function NowPlayingOverlay() {
     setShowSleepTimerModal(false);
 
     if (minutes !== null) {
+      const targetTime = Date.now() + minutes * 60 * 1000;
+      sleepTimerTargetTimeRef.current = targetTime;
       sleepTimeoutRef.current = setTimeout(() => {
         togglePlayPause();
         setSleepTimerMinutes(null);
+        sleepTimerTargetTimeRef.current = null;
       }, minutes * 60 * 1000);
+    } else {
+      sleepTimerTargetTimeRef.current = null;
     }
   };
+
+  useEffect(() => {
+    if (sleepTimerTargetTimeRef.current && Date.now() >= sleepTimerTargetTimeRef.current) {
+      togglePlayPause();
+      setSleepTimerMinutes(null);
+      sleepTimerTargetTimeRef.current = null;
+    }
+  }, [currentTime, togglePlayPause]);
 
   // Keyboard escape
   useEffect(() => {
@@ -278,7 +292,7 @@ export function NowPlayingOverlay() {
                 {currentChapter.name_arabic}
               </span>
               <p className="text-xs text-white/70 tracking-widest uppercase font-medium drop-shadow-md">
-                Surah {currentChapter.id} • {currentChapter.verses_count} Verses
+                Surah {currentChapter.id} â€¢ {currentChapter.verses_count} Verses
               </p>
             </div>
           </div>
@@ -392,7 +406,7 @@ export function NowPlayingOverlay() {
               </button>
             </div>
 
-            {/* Bottom Utility Tools: Volume, Arabic Verses ('ق'), Playlist */}
+            {/* Bottom Utility Tools: Volume, Arabic Verses ('Ù‚'), Playlist */}
             <div className="flex items-center justify-between pt-2 border-t border-white/10 text-slate-300">
               {/* Volume Slider Drawer */}
               <div className="flex items-center gap-2">
@@ -409,7 +423,7 @@ export function NowPlayingOverlay() {
                 />
               </div>
 
-              {/* Arabic Verse Reader Toggle ('ق') */}
+              {/* Arabic Verse Reader Toggle ('Ù‚') */}
               <button
                 onClick={() => setShowAyahReader(!showAyahReader)}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center font-arabic text-lg font-bold transition-all ${
@@ -419,7 +433,7 @@ export function NowPlayingOverlay() {
                 }`}
                 title="Read Quran Verses"
               >
-                ق
+                Ù‚
               </button>
 
               {currentChapter && currentReciter && (
@@ -461,7 +475,7 @@ export function NowPlayingOverlay() {
                   className="bg-[#0B0F19] border-t border-white/10 rounded-t-[2.5rem] p-6 max-h-[85vh] overflow-y-auto w-full shadow-2xl"
                   onClick={e => e.stopPropagation()}
                 >
-                  {/* Top Bar: Close (✕), Title, Checkmark (✓) */}
+                  {/* Top Bar: Close (âœ•), Title, Checkmark (âœ“) */}
                   <div className="flex items-center justify-between pb-4 border-b border-white/[0.08] mb-5">
                     <button
                       onClick={() => setShowSoundModal(false)}
@@ -624,7 +638,7 @@ export function NowPlayingOverlay() {
           </AnimatePresence>
 
           {/* =========================================================================
-              ARABIC AYAH READER MODAL ('ق')
+              ARABIC AYAH READER MODAL ('Ù‚')
              ========================================================================= */}
           <AnimatePresence>
             {showAyahReader && (
@@ -637,7 +651,7 @@ export function NowPlayingOverlay() {
                 <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <BookOpen size={16} className="text-teal-400" />
-                    <span>Surah {currentChapter.name_simple} • {currentChapter.name_arabic}</span>
+                    <span>Surah {currentChapter.name_simple} â€¢ {currentChapter.name_arabic}</span>
                   </h3>
                   <button
                     onClick={() => setShowAyahReader(false)}
@@ -649,7 +663,7 @@ export function NowPlayingOverlay() {
 
                 <div className="text-center py-6 space-y-4">
                   <span className="font-arabic text-4xl text-amber-300 leading-[2.2] block dir-rtl">
-                    بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                    Ø¨ÙØ³Ù’Ù…Ù Ø§Ù„Ù„ÙŽÙ‘Ù‡Ù Ø§Ù„Ø±ÙŽÙ‘Ø­Ù’Ù…ÙŽÙ°Ù†Ù Ø§Ù„Ø±ÙŽÙ‘Ø­ÙÙŠÙ…Ù
                   </span>
                   <p className="text-sm text-slate-300 font-light italic max-w-md mx-auto">
                     In the name of Allah, the Entirely Merciful, the Especially Merciful.

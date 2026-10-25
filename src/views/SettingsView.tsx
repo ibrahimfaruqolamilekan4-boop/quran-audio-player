@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
@@ -708,8 +708,8 @@ export function SettingsView() {
       let publicUrl = id;
 
       // Save locally in localforage for instant playback on this system
-      await localforage.setItem('customVideo_blob_' + id, blob);
-      await localforage.setItem(id, blob);
+      // Upload directly to cloud
+      //
       setVideoUploadProgress(15);
 
       // 1. Upload video in chunks to server media storage so every phone, tablet, and computer can stream it!
@@ -742,7 +742,7 @@ export function SettingsView() {
       };
       const updated = [newEntry, ...customVideos.map(v => ({ ...v, isDefault: false }))];
       setCustomVideos(updated);
-      await localforage.setItem('customVideos_list', updated);
+      //
       setActiveBackgroundVideoId(publicUrl);
       setVideoFile(null);
 
@@ -811,9 +811,9 @@ export function SettingsView() {
     }
     const updated = customVideos.filter(v => v.id !== id);
     setCustomVideos(updated);
-    await localforage.setItem('customVideos_list', updated);
-    await localforage.removeItem('customVideo_blob_' + id);
-    await localforage.removeItem(id);
+    //
+    //
+    //
     try {
       await appApi('/admin/ambient', {
         method: 'POST',
@@ -978,7 +978,7 @@ export function SettingsView() {
                     </div>
                   )}
                   <div className="flex flex-col">
-                    <span className="text-sm font-semibold text-white">{user.displayName || user.email?.split('@')[0]}</span>
+                    <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white">{user.displayName || user.email?.split('@')[0]}</span><button type="button" onClick={() => { const next = prompt("Enter your new display name:", user.displayName || user.email?.split('@')[0]); if (next && next.trim()) { appApi("/me/preferences", { method: "PUT", body: { full_name: next.trim() } }).then(() => refreshUser()).catch(() => {}); } }} className="text-emerald-400 hover:text-emerald-300 text-xs cursor-pointer p-0.5" title="Edit Full Name"><Pencil size={12} /></button></div>
                     <span className="text-xs text-slate-400 truncate max-w-[180px]">{user.email}</span>
                   </div>
                 </div>

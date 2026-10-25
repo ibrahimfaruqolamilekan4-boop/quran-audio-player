@@ -1,4 +1,4 @@
-﻿// Shared helpers for the /api endpoints.
+// Shared helpers for the /api endpoints.
 //
 // Everything in backend/ is bundled by scripts/build-function.mjs (esbuild)
 // into the single catch-all function at api/[...slug].mjs, which is the only
@@ -52,63 +52,8 @@ export async function getPool() {
   return pool;
 }
 
-// In-memory + cloud-synced fallback database for local dev or when Neon/Postgres hits quota
-const fallbackUsers = [
-  {
-    uid: 'usr_admin_ibrahim',
-    email: 'ibrahimfaruqolamilekan4@gmail.com',
-    password_hash: null,
-    display_name: 'Ibrahim Faruq (Admin)',
-    photo_url: null,
-    role: 'admin',
-    is_premium: true,
-    subscription_plan: 'lifetime',
-    flw_transaction_id: 'flw_admin_permanent',
-    premium_expires_at: null,
-    created_at: '2026-03-01T12:00:00Z',
-    last_login_at: '2026-10-10T08:00:00Z',
-  },
-  {
-    uid: 'usr_member_omar',
-    email: 'omar.zaid@nooraya.app',
-    password_hash: null,
-    display_name: 'Omar Zaid',
-    photo_url: null,
-    role: 'user',
-    created_at: '2026-04-12T14:30:00Z',
-    last_login_at: '2026-10-09T18:20:00Z',
-  },
-  {
-    uid: 'usr_member_ahmed',
-    email: 'hafiz.ahmed@example.com',
-    password_hash: null,
-    display_name: 'Ahmed Al-Banna',
-    photo_url: null,
-    role: 'user',
-    created_at: '2026-05-20T09:15:00Z',
-    last_login_at: '2026-10-10T05:40:00Z',
-  },
-  {
-    uid: 'usr_member_mariam',
-    email: 'mariam.khalid@example.com',
-    password_hash: null,
-    display_name: 'Mariam Khalid',
-    photo_url: null,
-    role: 'user',
-    created_at: '2026-06-18T16:00:00Z',
-    last_login_at: '2026-10-08T21:10:00Z',
-  },
-  {
-    uid: 'usr_member_yusuf',
-    email: 'yusuf.mansour@example.com',
-    password_hash: null,
-    display_name: 'Yusuf Mansour',
-    photo_url: null,
-    role: 'user',
-    created_at: '2026-08-05T11:45:00Z',
-    last_login_at: '2026-10-09T12:05:00Z',
-  },
-];
+// Real users are queried strictly from database / Supabase profiles - zero hardcoded users
+const fallbackUsers = [];
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -138,7 +83,7 @@ function defaultStoreShape() {
     global_media: {},
     global_media_chunks: {},
     user_preferences: {},
-    users: [...fallbackUsers],
+    users: [],
   };
 }
 
@@ -150,7 +95,7 @@ function loadStore() {
         if (!data.global_media) data.global_media = {};
         if (!data.global_media_chunks) data.global_media_chunks = {};
         if (!data.user_preferences) data.user_preferences = {};
-        if (!Array.isArray(data.users) || data.users.length === 0) data.users = [...fallbackUsers];
+        if (!Array.isArray(data.users)) data.users = [];
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
         if (!data.ambient_sounds) data.ambient_sounds = {};
@@ -171,9 +116,9 @@ function mergeCloudIntoServerStore(remote) {
   // 1. Merge users (preserve all accounts by email/uid)
   if (Array.isArray(remote.users)) {
     const byEmail = new Map();
-    for (const u of fallbackUsers) {
-      if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...u });
-    }
+    // No hardcoded user seeding
+    //
+    //
     for (const u of serverStore.users || []) {
       if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...byEmail.get(u.email.toLowerCase()), ...u });
     }
@@ -261,7 +206,7 @@ export async function syncStoreFromCloud(force = false) {
 async function persistStoreToCloud() {
   try {
     const snapshot = {
-      users: serverStore.users || fallbackUsers,
+      users: serverStore.users || [],
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
       ambient_sounds: serverStore.ambient_sounds || {},
