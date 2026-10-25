@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { appApi } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { fetchAdminProfiles, updateProfileAdmin, subscribeToProfiles, type ProfileRow } from '../lib/supabase';
@@ -151,12 +151,12 @@ export function AdminView() {
     const newRole = p.role === 'admin' ? 'user' : 'admin';
     askConfirm(
       'Update User Role',
-      Are you sure you want to change 's role to ?,
+      `Are you sure you want to change ${p.full_name || p.email}'s role to ${newRole.toUpperCase()}?`,
       async () => {
         try {
           const res = await updateProfileAdmin(p.id, { role: newRole });
           if (res.ok) {
-            showToast(Role updated to ., 'success');
+            showToast(`Role updated to ${newRole}.`, 'success');
             await loadProfiles();
           } else {
             showToast(res.error || 'Failed to update role.', 'error');
@@ -191,8 +191,8 @@ export function AdminView() {
       if (res.ok) {
         showToast(
           duration === 'revoke'
-            ? Revoked premium from .
-            : Granted  premium to !,
+            ? `Revoked premium from ${p.full_name || p.email}.`
+            : `Granted ${duration.toUpperCase()} premium to ${p.full_name || p.email}!`,
           'success'
         );
         setPremiumModalUser(null);
@@ -944,7 +944,11 @@ export function AdminView() {
                       <td className="py-3 px-4 font-mono text-slate-300 select-all">{p.email || '—'}</td>
                       <td className="py-3 px-4">
                         <span
-                          className={px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider }
+                          className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                            p.role === 'admin'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
                         >
                           {p.role}
                         </span>
@@ -955,7 +959,7 @@ export function AdminView() {
                             <Crown size={13} className="text-amber-400" />
                             <span>
                               {p.premium_expires_at
-                                ? Premium ()
+                                ? `Premium (${new Date(p.premium_expires_at).toLocaleDateString()})`
                                 : 'Lifetime Premium'}
                             </span>
                           </div>
