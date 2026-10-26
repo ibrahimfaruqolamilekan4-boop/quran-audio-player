@@ -23,11 +23,16 @@ import {
 import { usePlayer } from '../context/PlayerContext';
 import { ALL_SURAHS } from '../lib/surahs';
 
+interface ReciterDownloadGroup {
+  reciterName: string;
+  reciterPhoto?: string;
+  surahs: DownloadedSurah[];
+  totalBytes: number;
+}
+
 export function DownloadManager() {
   const { playChapter, currentChapter, isPlaying, togglePlayPause, allReciters, setReciter } = usePlayer();
-  const [groups, setGroups] = useState<
-    Record<string, { reciterName: string; reciterPhoto?: string; surahs: DownloadedSurah[]; totalBytes: number }>
-  >({});
+  const [groups, setGroups] = useState<Record<string, ReciterDownloadGroup>>({});
   const [quota, setQuota] = useState<{ usedBytes: number; quotaBytes: number; percentUsed: number; isPersistent: boolean }>({
     usedBytes: 0,
     quotaBytes: 0,
@@ -44,7 +49,7 @@ export function DownloadManager() {
         getDownloadedSurahsGroupedByReciter(),
         getStorageQuotaEstimate(),
       ]);
-      setGroups(grouped);
+      setGroups(grouped as Record<string, ReciterDownloadGroup>);
       setQuota(q);
     } catch (e) {
       console.warn('Failed to load downloads data:', e);
@@ -66,8 +71,9 @@ export function DownloadManager() {
     };
   }, []);
 
-  const totalBytesAll = Object.values(groups).reduce((acc, g) => acc + g.totalBytes, 0);
-  const totalCountAll = Object.values(groups).reduce((acc, g) => acc + g.surahs.length, 0);
+  const groupList = Object.values(groups) as ReciterDownloadGroup[];
+  const totalBytesAll = groupList.reduce((acc, g) => acc + (g.totalBytes || 0), 0);
+  const totalCountAll = groupList.reduce((acc, g) => acc + (g.surahs?.length || 0), 0);
 
   const handleDeleteOne = async (surahId: number, reciterId: string, moshafId?: string) => {
     await deleteDownloadedSurah(surahId, reciterId, moshafId);
@@ -191,7 +197,7 @@ export function DownloadManager() {
 
       {/* Reciter Groups */}
       <div className="space-y-6">
-        {Object.entries(groups).map(([reciterId, group]) => (
+        {(Object.entries(groups) as [string, ReciterDownloadGroup][]).map(([reciterId, group]) => (
           <div key={reciterId} className="bg-slate-900/40 rounded-2xl p-4 sm:p-5 border border-slate-800/60">
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/60">
               <div className="flex items-center gap-3">
