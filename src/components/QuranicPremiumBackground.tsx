@@ -480,16 +480,18 @@ export function QuranicPremiumBackground({
 
 function getVideoPoster(url: string | null | undefined): string {
   if (!url) return '';
-  const match = customVideos.find(v => v.videoUrl === url || v.id === url);
+  const match = customVideos.find(
+    (v) =>
+      v.videoUrl === url ||
+      v.videoUrl720p === url ||
+      v.videoUrl480p === url ||
+      v.id === url ||
+      v.renditions?.some((r) => r.url === url)
+  );
   if ((match as any)?.posterUrl || (match as any)?.poster_url) {
     return (match as any).posterUrl || (match as any).poster_url;
   }
   return '';
-
-
-
-
-
 }
 
   // Start playback safely on video elements whenever sources are ready (iOS Safari, iPadOS, Android)

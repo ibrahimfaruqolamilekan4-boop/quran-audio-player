@@ -442,12 +442,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             id: b.id,
             name: b.name_en,
             videoUrl: b.video_url,
+            videoUrl720p: b.video_url_720p || b.video_url,
+            videoUrl480p: b.video_url_480p || b.video_url,
+            renditions: b.renditions || [],
             posterUrl: b.poster_url || undefined,
             poster_url: b.poster_url || undefined,
             category: b.category,
             isDefault: idx === 0,
             isPremium: b.is_premium,
+            isDraft: b.is_draft,
+            isActive: b.is_active,
             sizeBytes: b.size_bytes || undefined,
+            durationSeconds: b.duration_seconds || undefined,
+            attribution: b.attribution || undefined,
           })));
         }
       } catch {}
