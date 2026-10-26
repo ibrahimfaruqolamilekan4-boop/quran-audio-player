@@ -84,12 +84,20 @@ export function useAmbientPlayer() {
     if (!audio || !currentChapter) return;
     // Assume a function `recitationObjectUrl` is globally available (imported in PlayerContext).
     // To avoid a circular import we lazily import inside the effect.
-    import("../lib/recitations").then(({ recitationObjectUrl }) => {
-      const url = recitationObjectUrl(currentChapter.id, currentReciter?.id ?? "");
-      if (url) {
-        audio.src = url;
-        audio.load();
-        if (isPlaying) audio.play().catch(() => {});
+    import("../lib/recitations").then(async ({ loadRecitations, findRecitation, recitationObjectUrl }) => {
+      try {
+        const list = await loadRecitations();
+        const match = findRecitation(list, currentReciter?.id ?? "", currentChapter.id);
+        if (match) {
+          const url = await recitationObjectUrl(match);
+          if (url && audio) {
+            audio.src = url;
+            audio.load();
+            if (isPlaying) audio.play().catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load local recitation url:', err);
       }
     });
   }, [currentChapter?.id, currentReciter?.id, isPlaying]);

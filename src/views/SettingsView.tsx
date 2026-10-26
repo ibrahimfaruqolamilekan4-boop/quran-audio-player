@@ -33,6 +33,7 @@ import {
   Mail,
   Calendar,
   ShieldAlert,
+  Pencil,
 } from 'lucide-react';
 import { ReciterAvatar } from '../components/ReciterAvatar';
 import { DownloadManager } from '../components/DownloadManager';
@@ -76,7 +77,7 @@ export function SettingsView() {
     syncLocalAssetsToCloud,
   } = usePlayer();
 
-  const { user, role, logOut } = useAuth();
+  const { user, role, logOut, refreshUser } = useAuth();
   const navigate = useNavigate();
 
   // Admin check: true if role === 'admin' OR signed in with the admin email OR in owner studio
