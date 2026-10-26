@@ -39,12 +39,14 @@ import media from './media';
 import verifyFlutterwave from './payments/verify';
 import flwWebhook from './payments/webhook';
 import createVirtualAccount from './payments/create-virtual-account';
+import createHostedCheckout from './payments/create-hosted-checkout';
 import checkTransferStatus from './payments/check-transfer-status';
 import publicBackgrounds from './backgrounds';
 import adminSupabaseBackgrounds from './admin/supabase-backgrounds';
 import publicPlans from './plans';
 import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
+import paymentsDiagnostics from './admin/payments-diagnostics';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -71,11 +73,13 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/plans$/, publicPlans],
   [/^\/api\/admin\/plans(\/.*)?$/, adminPlans],
   [/^\/api\/admin\/plan-price-logs$/, adminPlans],
+  [/^\/api\/admin\/payments\/diagnostics$/, paymentsDiagnostics],
   [/^\/api\/admin\/payments$/, adminPayments],
   [/^\/api\/admin\/reconcile-payments$/, adminPayments],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
+  [/^\/api\/payments\/create-hosted-checkout$/, createHostedCheckout],
   [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
   [/^\/api\/backgrounds$/, publicBackgrounds],
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],

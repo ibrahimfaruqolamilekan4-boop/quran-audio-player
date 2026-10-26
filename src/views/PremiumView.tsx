@@ -78,6 +78,8 @@ export function PremiumView() {
     expiresInSeconds: number;
   } | null>(null);
   const [isGeneratingAccount, setIsGeneratingAccount] = useState(false);
+  const [fallbackCheckoutUrl, setFallbackCheckoutUrl] = useState<string | null>(null);
+  const [loadingHosted, setLoadingHosted] = useState(false);
   const [isPollingStatus, setIsPollingStatus] = useState(false);
   const [pollingError, setPollingError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -208,26 +210,40 @@ export function PremiumView() {
     try {
       setIsGeneratingAccount(true);
       setPollingError(null);
+      setFallbackCheckoutUrl(null);
+
       const res = await appApi<{
         success: boolean;
-        bankName: string;
-        accountNumber: string;
-        accountName: string;
+        bankName?: string;
+        accountNumber?: string;
+        accountName?: string;
         amount: number;
         currency: string;
         txRef: string;
         expiresAt: string;
         expiresInSeconds: number;
+        error?: string;
+        fallbackCheckoutUrl?: string;
       }>('/payments/create-virtual-account', {
         method: 'POST',
         body: { plan_code: activePlan.code },
       });
 
-      setVirtualAccount(res);
-      setTimeLeftSeconds(res.expiresInSeconds || 3600);
-      setIsTransferModalOpen(true);
+      if (res.success && res.accountNumber && res.bankName) {
+        setVirtualAccount(res as any);
+        setTimeLeftSeconds(res.expiresInSeconds || 3600);
+        setIsTransferModalOpen(true);
+      } else {
+        setVirtualAccount(null);
+        if (res.fallbackCheckoutUrl) {
+          setFallbackCheckoutUrl(res.fallbackCheckoutUrl);
+        }
+        setPollingError(res.error || 'Dynamic virtual account generation is temporarily unavailable.');
+        setIsTransferModalOpen(true);
+      }
     } catch (err: any) {
       setPollingError(err?.message || 'Failed to generate bank transfer details. Please retry.');
+      setIsTransferModalOpen(true);
     } finally {
       setIsGeneratingAccount(false);
     }
@@ -264,62 +280,36 @@ export function PremiumView() {
     }
   };
 
-  // Standard Flutterwave Checkout for Card / USSD
-  const handleCardCheckout = () => {
+  // Flutterwave server-side hosted checkout for Card / USSD / Bank Transfer
+  const handleCardCheckout = async () => {
     if (!user) {
       window.location.href = '/auth';
       return;
     }
 
-    const flwKey =
-      (import.meta as any).env?.VITE_FLW_PUBLIC_KEY ||
-      (import.meta as any).env?.FLW_PUBLIC_KEY ||
-      'FLWPUBK_TEST-SANDBOX';
-
-    if (typeof window.FlutterwaveCheckout !== 'function') {
-      alert('Flutterwave checkout script is loading. Please check internet connection.');
-      return;
-    }
-
     if (!activePlan) return;
 
-    const txRef = `qf-card-${Date.now()}-${user.uid.slice(0, 8)}`;
+    setLoadingHosted(true);
+    try {
+      const res = await appApi<{
+        success: boolean;
+        checkoutUrl: string;
+        txRef: string;
+      }>('/payments/create-hosted-checkout', {
+        method: 'POST',
+        body: { plan_code: activePlan.code },
+      });
 
-    window.FlutterwaveCheckout({
-      public_key: flwKey,
-      tx_ref: txRef,
-      amount: activePlan.amount,
-      currency: activePlan.currency || 'NGN',
-      payment_options: 'card, ussd',
-      customer: {
-        email: user.email,
-        name: user.displayName || user.email.split('@')[0],
-      },
-      customizations: {
-        title: 'Nooraya Quranic Sanctuary',
-        description: `${activePlan.name_en} (${formatPlanPrice(activePlan.amount, activePlan.currency)})`,
-        logo: `${window.location.origin}/icon.svg`,
-      },
-      callback: async (data: any) => {
-        try {
-          const transactionId = data.transaction_id || data.id;
-          await appApi('/payments/verify-flutterwave', {
-            method: 'POST',
-            body: {
-              transaction_id: transactionId,
-              tx_ref: txRef,
-              plan_code: activePlan.code,
-            },
-          });
-          await refreshUser();
-          await loadUserPayments();
-          setSuccessNotice(true);
-        } catch (e: any) {
-          alert(`Verification: ${e?.message || 'Payment completed but verification pending.'}`);
-        }
-      },
-      onclose: () => {},
-    });
+      if (res.checkoutUrl) {
+        window.location.href = res.checkoutUrl;
+      } else {
+        alert('Could not initialize Flutterwave checkout gateway. Please try again.');
+      }
+    } catch (e: any) {
+      alert(`Checkout initialization: ${e?.message || 'Failed to connect to Flutterwave'}`);
+    } finally {
+      setLoadingHosted(false);
+    }
   };
 
   // Expiry date calculation & reminder banners
@@ -652,92 +642,124 @@ export function PremiumView() {
                 </button>
               </div>
 
-              {/* Countdown Bar */}
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                <span className="text-slate-400">Account Expires In:</span>
-                <span className="font-mono font-bold text-amber-300 flex items-center gap-1">
-                  <Clock size={12} />
-                  {formatCountdown(timeLeftSeconds)}
-                </span>
-              </div>
-
-              {/* Account Box */}
-              <div className="p-4 rounded-2xl bg-[#060913] border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                      Account Number
-                    </span>
-                    <span className="text-2xl font-mono font-bold text-emerald-400 tracking-wider">
-                      {virtualAccount.accountNumber}
+              {virtualAccount ? (
+                <>
+                  {/* Countdown Bar */}
+                  <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+                    <span className="text-slate-400">Account Expires In:</span>
+                    <span className="font-mono font-bold text-amber-300 flex items-center gap-1">
+                      <Clock size={12} />
+                      {formatCountdown(timeLeftSeconds)}
                     </span>
                   </div>
+
+                  {/* Account Box */}
+                  <div className="p-4 rounded-2xl bg-[#060913] border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                          Account Number
+                        </span>
+                        <span className="text-2xl font-mono font-bold text-emerald-400 tracking-wider">
+                          {virtualAccount.accountNumber}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(virtualAccount.accountNumber, 'modal_acc')}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        {copiedField === 'modal_acc' ? (
+                          <>
+                            <Check size={13} />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={13} />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Bank</span>
+                        <strong className="text-white">{virtualAccount.bankName}</strong>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block">Amount to Send</span>
+                        <strong className="text-emerald-300 font-serif text-sm">
+                          {formatPlanPrice(virtualAccount.amount, virtualAccount.currency)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-400 pt-1">
+                      Account Name: <span className="text-slate-300">{virtualAccount.accountName}</span>
+                    </div>
+                  </div>
+
+                  {pollingError && (
+                    <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs text-center">
+                      {pollingError}
+                    </div>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => handleCopy(virtualAccount.accountNumber, 'modal_acc')}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                    onClick={handleCheckTransferStatus}
+                    disabled={isPollingStatus}
+                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs tracking-wide shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                   >
-                    {copiedField === 'modal_acc' ? (
+                    {isPollingStatus ? (
                       <>
-                        <Check size={13} />
-                        <span>Copied!</span>
+                        <RefreshCw size={14} className="animate-spin" />
+                        <span>Verifying Transfer with Bank...</span>
                       </>
                     ) : (
                       <>
-                        <Copy size={13} />
-                        <span>Copy</span>
+                        <span>I Have Sent the Money</span>
+                        <ArrowRight size={14} />
+                      </>
+                    )}
+                  </button>
+
+                  <p className="text-[10px] text-slate-400 text-center leading-relaxed">
+                    Transfers typically clear in 30–60 seconds. This screen will automatically update as soon as the bank
+                    confirms receipt.
+                  </p>
+                </>
+              ) : (
+                <div className="space-y-4 py-2 text-center">
+                  <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 space-y-2">
+                    <p className="text-xs text-amber-200 leading-relaxed">
+                      Direct virtual transfer account generation is currently provisioning on Flutterwave. You can pay instantly using Bank Transfer, Card, or USSD via Flutterwave secure checkout:
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCardCheckout}
+                    disabled={loadingHosted}
+                    className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {loadingHosted ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        <span>Redirecting to Checkout...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={14} />
+                        <span>Pay via Flutterwave Multi-Channel Checkout</span>
+                        <ExternalLink size={14} />
                       </>
                     )}
                   </button>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Bank</span>
-                    <strong className="text-white">{virtualAccount.bankName}</strong>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400 block">Amount to Send</span>
-                    <strong className="text-emerald-300 font-serif text-sm">
-                      {formatPlanPrice(virtualAccount.amount, virtualAccount.currency)}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="text-[10px] text-slate-400 pt-1">
-                  Account Name: <span className="text-slate-300">{virtualAccount.accountName}</span>
-                </div>
-              </div>
-
-              {pollingError && (
-                <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs text-center">
-                  {pollingError}
-                </div>
               )}
-
-              <button
-                type="button"
-                onClick={handleCheckTransferStatus}
-                disabled={isPollingStatus}
-                className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs tracking-wide shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-              >
-                {isPollingStatus ? (
-                  <>
-                    <RefreshCw size={14} className="animate-spin" />
-                    <span>Verifying Transfer with Bank...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>I Have Sent the Money</span>
-                    <ArrowRight size={14} />
-                  </>
-                )}
-              </button>
-
-              <p className="text-[10px] text-slate-400 text-center leading-relaxed">
-                Transfers typically clear in 30–60 seconds. This screen will automatically update as soon as the bank
-                confirms receipt.
-              </p>
             </motion.div>
           </div>
         )}
