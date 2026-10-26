@@ -8,18 +8,42 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from '@supabase/supabase-js';
 
+export interface VideoRendition {
+  resolution: '720p' | '480p' | '360p' | 'original';
+  url: string;
+  size_bytes?: number;
+  width?: number;
+  height?: number;
+  bitrate_bps?: number;
+}
+
 export interface BackgroundRow {
   id: string;
   name_en: string;
   name_ar?: string | null;
   category: string;
   video_url: string;
+  video_url_720p?: string | null;
+  video_url_480p?: string | null;
   poster_url?: string | null;
   size_bytes?: number | null;
+  duration_seconds?: number | null;
+  renditions?: VideoRendition[] | null;
+  storage_paths?: string[] | null;
+  attribution?: string | null;
   sort_order: number;
   is_active: boolean;
+  is_draft?: boolean;
   is_premium: boolean;
   created_at: string;
+}
+
+export interface StorageStats {
+  bucket: string;
+  total_bytes: number;
+  limit_bytes: number;
+  count: number;
+  usage_percent: number;
 }
 
 export interface ProfileRow {
@@ -259,6 +283,182 @@ export async function verifyVideoPlayable(url: string, timeoutMs = 8000): Promis
     video.load();
   });
 }
+
+/**
+ * Verifies that an uploaded poster image URL loads properly in the browser.
+ */
+export async function verifyImageLoadable(url: string, timeoutMs = 6000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        resolve(false);
+      }
+    }, timeoutMs);
+    img.onload = () => {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(true);
+      }
+    };
+    img.onerror = () => {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(false);
+      }
+    };
+    img.src = url;
+  });
+}
+
+export interface VideoMetadata {
+  duration: number;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  bitrateMbps: number;
+  projected720pBytes: number;
+  projected480pBytes: number;
+  exceedsPreferredLimit: boolean;
+  exceedsHardLimit: boolean;
+}
+
+/**
+ * Probes large source videos (up to 500 MB+) without reading the entire file into memory.
+ * Computes duration, dimensions, bitrate, and projected output sizes for 720p and 480p.
+ */
+export async function probeSourceVideoMetadata(file: File): Promise<VideoMetadata> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    (video as any).playsInline = true;
+
+    const objectUrl = URL.createObjectURL(file);
+    video.src = objectUrl;
+
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Timed out probing source video metadata. Format may not be decoded by browser.'));
+    }, 12000);
+
+    video.onloadedmetadata = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(objectUrl);
+
+      const duration = video.duration || 1;
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      const sizeBytes = file.size;
+
+      const bitrateMbps = (sizeBytes * 8) / (duration * 1_000_000);
+      const projected720pBytes = Math.round(duration * 275_000); // ~2.2 Mbps
+      const projected480pBytes = Math.round(duration * 125_000); // ~1.0 Mbps
+
+      resolve({
+        duration,
+        width,
+        height,
+        sizeBytes,
+        bitrateMbps: Math.round(bitrateMbps * 100) / 100,
+        projected720pBytes,
+        projected480pBytes,
+        exceedsPreferredLimit: projected720pBytes > 25 * 1024 * 1024,
+        exceedsHardLimit: projected720pBytes > 45 * 1024 * 1024,
+      });
+    };
+
+    video.onerror = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Failed to decode video metadata. Ensure video is MP4/H.264 or WebM.'));
+    };
+  });
+}
+
+/**
+ * Fetches current Supabase Storage usage vs 1 GB Free Tier quota.
+ */
+export async function fetchStorageStats(): Promise<StorageStats> {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client.rpc('get_storage_stats');
+      if (!error && data) {
+        return data as StorageStats;
+      }
+    } catch (e) {
+      console.warn('RPC get_storage_stats check fallback:', e);
+    }
+  }
+
+  // Fallback: estimate from backgrounds catalog
+  const bgs = await fetchActiveBackgrounds().catch(() => []);
+  const total = bgs.reduce((acc, b) => acc + (b.size_bytes || 0), 0);
+  const limit = 1073741824; // 1 GB
+  return {
+    bucket: STORAGE_BUCKET,
+    total_bytes: total,
+    limit_bytes: limit,
+    count: bgs.length,
+    usage_percent: Math.min(100, Math.round((total / limit) * 1000) / 10),
+  };
+}
+
+/**
+ * Deletes objects from Supabase Storage by path array.
+ */
+export async function deleteSupabaseStorageObjects(paths: string[]): Promise<boolean> {
+  if (!paths || paths.length === 0) return true;
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const cleanPaths = paths.map((p) => p.replace(/^\/+/, ''));
+      const { error } = await client.storage.from(STORAGE_BUCKET).remove(cleanPaths);
+      return !error;
+    } catch (err) {
+      console.warn('Supabase storage removal notice:', err);
+    }
+  }
+  return true;
+}
+
+/**
+ * Selects the optimal video rendition for the current client device:
+ * - Mobile phones & tablets (viewport < 768px): 480p rendition (conserves 70%+ data & battery)
+ * - Slow cellular (2G/3G/Save-Data): 480p rendition
+ * - Desktop / fast Wi-Fi / 4G / 5G: 720p rendition
+ */
+export function selectAdaptiveRendition(bg: {
+  video_url?: string;
+  video_url_720p?: string | null;
+  video_url_480p?: string | null;
+  renditions?: VideoRendition[] | null;
+}): string {
+  const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+  const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+  const saveData = conn?.saveData === true;
+  const effectiveType = conn?.effectiveType || '';
+  const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g' || effectiveType === '3g';
+  const isMobileScreen = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+
+  const url480p = bg.video_url_480p || bg.renditions?.find((r) => r.resolution === '480p')?.url;
+  const url720p = bg.video_url_720p || bg.renditions?.find((r) => r.resolution === '720p')?.url;
+
+  if ((isSlowConnection || isMobileScreen) && url480p) {
+    return url480p;
+  }
+
+  if (url720p) return url720p;
+  if (url480p) return url480p;
+  return bg.video_url || '';
+}
+
+export { uploadResumableToSupabase, type ResumableUploadOptions, type UploadController } from './tusUpload';
 
 /**
  * Uploads a file directly to Supabase Storage bucket 'ambient-backgrounds'

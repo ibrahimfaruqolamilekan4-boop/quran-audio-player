@@ -45,6 +45,7 @@ $$;
 -- ------------------------------------------------------------------------------
 -- SECTION 2: PROFILES TABLE & AUTH TRIGGER
 -- Automatically mirrors auth.users into public.profiles with role & premium status.
+-- Safe even if public.profiles already existed from a Supabase starter template.
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -57,6 +58,34 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Ensure all columns exist even if public.profiles pre-existed without them
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_premium BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS premium_expires_at TIMESTAMPTZ;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+
+-- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role' AND data_type != 'text'
+  ) THEN
+    ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.profiles ALTER COLUMN role TYPE text USING role::text;
+    ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'user';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
 
 -- Fast indexes for admin filtering & searches
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles (role);
@@ -142,6 +171,7 @@ ON CONFLICT (id) DO UPDATE SET
 
 -- ------------------------------------------------------------------------------
 -- SECTION 3: BACKGROUNDS TABLE (NO SEED ROWS - ADMIN UPLOADS LIVE VIDEOS)
+-- Supports multi-rendition phone-adaptive delivery (720p, 480p, poster)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.backgrounds (
   id TEXT PRIMARY KEY,
@@ -149,31 +179,49 @@ CREATE TABLE IF NOT EXISTS public.backgrounds (
   name_ar TEXT,
   category TEXT NOT NULL DEFAULT 'nature',
   video_url TEXT NOT NULL,
+  video_url_720p TEXT,
+  video_url_480p TEXT,
   poster_url TEXT,
   size_bytes BIGINT DEFAULT 0,
+  duration_seconds NUMERIC DEFAULT 0,
+  renditions JSONB DEFAULT '[]'::jsonb,
+  storage_paths JSONB DEFAULT '[]'::jsonb,
+  attribution TEXT,
   sort_order INT DEFAULT 0,
-  is_active BOOLEAN DEFAULT true,
+  is_active BOOLEAN DEFAULT false, -- Starts as DRAFT until published by admin
+  is_draft BOOLEAN DEFAULT true,
   is_premium BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Idempotent column migrations for existing instances
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS video_url_720p TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS video_url_480p TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS duration_seconds NUMERIC DEFAULT 0;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS renditions JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS storage_paths JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS attribution TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON public.backgrounds (is_active, sort_order ASC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_backgrounds_category ON public.backgrounds (category);
+CREATE INDEX IF NOT EXISTS idx_backgrounds_draft ON public.backgrounds (is_draft);
 
 -- ------------------------------------------------------------------------------
 -- SECTION 4: STORAGE BUCKET 'ambient-backgrounds' (PUBLIC READ, ADMIN WRITE)
+-- Free Plan max file limit: 50 MB (52,428,800 bytes).
 -- ------------------------------------------------------------------------------
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'ambient-backgrounds',
   'ambient-backgrounds',
   true,
-  47185920, -- 45 MB limit
+  52428800, -- 50 MB Free Plan file size limit
   ARRAY['video/mp4', 'video/webm', 'image/jpeg', 'image/png', 'image/webp']
 )
 ON CONFLICT (id) DO UPDATE SET
   public = true,
-  file_size_limit = 47185920,
+  file_size_limit = 52428800,
   allowed_mime_types = ARRAY['video/mp4', 'video/webm', 'image/jpeg', 'image/png', 'image/webp'];
 
 -- Storage RLS Policies
@@ -216,6 +264,48 @@ CREATE POLICY "Admins can delete ambient-backgrounds bucket"
       auth.role() = 'service_role' OR public.is_admin()
     )
   );
+
+-- Helper RPC for Admin Storage Usage Meter (1 GB Free Tier quota tracking)
+CREATE OR REPLACE FUNCTION public.get_storage_stats()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, storage, pg_temp
+AS $$
+DECLARE
+  total_bytes BIGINT := 0;
+  count_objects INT := 0;
+BEGIN
+  -- 1. Try summing objects in ambient-backgrounds bucket
+  BEGIN
+    SELECT COALESCE(SUM((metadata->>'size')::bigint), 0), COUNT(*)
+    INTO total_bytes, count_objects
+    FROM storage.objects
+    WHERE bucket_id = 'ambient-backgrounds';
+  EXCEPTION
+    WHEN OTHERS THEN
+      total_bytes := 0;
+      count_objects := 0;
+  END;
+
+  -- 2. Fallback to backgrounds table if storage.objects is empty
+  IF total_bytes = 0 THEN
+    SELECT COALESCE(SUM(size_bytes), 0), COUNT(*)
+    INTO total_bytes, count_objects
+    FROM public.backgrounds;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'bucket', 'ambient-backgrounds',
+    'total_bytes', total_bytes,
+    'limit_bytes', 1073741824, -- 1 GB Free Tier limit (1,073,741,824 bytes)
+    'count', count_objects,
+    'usage_percent', ROUND((total_bytes::numeric / 1073741824::numeric) * 100, 2)
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_storage_stats() TO authenticated, service_role, anon;
 
 -- ------------------------------------------------------------------------------
 -- SECTION 5: ROW LEVEL SECURITY (RLS) FOR ALL TABLES
@@ -352,6 +442,22 @@ $$;
 -- ------------------------------------------------------------------------------
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+
+-- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role' AND data_type != 'text'
+  ) THEN
+    ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.profiles ALTER COLUMN role TYPE text USING role::text;
+    ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'user';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.plans (
   id TEXT PRIMARY KEY,

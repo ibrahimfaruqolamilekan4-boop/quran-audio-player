@@ -66,11 +66,26 @@ export interface CustomVideo {
   id: string;
   name: string;
   videoUrl?: string;
+  videoUrl720p?: string;
+  videoUrl480p?: string;
   posterUrl?: string;
   poster_url?: string;
   category?: string;
   isDefault?: boolean;
   isPremium?: boolean;
+  isDraft?: boolean;
+  isActive?: boolean;
+  durationSeconds?: number;
+  renditions?: Array<{
+    resolution: string;
+    url: string;
+    size_bytes?: number;
+    width?: number;
+    height?: number;
+    bitrate_bps?: number;
+  }>;
+  storagePaths?: string[];
+  attribution?: string;
   /** Optional longer label for the admin background library. */
   description?: string;
   sizeBytes?: number;

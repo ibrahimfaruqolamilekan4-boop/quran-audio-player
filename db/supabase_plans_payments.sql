@@ -4,10 +4,39 @@
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 1. EXTEND PROFILES TABLE WITH SUBSCRIPTION FIELDS
+-- 1. EXTEND PROFILES TABLE WITH SUBSCRIPTION & USER FIELDS
+-- Safe even if public.profiles already existed from a Supabase starter template
 -- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_premium BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS premium_expires_at TIMESTAMPTZ;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+
+-- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'role' AND data_type != 'text'
+  ) THEN
+    ALTER TABLE public.profiles ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.profiles ALTER COLUMN role TYPE text USING role::text;
+    ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'user';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
 
 -- ------------------------------------------------------------------------------
 -- 2. PLANS TABLE (PRICING SOURCE OF TRUTH)
