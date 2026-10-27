@@ -242,6 +242,35 @@ async function uploadDirectAtomic(
   authToken: string,
   onProgress?: (uploaded: number, total: number, pct: number) => void
 ): Promise<string> {
+  // Try signed upload URL first (bypasses RLS)
+  try {
+    const signRes = await fetch('/api/admin/supabase-backgrounds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'signed-upload-url', path: cleanPath }),
+    });
+    if (signRes.ok) {
+      const signData = await signRes.json();
+      if (signData.ok && signData.signedUrl) {
+        onProgress?.(Math.round(totalBytes * 0.3), totalBytes, 30);
+        const putRes = await fetch(signData.signedUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': contentType,
+            'cache-control': cacheControl,
+          },
+          body: fileOrBlob,
+        });
+        if (putRes.ok && signData.publicUrl) {
+          onProgress?.(totalBytes, totalBytes, 100);
+          return signData.publicUrl;
+        }
+      }
+    }
+  } catch (signErr) {
+    console.warn('Signed upload URL notice in direct upload:', signErr);
+  }
+
   const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucket}/${cleanPath}`;
   const totalBytes = fileOrBlob.size;
 
