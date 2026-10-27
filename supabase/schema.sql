@@ -638,7 +638,47 @@ ALTER TABLE public.plans REPLICA IDENTITY FULL;
 ALTER TABLE public.payments REPLICA IDENTITY FULL;
 
 -- ------------------------------------------------------------------------------
--- SECTION 7: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
+-- SECTION 8: ADHAN VOICES TABLE & REALTIME POLICIES
+-- Admin-managed voices for five daily prayers & Fajr. Seed nothing by default.
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.adhan_voices (
+  id text PRIMARY KEY,
+  name_en text NOT NULL,
+  name_ar text,
+  muezzin text NOT NULL,
+  mosque text,
+  audio_url text,
+  fajr_audio_url text,
+  duration integer DEFAULT 0,
+  license text,
+  source text,
+  attribution text,
+  is_active boolean DEFAULT true,
+  is_premium boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_adhan_voices_active ON public.adhan_voices (is_active, is_premium);
+
+ALTER TABLE public.adhan_voices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view active adhan voices" ON public.adhan_voices;
+CREATE POLICY "Anyone can view active adhan voices"
+  ON public.adhan_voices FOR SELECT
+  TO anon, authenticated, service_role
+  USING (is_active = true OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only admin or service_role can manage adhan voices" ON public.adhan_voices;
+CREATE POLICY "Only admin or service_role can manage adhan voices"
+  ON public.adhan_voices FOR ALL
+  TO authenticated, service_role
+  USING (auth.role() = 'service_role' OR public.is_admin())
+  WITH CHECK (auth.role() = 'service_role' OR public.is_admin());
+
+ALTER TABLE public.adhan_voices REPLICA IDENTITY FULL;
+
+-- ------------------------------------------------------------------------------
+-- SECTION 9: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
 -- ------------------------------------------------------------------------------
 -- UPDATE public.profiles
 -- SET role = 'admin'

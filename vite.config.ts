@@ -31,6 +31,8 @@ import createVirtualAccount from './backend/payments/create-virtual-account';
 import checkTransferStatus from './backend/payments/check-transfer-status';
 import publicBackgrounds from './backend/backgrounds';
 import adminSupabaseBackgrounds from './backend/admin/supabase-backgrounds';
+import publicAdhanVoices from './backend/adhan-voices';
+import adminAdhanVoices from './backend/admin/adhan-voices';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,6 +92,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/ambient$/, publicAmbient],
   [/^\/api\/backgrounds$/, publicBackgrounds],
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
+  [/^\/api\/adhan-voices$/, publicAdhanVoices],
+  [/^\/api\/admin\/adhan-voices(\/.*)?$/, adminAdhanVoices],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],

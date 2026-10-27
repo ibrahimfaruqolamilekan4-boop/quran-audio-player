@@ -45,6 +45,8 @@ import adminSupabaseBackgrounds from './admin/supabase-backgrounds';
 import publicPlans from './plans';
 import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
+import publicAdhanVoices from './adhan-voices';
+import adminAdhanVoices from './admin/adhan-voices';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -79,6 +81,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
   [/^\/api\/backgrounds$/, publicBackgrounds],
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
+  [/^\/api\/adhan-voices$/, publicAdhanVoices],
+  [/^\/api\/admin\/adhan-voices(\/.*)?$/, adminAdhanVoices],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 
