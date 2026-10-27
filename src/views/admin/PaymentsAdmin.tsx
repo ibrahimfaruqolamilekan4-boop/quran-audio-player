@@ -12,6 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  ShieldCheck,
+  Activity,
 } from 'lucide-react';
 import { appApi } from '../../lib/api';
 import { formatPlanPrice, type PaymentRow } from '../../lib/supabase';
@@ -19,6 +21,36 @@ import { formatPlanPrice, type PaymentRow } from '../../lib/supabase';
 interface PaymentsAdminProps {
   showToast: (message: string, type?: 'success' | 'error') => void;
   askConfirm: (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
+}
+
+interface FlutterwaveDiagnostics {
+  ok: boolean;
+  publicKey: {
+    configured: boolean;
+    prefix: string | null;
+    mode: 'live' | 'test' | 'unknown' | null;
+    hasWhitespaceOrQuotes: boolean;
+    variableName: string;
+  };
+  secretKey: {
+    configured: boolean;
+    prefix: string | null;
+    mode: 'live' | 'test' | 'unknown' | null;
+    hasWhitespaceOrQuotes: boolean;
+    variableName: string;
+  };
+  webhookHash: {
+    configured: boolean;
+    variableName: string;
+  };
+  modeMatch: boolean;
+  connectivity: {
+    tested: boolean;
+    success: boolean;
+    status: number | null;
+    message: string;
+  };
+  recommendations: string[];
 }
 
 export function PaymentsAdmin({ showToast, askConfirm }: PaymentsAdminProps) {
@@ -30,6 +62,20 @@ export function PaymentsAdmin({ showToast, askConfirm }: PaymentsAdminProps) {
   const [page, setPage] = useState(1);
   const [reconciling, setReconciling] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [diag, setDiag] = useState<FlutterwaveDiagnostics | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  const loadDiagnostics = async () => {
+    setDiagLoading(true);
+    try {
+      const res = await appApi<FlutterwaveDiagnostics>('/admin/payments/diagnostics');
+      setDiag(res);
+    } catch (e: any) {
+      console.warn('Load diagnostics error:', e);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   const loadPayments = async () => {
     setLoading(true);
@@ -57,6 +103,7 @@ export function PaymentsAdmin({ showToast, askConfirm }: PaymentsAdminProps) {
 
   useEffect(() => {
     loadPayments();
+    loadDiagnostics();
   }, [search, statusFilter, page]);
 
   // Re-verify a stuck transaction with Flutterwave API
@@ -134,6 +181,16 @@ export function PaymentsAdmin({ showToast, askConfirm }: PaymentsAdminProps) {
         <div className="flex items-center gap-2.5">
           <button
             type="button"
+            onClick={loadDiagnostics}
+            disabled={diagLoading}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-semibold text-slate-300 hover:text-white transition-all cursor-pointer"
+          >
+            <Activity size={13} className={diagLoading ? 'animate-spin text-emerald-400' : 'text-emerald-400'} />
+            <span>Check Gateway</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleBatchReconcile}
             disabled={reconciling}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 text-xs font-semibold text-amber-300 hover:text-amber-200 transition-all cursor-pointer disabled:opacity-50"
@@ -153,6 +210,101 @@ export function PaymentsAdmin({ showToast, askConfirm }: PaymentsAdminProps) {
           </button>
         </div>
       </div>
+
+      {/* FLUTTERWAVE GATEWAY DIAGNOSTICS */}
+      {diag && (
+        <div className="p-4 rounded-2xl bg-gradient-to-br from-[#0D121F] to-[#0A0D14] border border-slate-800/80 shadow-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={16} className={diag.connectivity.success ? 'text-emerald-400' : 'text-amber-400'} />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                Flutterwave Gateway Status
+              </h3>
+            </div>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                diag.connectivity.success
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+              }`}
+            >
+              {diag.connectivity.success ? 'API Operational' : 'Connection Warning'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            {/* Secret Key Card */}
+            <div className="p-3 rounded-xl bg-[#080B11] border border-slate-800/60">
+              <div className="text-[10px] uppercase font-bold text-slate-400 mb-1">Server Secret Key</div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-slate-200">
+                  {diag.secretKey.prefix || 'Missing'}
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold ${
+                    diag.secretKey.mode === 'live'
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : diag.secretKey.mode === 'test'
+                      ? 'bg-amber-500/20 text-amber-300'
+                      : 'bg-rose-500/20 text-rose-300'
+                  }`}
+                >
+                  {diag.secretKey.mode || 'Not set'}
+                </span>
+              </div>
+            </div>
+
+            {/* Public Key Card */}
+            <div className="p-3 rounded-xl bg-[#080B11] border border-slate-800/60">
+              <div className="text-[10px] uppercase font-bold text-slate-400 mb-1">Public Key Config</div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-slate-200">
+                  {diag.publicKey.prefix || 'Missing'}
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold ${
+                    diag.publicKey.mode === 'live'
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : diag.publicKey.mode === 'test'
+                      ? 'bg-amber-500/20 text-amber-300'
+                      : 'bg-slate-700 text-slate-400'
+                  }`}
+                >
+                  {diag.publicKey.mode || 'Server Only'}
+                </span>
+              </div>
+            </div>
+
+            {/* Mode Match & Webhook */}
+            <div className="p-3 rounded-xl bg-[#080B11] border border-slate-800/60">
+              <div className="text-[10px] uppercase font-bold text-slate-400 mb-1">Webhook Secret Hash</div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-200">
+                  {diag.webhookHash.configured ? 'Configured' : 'Missing'}
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold ${
+                    diag.webhookHash.configured ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                  }`}
+                >
+                  {diag.webhookHash.configured ? 'Active' : 'Unset'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {diag.recommendations.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {diag.recommendations.map((rec, i) => (
+                <div key={i} className="flex items-center gap-2 text-[11px] text-amber-300/90">
+                  <AlertTriangle size={12} className="shrink-0 text-amber-400" />
+                  <span>{rec}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* SEARCH & FILTERS */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">

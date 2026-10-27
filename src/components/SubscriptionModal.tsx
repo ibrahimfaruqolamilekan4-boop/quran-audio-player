@@ -89,6 +89,8 @@ export function SubscriptionModal({
   } | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [fallbackCheckoutUrl, setFallbackCheckoutUrl] = useState<string | null>(null);
+  const [loadingHosted, setLoadingHosted] = useState(false);
 
   // Status check & verification
   const [verifying, setVerifying] = useState(false);
@@ -135,28 +137,35 @@ export function SubscriptionModal({
     setLoadingAccount(true);
     setAccountError(null);
     setVerificationNotice(null);
+    setFallbackCheckoutUrl(null);
 
     try {
       const res = await appApi<{
         success: boolean;
-        bankName: string;
-        accountNumber: string;
-        accountName: string;
+        bankName?: string;
+        accountNumber?: string;
+        accountName?: string;
         amount: number;
         currency: string;
         txRef: string;
         expiresAt: string;
         expiresInSeconds: number;
+        error?: string;
+        fallbackCheckoutUrl?: string;
       }>('/payments/create-virtual-account', {
         method: 'POST',
         body: { plan_code: planCode },
       });
 
-      if (res.accountNumber) {
-        setVirtualAccount(res);
+      if (res.success && res.accountNumber && res.bankName) {
+        setVirtualAccount(res as any);
         setCountdown(res.expiresInSeconds || 3600);
       } else {
-        throw new Error('Could not generate bank account number. Please try card checkout.');
+        setVirtualAccount(null);
+        if (res.fallbackCheckoutUrl) {
+          setFallbackCheckoutUrl(res.fallbackCheckoutUrl);
+        }
+        setAccountError(res.error || 'Dynamic virtual account generation is temporarily unavailable.');
       }
     } catch (err: any) {
       setAccountError(err?.message || 'Failed to fetch bank transfer details.');
@@ -259,60 +268,37 @@ export function SubscriptionModal({
     }
   };
 
-  // Flutterwave standard checkout fallback for cards/USSD
-  const handleCardCheckout = () => {
+  // Flutterwave server-side hosted checkout for cards/USSD/OPay
+  const handleCardCheckout = async () => {
     if (!user) {
       setAccountError('Please sign in or create an account to activate Premium on your profile.');
       return;
     }
-
-    const flwKey =
-      (import.meta as any).env?.VITE_FLW_PUBLIC_KEY ||
-      (import.meta as any).env?.FLW_PUBLIC_KEY ||
-      'FLWPUBK_TEST-SANDBOX';
-
-    if (typeof window.FlutterwaveCheckout !== 'function') {
-      setAccountError('Flutterwave checkout gateway is loading. Please check internet connection.');
-      return;
-    }
-
     if (!activePlan) return;
 
-    const txRef = `qf-card-${Date.now()}-${user.uid.slice(0, 8)}`;
+    setLoadingHosted(true);
+    setAccountError(null);
 
-    window.FlutterwaveCheckout({
-      public_key: flwKey,
-      tx_ref: txRef,
-      amount: activePlan.amount,
-      currency: activePlan.currency || 'NGN',
-      payment_options: 'card, ussd',
-      customer: {
-        email: user.email,
-        name: user.displayName || user.email.split('@')[0],
-      },
-      customizations: {
-        title: 'Nooraya Quranic Sanctuary',
-        description: `${activePlan.name_en} (${formatPlanPrice(activePlan.amount, activePlan.currency)})`,
-        logo: `${window.location.origin}/icon.svg`,
-      },
-      callback: async (data: any) => {
-        try {
-          const txId = data.transaction_id || data.id || data.flw_ref;
-          await appApi('/payments/verify-flutterwave', {
-            method: 'POST',
-            body: {
-              transaction_id: txId,
-              tx_ref: txRef,
-              plan_code: activePlan.code,
-            },
-          });
-          handleSuccessActivation();
-        } catch (err: any) {
-          setAccountError(err?.message || 'Payment processed. Verification queued.');
-        }
-      },
-      onclose: () => {},
-    });
+    try {
+      const res = await appApi<{
+        success: boolean;
+        checkoutUrl: string;
+        txRef: string;
+      }>('/payments/create-hosted-checkout', {
+        method: 'POST',
+        body: { plan_code: activePlan.code },
+      });
+
+      if (res.checkoutUrl) {
+        window.location.href = res.checkoutUrl;
+      } else {
+        throw new Error('Unable to generate checkout link.');
+      }
+    } catch (err: any) {
+      setAccountError(err?.message || 'Failed to initialize payment gateway. Please try again.');
+    } finally {
+      setLoadingHosted(false);
+    }
   };
 
   const formatTimer = (secs: number) => {
@@ -542,6 +528,31 @@ export function SubscriptionModal({
                           <>
                             <span>I Have Sent the Money</span>
                             <ArrowRight size={14} />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : fallbackCheckoutUrl ? (
+                    <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-center space-y-3">
+                      <p className="text-xs text-amber-200 leading-relaxed">
+                        Direct virtual transfer account is currently provisioning on Flutterwave. You can complete your payment instantly with Bank Transfer, USSD, OPay, or Debit Card via Flutterwave checkout:
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleCardCheckout}
+                        disabled={loadingHosted}
+                        className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        {loadingHosted ? (
+                          <>
+                            <RefreshCw size={14} className="animate-spin" />
+                            <span>Connecting to Flutterwave...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CreditCard size={14} />
+                            <span>Pay via Flutterwave Multi-Channel Checkout</span>
+                            <ExternalLink size={14} />
                           </>
                         )}
                       </button>
