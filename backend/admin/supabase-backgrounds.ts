@@ -1,8 +1,9 @@
 // Admin API for Supabase / Neon backgrounds management
-// Supports: list all (including inactive and drafts), add, update, delete, reorder, publish
+// Supports: list all (including inactive and drafts), add, update, delete, reorder, publish, signed-upload-url, upload
 import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
 import { readJsonLarge } from '../media-lib.mjs';
 import { ensureBackgroundsTable } from '../backgrounds';
+import { getSupabaseAdmin } from '../lib/supabase-server';
 
 const handler: Handler = async (req, res) => {
   try {
@@ -138,6 +139,68 @@ const handler: Handler = async (req, res) => {
         );
 
         return sendJson(res, 200, { ok: true });
+      }
+
+      if (action === 'signed-upload-url') {
+        const path = String(body.path || '').replace(/^\/+/, '');
+        if (!path) return sendJson(res, 400, { error: 'Path is required' });
+
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '');
+        if (sb) {
+          try {
+            const { data, error } = await sb.storage
+              .from('ambient-backgrounds')
+              .createSignedUploadUrl(path);
+
+            if (!error && data?.signedUrl) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path}`;
+              return sendJson(res, 200, {
+                ok: true,
+                signedUrl: data.signedUrl,
+                token: data.token,
+                publicUrl,
+              });
+            }
+          } catch (e: any) {
+            console.warn('createSignedUploadUrl error:', e?.message);
+          }
+        }
+
+        // Fallback: direct public URL
+        const fallbackPublicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path}`;
+        return sendJson(res, 200, { ok: false, fallbackPublicUrl });
+      }
+
+      if (action === 'upload') {
+        const path = String(body.path || '').replace(/^\/+/, '');
+        const contentType = String(body.contentType || 'video/mp4');
+        const base64Data = String(body.data || '');
+        if (!path || !base64Data) return sendJson(res, 400, { error: 'Path and data are required' });
+
+        const buffer = Buffer.from(base64Data, 'base64');
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '');
+        if (sb) {
+          try {
+            const { data, error } = await sb.storage
+              .from('ambient-backgrounds')
+              .upload(path, buffer, {
+                contentType,
+                upsert: true,
+              });
+
+            if (!error) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path}`;
+              return sendJson(res, 200, { ok: true, publicUrl });
+            }
+            console.warn('Supabase service role upload error:', error);
+          } catch (e: any) {
+            console.warn('Upload exception:', e);
+          }
+        }
+
+        return sendJson(res, 500, { error: 'Could not upload to storage.' });
       }
 
       if (action === 'delete') {

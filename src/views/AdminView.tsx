@@ -925,6 +925,7 @@ export function AdminView() {
                   <th className="py-3 px-4">User Profile</th>
                   <th className="py-3 px-4">Email</th>
                   <th className="py-3 px-4">Role</th>
+                  <th className="py-3 px-4">Origin</th>
                   <th className="py-3 px-4">Subscription</th>
                   <th className="py-3 px-4">Joined</th>
                   <th className="py-3 px-4">Last Seen</th>
@@ -967,6 +968,17 @@ export function AdminView() {
                         >
                           {p.role}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {p.legacy_id ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                            Neon Migrated
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                            Supabase Native
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         {p.is_premium ? (

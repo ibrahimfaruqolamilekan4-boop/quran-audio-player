@@ -4,6 +4,7 @@ import {
   type Handler, q, hashPassword, createSessionToken, sessionCookie,
   sendJson, readJson, isSecureRequest, validEmail, adminEmail, mapUser,
 } from '../_lib.mjs';
+import { getSupabaseAdmin } from '../lib/supabase-server';
 
 interface UserRow {
   uid: string; email: string; password_hash: string | null;
@@ -31,6 +32,21 @@ const handler: Handler = async (req, res) => {
         'UPDATE users SET password_hash = $1, display_name = $2, last_login_at = now() WHERE uid = $3',
         [hashPassword(password), displayName, row.uid]
       );
+
+      // Sync to Supabase Auth
+      const sb = getSupabaseAdmin();
+      if (sb) {
+        try {
+          await sb.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: { full_name: displayName, name: displayName },
+            app_metadata: { role: row.role },
+          });
+        } catch {}
+      }
+
       const user = mapUser({ ...row, display_name: displayName });
       res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user), isSecureRequest(req)));
       return sendJson(res, 200, { user });
@@ -38,9 +54,32 @@ const handler: Handler = async (req, res) => {
 
     if (existing.rows[0]) return sendJson(res, 409, { error: 'An account with this email already exists. Please sign in instead.' });
 
-    const uid = crypto.randomUUID();
+    let uid = crypto.randomUUID();
     const role = email === adminEmail() ? 'admin' : 'user';
     const displayName = name || email.split('@')[0];
+
+    // 1. Create in Supabase Auth (Primary source of truth)
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data: sbUser, error: sbErr } = await sb.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: displayName, name: displayName },
+          app_metadata: { role },
+        });
+        if (sbUser?.user?.id) {
+          uid = sbUser.user.id;
+        } else if (sbErr) {
+          console.warn('Supabase auth signup notice:', sbErr.message);
+        }
+      } catch (sbEx) {
+        console.warn('Supabase auth signup exception:', sbEx);
+      }
+    }
+
+    // 2. Insert into Neon Postgres & server store
     await q(
       'INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())',
       [uid, email, hashPassword(password), displayName, role]

@@ -320,6 +320,134 @@ export function BackgroundsAdmin({
     });
   };
 
+  // 4b. Fast Direct Upload (Instant — No waiting, no 30-min canvas freeze)
+  const handleFastDirectUpload = async (
+    file: File,
+    customOptions?: { title?: string; category?: string; isPremium?: boolean }
+  ) => {
+    const rawTitle = customOptions?.title || file.name.replace(/\.[^/.]+$/, '').trim();
+    const category = customOptions?.category || bgCategory;
+    const isPremium = customOptions?.isPremium !== undefined ? customOptions.isPremium : bgIsPremium;
+
+    const safeBase = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24) || 'ambient';
+    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+    const newItem: UploadQueueItem = {
+      id: queueId,
+      name: rawTitle,
+      category,
+      status: 'uploading',
+      progress: 15,
+      stageLabel: 'Extracting poster & starting fast upload...',
+    };
+
+    setUploadQueue((prev) => [newItem, ...prev]);
+    setPreProcessModal(null);
+    setIsProcessingQueue(true);
+
+    try {
+      // 1. Fast poster extraction
+      let posterBlob: Blob | null = null;
+      try {
+        posterBlob = await extractVideoPoster(file);
+      } catch (pErr) {
+        console.warn('Poster extraction fallback:', pErr);
+      }
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, progress: 30, stageLabel: 'Uploading video directly to cloud...' }
+            : it
+        )
+      );
+
+      // 2. Upload video file to Supabase Storage
+      const videoFilename = `bg_${safeBase}_${uniqueSuffix}.mp4`;
+      const uploadedVideoUrl = await uploadToSupabaseStorage(
+        file,
+        `videos/${videoFilename}`,
+        file.type || 'video/mp4'
+      );
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId ? { ...it, progress: 75, stageLabel: 'Uploading poster thumbnail...' } : it
+        )
+      );
+
+      // 3. Upload poster if available
+      let uploadedPosterUrl: string | null = null;
+      if (posterBlob) {
+        try {
+          const posterFilename = `poster_${safeBase}_${uniqueSuffix}.jpg`;
+          uploadedPosterUrl = await uploadToSupabaseStorage(
+            posterBlob,
+            `posters/${posterFilename}`,
+            'image/jpeg'
+          );
+        } catch (e) {
+          console.warn('Poster upload fallback:', e);
+        }
+      }
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId ? { ...it, progress: 90, stageLabel: 'Saving background to catalog...' } : it
+        )
+      );
+
+      // 4. Save to database / catalog
+      const saveRes = await appApi<{ ok: boolean; background?: BackgroundRow }>('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'add',
+          name_en: rawTitle,
+          category,
+          video_url: uploadedVideoUrl,
+          video_url_720p: uploadedVideoUrl,
+          poster_url: uploadedPosterUrl,
+          size_bytes: file.size,
+          duration_seconds: 30,
+          is_active: true,
+          is_draft: false,
+          is_premium: isPremium,
+          storage_paths: [
+            `videos/${videoFilename}`,
+            uploadedPosterUrl ? `posters/poster_${safeBase}_${uniqueSuffix}.jpg` : '',
+          ].filter(Boolean),
+        },
+      });
+
+      if (!saveRes.ok) {
+        throw new Error('Failed to register background in database.');
+      }
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'done', progress: 100, stageLabel: 'Ready & Live on all devices!' }
+            : it
+        )
+      );
+
+      showToast(`Background "${rawTitle}" uploaded successfully and live!`, 'success');
+      await loadCloudCatalog();
+    } catch (err: any) {
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed.' }
+            : it
+        )
+      );
+      showToast(err?.message || 'Upload failed. Check connection.', 'error');
+    } finally {
+      setIsProcessingQueue(false);
+    }
+  };
+
   // 5. In-Browser Transcoder Execution
   const startInBrowserTranscode = async () => {
     if (!preProcessModal) return;
@@ -875,10 +1003,10 @@ export function BackgroundsAdmin({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessingQueue}
-            className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer"
+            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer"
           >
-            <Film size={16} />
-            <span>Select Video File (Analyze & Transcode)</span>
+            <Sparkles size={16} />
+            <span>⚡ Fast Upload Video (Instant)</span>
           </button>
 
           <button
@@ -1497,9 +1625,35 @@ export function BackgroundsAdmin({
                 </div>
               </div>
 
-              {/* EXECUTION PATH CHOICES: METHOD A (Recommended) vs METHOD B */}
+              {/* EXECUTION PATH CHOICES: FAST DIRECT vs METHOD A vs METHOD B */}
               <div className="pt-4 border-t border-emerald-900/40 space-y-3">
-                <div className="text-xs font-bold text-white">Choose Processing Method:</div>
+                {/* Mode Fast: Direct Fast Upload */}
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-teal-950/80 border-2 border-emerald-400/80 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-emerald-300">
+                      <Sparkles size={18} className="text-emerald-400" />
+                      <span>⚡ Instant Fast Upload (Recommended)</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-100/80 mt-1">
+                      Extracts poster and uploads directly to Supabase Storage in 2–5 seconds. No waiting for transcoding.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleFastDirectUpload(preProcessModal.file, {
+                        title: preProcessModal.title,
+                        category: preProcessModal.category,
+                        isPremium: preProcessModal.isPremium,
+                      })
+                    }
+                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs whitespace-nowrap shadow-md cursor-pointer transition-all"
+                  >
+                    Upload Now (Instant)
+                  </button>
+                </div>
+
+                <div className="text-xs font-bold text-slate-400 pt-1">Advanced Options:</div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Mode A: Local Script (Recommended for 130MB+) */}

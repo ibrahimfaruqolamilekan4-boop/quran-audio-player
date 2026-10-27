@@ -4,6 +4,7 @@ import {
   type Handler, q, verifyPassword, hashPassword, createSessionToken, sessionCookie,
   sendJson, readJson, isSecureRequest, validEmail, adminEmail, mapUser, isNeonFallbackActive,
 } from '../_lib.mjs';
+import { getSupabaseAdmin } from '../lib/supabase-server';
 
 interface UserRow {
   uid: string; email: string; password_hash: string | null;
@@ -80,6 +81,41 @@ const handler: Handler = async (req, res) => {
     try {
       await q('UPDATE users SET last_login_at = now() WHERE uid = $1', [row.uid]);
     } catch {}
+
+    // Seamless JIT Supabase Auth Migration:
+    // If user is from Neon, automatically sync their account & password into Supabase Auth
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data: sbUser } = await sb.auth.admin.createUser({
+          email: row.email,
+          password: password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: row.display_name,
+            name: row.display_name,
+            legacy_id: row.uid,
+          },
+          app_metadata: { role: row.role },
+        });
+
+        if (sbUser?.user?.id) {
+          // Update profile with legacy_id
+          await sb
+            .from('profiles')
+            .update({
+              legacy_id: row.uid,
+              role: row.role,
+              last_seen_at: new Date().toISOString(),
+            })
+            .eq('id', sbUser.user.id);
+        }
+      } catch (syncErr) {
+        // Non-fatal if already migrated or quota limit
+        console.warn('JIT Supabase Auth migration notice:', syncErr);
+      }
+    }
+
     const mapped = mapUser(row);
     res.setHeader('Set-Cookie', sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
     return sendJson(res, 200, { user: mapped });

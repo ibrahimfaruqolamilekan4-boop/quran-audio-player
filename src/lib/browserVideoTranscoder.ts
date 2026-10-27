@@ -121,6 +121,7 @@ async function renderRendition(
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.muted = true;
+    video.defaultMuted = true;
     (video as any).playsInline = true;
     video.crossOrigin = 'anonymous';
 
@@ -129,9 +130,11 @@ async function renderRendition(
 
     let mediaRecorder: MediaRecorder | null = null;
     let animFrameId: number | null = null;
+    let safetyTimer: NodeJS.Timeout | null = null;
     const recordedChunks: Blob[] = [];
 
     const cleanup = () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
       if (animFrameId) cancelAnimationFrame(animFrameId);
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         try { mediaRecorder.stop(); } catch {}
@@ -247,7 +250,17 @@ async function renderRendition(
         if (mediaRecorder && mediaRecorder.state === 'inactive') {
           mediaRecorder.start(200); // 200ms slices
           encodeStartTime = Date.now();
-          video.play().catch(() => {});
+          video.play().catch((e) => {
+            console.warn('Video play notice in transcoder:', e);
+          });
+
+          // Safeguard: stop after 1.5x duration or max 45s so tab never hangs
+          safetyTimer = setTimeout(() => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+              mediaRecorder.stop();
+            }
+          }, Math.min(45000, Math.max(10000, duration * 1500)));
+
           drawLoop();
         }
       };
