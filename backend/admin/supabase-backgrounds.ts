@@ -41,9 +41,9 @@ const handler: Handler = async (req, res) => {
         const storage_paths = JSON.stringify(body.storage_paths || []);
         const attribution = body.attribution ? String(body.attribution).trim() : null;
         const sort_order = Number(body.sort_order || 0);
-        // By default, new uploads start as DRAFT unless explicitly published
-        const is_active = Boolean(body.is_active);
-        const is_draft = body.is_draft !== undefined ? Boolean(body.is_draft) : !is_active;
+        // By default, new uploads go live immediately so they play instantly
+        const is_active = body.is_active !== undefined ? Boolean(body.is_active) : true;
+        const is_draft = body.is_draft !== undefined ? Boolean(body.is_draft) : false;
         const is_premium = Boolean(body.is_premium);
 
         if (!name_en || !video_url) {

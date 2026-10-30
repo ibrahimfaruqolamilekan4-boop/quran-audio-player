@@ -9,7 +9,7 @@
 //
 // scripts/build-function.mjs bundles this file (and everything it imports,
 // including pg) into self-contained plain-ESM functions emitted at three path
-// depths under api/ — [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
+// depths under api/ â€” [s1].js, [s1]/[s2].js and [s1]/[s2]/[s3].js. A
 // `[...slug].js` catch-all does NOT work on Vercel: it matched a single
 // segment only, so /api/auth/login 404'd at the edge. The router here
 // dispatches on the full req.url, so the depth variants are pure route
@@ -47,11 +47,13 @@ import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
 import publicAdhanVoices from './adhan-voices';
 import adminAdhanVoices from './admin/adhan-voices';
+import notificationsSubscribe from './notifications/subscribe';
+import cronPrayerPush from './cron/prayer-push';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
-// The same table vite.config.ts uses to serve /api in `vite dev` — keep in sync.
+// The same table vite.config.ts uses to serve /api in `vite dev` â€” keep in sync.
 const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/signup$/, signup],
   [/^\/api\/auth\/login$/, login],
@@ -83,6 +85,9 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
   [/^\/api\/admin\/adhan-voices(\/.*)?$/, adminAdhanVoices],
+  [/^\/api\/notifications\/subscribe$/, notificationsSubscribe],
+  [/^\/api\/notifications\/vapid-public-key$/, notificationsSubscribe],
+  [/^\/api\/cron\/prayer-push$/, cronPrayerPush],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

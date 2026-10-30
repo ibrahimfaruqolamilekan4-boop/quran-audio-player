@@ -33,6 +33,8 @@ import publicBackgrounds from './backend/backgrounds';
 import adminSupabaseBackgrounds from './backend/admin/supabase-backgrounds';
 import publicAdhanVoices from './backend/adhan-voices';
 import adminAdhanVoices from './backend/admin/adhan-voices';
+import notificationsSubscribe from './backend/notifications/subscribe';
+import cronPrayerPush from './backend/cron/prayer-push';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,6 +96,9 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
   [/^\/api\/admin\/adhan-voices(\/.*)?$/, adminAdhanVoices],
+  [/^\/api\/notifications\/subscribe$/, notificationsSubscribe],
+  [/^\/api\/notifications\/vapid-public-key$/, notificationsSubscribe],
+  [/^\/api\/cron\/prayer-push$/, cronPrayerPush],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
@@ -181,6 +186,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          importScripts: ['/sw-push.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg,jpeg,webp}'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           clientsClaim: true,

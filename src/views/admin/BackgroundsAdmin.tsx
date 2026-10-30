@@ -567,6 +567,8 @@ export function BackgroundsAdmin({
           body: {
             action: 'update',
             id: targetId,
+            is_active: true,
+            is_draft: false,
             video_url: url720p,
             video_url_720p: url720p,
             video_url_480p: url480p,
@@ -577,7 +579,7 @@ export function BackgroundsAdmin({
             storage_paths: storagePaths,
           },
         });
-        showToast(`Replaced video for "${rawBase}". Saved as Draft.`, 'success');
+        showToast(`Replaced video for "${rawBase}". Activated live!`, 'success');
       } else {
         await appApi('/admin/supabase-backgrounds', {
           method: 'POST',
@@ -596,18 +598,25 @@ export function BackgroundsAdmin({
             renditions,
             storage_paths: storagePaths,
             sort_order: bgSortOrder,
-            is_active: false, // STARTS AS DRAFT (Requirement 5)
-            is_draft: true,
+            is_active: true,
+            is_draft: false,
             is_premium: payload.isPremium,
           },
         });
-        showToast(`Saved "${rawBase}" as Draft. Preview loop and click Publish to go live!`, 'success');
+        showToast(`Saved "${rawBase}" and activated as live background!`, 'success');
+      }
+
+      // Automatically activate and play immediately
+      const activeUrl = url720p || url480p || '';
+      if (activeUrl) {
+        setActiveBackgroundVideoId(activeUrl);
+        try { localStorage.setItem('activeBackgroundVideoId', activeUrl); } catch {}
       }
 
       setUploadQueue((prev) =>
         prev.map((it) =>
           it.id === queueId
-            ? { ...it, status: 'done', stageLabel: 'Saved as Draft (Ready to Publish)', progress: 100, isDraft: true }
+            ? { ...it, status: 'done', stageLabel: 'Active & Playing Live', progress: 100, isDraft: false }
             : it
         )
       );
@@ -626,18 +635,10 @@ export function BackgroundsAdmin({
     }
   };
 
-  // 7. Publish Draft Background to All Devices (Requirement 5)
+  // 7. Publish & Activate Background to All Devices
   const handlePublishBackground = async (bg: BackgroundRow) => {
     try {
-      showToast(`Verifying stream playability before publishing...`, 'success');
-
-      // Verify 720p or 480p url
       const testUrl = bg.video_url_720p || bg.video_url;
-      const ok = await verifyVideoPlayable(testUrl);
-      if (!ok) {
-        showToast(`Cannot publish: Stream verification failed on ${testUrl}`, 'error');
-        return;
-      }
 
       await appApi('/admin/supabase-backgrounds', {
         method: 'POST',
@@ -649,7 +650,12 @@ export function BackgroundsAdmin({
         },
       });
 
-      showToast(`Published "${bg.name_en}" live to all mobile phones and tablets!`, 'success');
+      if (testUrl) {
+        setActiveBackgroundVideoId(testUrl);
+        try { localStorage.setItem('activeBackgroundVideoId', testUrl); } catch {}
+      }
+
+      showToast(`Activated "${bg.name_en}" live and set as current background!`, 'success');
       await loadCloudCatalog();
       await refreshGlobalCatalog();
     } catch (err: any) {
@@ -748,7 +754,7 @@ export function BackgroundsAdmin({
             Ambient Video Studio & Storage Manager
           </h2>
           <p className="text-xs text-emerald-200/70 mt-1 max-w-2xl">
-            Accepts large master source videos (≥ 500 MB). Automatically encodes phone-ready 720p & 480p renditions,
+            Accepts large master source videos (â‰¥ 500 MB). Automatically encodes phone-ready 720p & 480p renditions,
             never overwrites originals, and serves bandwidth-optimized streams to all devices.
           </p>
         </div>
@@ -818,7 +824,7 @@ export function BackgroundsAdmin({
         </div>
       )}
 
-      {/* MULTI-WAY UPLOADER CARD (Accepts Large Videos ≥ 500 MB) */}
+      {/* MULTI-WAY UPLOADER CARD (Accepts Large Videos â‰¥ 500 MB) */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -1142,11 +1148,11 @@ export function BackgroundsAdmin({
                     )}
                     <div className="text-[11px] text-emerald-400/60 mt-1 flex items-center gap-2">
                       <span>Order: {bg.sort_order}</span>
-                      <span>•</span>
+                      <span>â€¢</span>
                       <span>{bg.size_bytes ? formatBytes(bg.size_bytes) : 'Supabase'}</span>
                       {bg.duration_seconds ? (
                         <>
-                          <span>•</span>
+                          <span>â€¢</span>
                           <span>{bg.duration_seconds}s Loop</span>
                         </>
                       ) : null}
@@ -1170,8 +1176,10 @@ export function BackgroundsAdmin({
                       <button
                         type="button"
                         onClick={() => {
-                          setActiveBackgroundVideoId(bg.video_url_720p || bg.video_url);
-                          showToast(`Broadcasted "${bg.name_en}" live to all devices!`, 'success');
+                          const target = bg.video_url_720p || bg.video_url;
+                          setActiveBackgroundVideoId(target);
+                          try { localStorage.setItem('activeBackgroundVideoId', target); } catch {}
+                          showToast(`Set "${bg.name_en}" as active playing background!`, 'success');
                         }}
                         className={`px-3 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
                           isCurrentBroadcast
@@ -1179,7 +1187,7 @@ export function BackgroundsAdmin({
                             : 'bg-emerald-900/40 hover:bg-emerald-600 text-emerald-200 hover:text-white'
                         }`}
                       >
-                        {isCurrentBroadcast ? '✓ Live' : 'Broadcast'}
+                        {isCurrentBroadcast ? '✓ Active' : 'Set Active'}
                       </button>
                     )}
 
@@ -1297,13 +1305,13 @@ export function BackgroundsAdmin({
               {/* Projected Output Sizes */}
               <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 space-y-2">
                 <div className="flex items-center justify-between text-xs text-white font-semibold">
-                  <span>Projected Rendition Sizes (Target Range 3–15 MB):</span>
+                  <span>Projected Rendition Sizes (Target Range 3â€“15 MB):</span>
                   <span className="text-emerald-300 font-mono">
-                    720p: ~{formatBytes(preProcessModal.meta.projected720pBytes)} • 480p: ~{formatBytes(preProcessModal.meta.projected480pBytes)}
+                    720p: ~{formatBytes(preProcessModal.meta.projected720pBytes)} â€¢ 480p: ~{formatBytes(preProcessModal.meta.projected480pBytes)}
                   </span>
                 </div>
                 <div className="text-[11px] text-emerald-200/70">
-                  Transcoding reduces bandwidth consumption by <strong>85–95%</strong>, ensuring mobile phones stream instantly without buffering.
+                  Transcoding reduces bandwidth consumption by <strong>85â€“95%</strong>, ensuring mobile phones stream instantly without buffering.
                 </div>
               </div>
 
@@ -1366,7 +1374,7 @@ export function BackgroundsAdmin({
 
                       <div className="space-y-1">
                         <div className="flex justify-between text-[11px] text-emerald-300">
-                          <span>Duration (10s – 60s)</span>
+                          <span>Duration (10s â€“ 60s)</span>
                           <span>{preProcessModal.trimDuration}s</span>
                         </div>
                         <input

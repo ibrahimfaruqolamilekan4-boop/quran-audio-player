@@ -9,6 +9,10 @@ import type { CustomVideo } from '../types';
  * - Safe fallback to videoUrl if renditions are unpopulated
  */
 export function selectAdaptiveVideoUrl(video: CustomVideo): string {
+  const primaryUrl = video.videoUrl || (video as any).video_url || '';
+  const url720 = video.videoUrl720p || (video as any).video_url_720p || primaryUrl;
+  const url480 = video.videoUrl480p || (video as any).video_url_480p || primaryUrl;
+
   if (typeof window !== 'undefined') {
     const nav = navigator as any;
     const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
@@ -16,20 +20,20 @@ export function selectAdaptiveVideoUrl(video: CustomVideo): string {
     const isSlow = conn?.effectiveType === 'slow-2g' || conn?.effectiveType === '2g' || conn?.effectiveType === '3g';
     const isMobile = window.innerWidth < 768;
 
-    // Mobile / Slow connection: choose 480p
+    // Mobile / Slow connection: choose 480p if available
     if (isSaveData || isSlow || isMobile) {
-      if (video.videoUrl480p) return video.videoUrl480p;
+      if (url480) return url480;
       const r480 = video.renditions?.find((r) => r.resolution === '480p')?.url;
       if (r480) return r480;
     }
 
-    // Desktop / Fast connection: choose 720p
-    if (video.videoUrl720p) return video.videoUrl720p;
+    // Desktop / Fast connection: choose 720p if available
+    if (url720) return url720;
     const r720 = video.renditions?.find((r) => r.resolution === '720p')?.url;
     if (r720) return r720;
   }
 
-  return video.videoUrl || '';
+  return primaryUrl || url720 || url480 || '';
 }
 
 /**
@@ -62,11 +66,18 @@ export async function resolveBackgroundVideo(
     id.startsWith('/api/media/')
   ) {
     // If the direct URL matches an item in videoLibrary, adaptively pick rendition
-    const matched = videoLibrary?.find((v) => v.videoUrl === id || v.videoUrl720p === id || v.videoUrl480p === id);
+    const matched = videoLibrary?.find((v) =>
+      v.videoUrl === id ||
+      (v as any).video_url === id ||
+      v.videoUrl720p === id ||
+      (v as any).video_url_720p === id ||
+      v.videoUrl480p === id ||
+      (v as any).video_url_480p === id
+    );
     if (matched) {
       return {
         url: selectAdaptiveVideoUrl(matched),
-        poster: matched.posterUrl || matched.poster_url,
+        poster: matched.posterUrl || (matched as any).poster_url,
         revoke: false,
       };
     }
@@ -75,20 +86,26 @@ export async function resolveBackgroundVideo(
 
   // Lookup in catalog by ID or name
   if (videoLibrary && videoLibrary.length > 0) {
-    const match = videoLibrary.find((v) => v.id === id || v.name === id || v.videoUrl === id);
+    const match = videoLibrary.find(
+      (v) =>
+        v.id === id ||
+        v.name === id ||
+        v.videoUrl === id ||
+        (v as any).video_url === id
+    );
     if (match) {
       return {
         url: selectAdaptiveVideoUrl(match),
-        poster: match.posterUrl || match.poster_url,
+        poster: match.posterUrl || (match as any).poster_url,
         revoke: false,
       };
     }
     // Fallback to default active video
-    const fallback = videoLibrary.find((v) => v.isDefault && (v.videoUrl || v.videoUrl720p || v.videoUrl480p)) || videoLibrary[0];
+    const fallback = videoLibrary.find((v) => v.isDefault && (v.videoUrl || (v as any).video_url || v.videoUrl720p || v.videoUrl480p)) || videoLibrary[0];
     if (fallback) {
       return {
         url: selectAdaptiveVideoUrl(fallback),
-        poster: fallback.posterUrl || fallback.poster_url,
+        poster: fallback.posterUrl || (fallback as any).poster_url,
         revoke: false,
       };
     }
