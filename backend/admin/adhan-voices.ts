@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { requireAdmin, readJson, sendJson, getSupabaseAdmin, q } from '../_lib.mjs';
+import { requireAdmin, readJson, sendJson, q } from '../_lib.mjs';
+import { getSupabaseAdmin } from '../lib/supabase-server';
 import { ensureAdhanVoicesTable } from '../adhan-voices';
 
 const handler = async (req: IncomingMessage, res: ServerResponse) => {

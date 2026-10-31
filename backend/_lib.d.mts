@@ -64,3 +64,5 @@ export function adminEmail(): string;
 export function cleanImageUrl(value: unknown): string | null;
 export const serverStore: any;
 export function saveStore(): Promise<void>;
+
+export function getSupabaseAdmin(): any;
