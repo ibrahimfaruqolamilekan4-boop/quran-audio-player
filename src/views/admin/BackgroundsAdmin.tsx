@@ -161,6 +161,7 @@ export function BackgroundsAdmin({
   const [bgSortOrder, setBgSortOrder] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const directUploadInputRef = useRef<HTMLInputElement>(null);
   const preProcessedInputRef = useRef<HTMLInputElement>(null);
   const loopPreviewVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -221,6 +222,92 @@ export function BackgroundsAdmin({
       showToast(`Diagnostic check failed: ${e?.message || 'Network error'}`, 'error');
     } finally {
       setTestingConn(false);
+    }
+  };
+
+  // Simple Direct Gallery / File Upload (1-Click, zero lag, no modal, RLS-safe)
+  const handleDirectGalleryUpload = async (file: File) => {
+    if (!file) return;
+    const cleanTitle = bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, '').trim();
+    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newQueueItem: UploadQueueItem = {
+      id: queueId,
+      name: cleanTitle,
+      category: bgCategory || 'general',
+      status: 'uploading',
+      progress: 10,
+      stageLabel: 'Uploading video from gallery...',
+    };
+
+    setUploadQueue((prev) => [newQueueItem, ...prev]);
+    setIsProcessingQueue(true);
+    showToast(`Uploading "${cleanTitle}" directly from gallery...`, 'success');
+
+    try {
+      const storagePath = `backgrounds/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === queueId ? { ...it, progress: 35, stageLabel: 'Streaming to cloud storage...' } : it))
+      );
+
+      const publicUrl = await uploadToSupabaseStorage(
+        file,
+        storagePath,
+        file.type || 'video/mp4'
+      );
+
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === queueId ? { ...it, progress: 80, stageLabel: 'Activating as live background...' } : it))
+      );
+
+      const targetId = `bg_${Date.now()}`;
+      await appApi('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'add',
+          id: targetId,
+          name_en: cleanTitle,
+          name_ar: bgNameAr.trim() || null,
+          category: bgCategory || 'general',
+          video_url: publicUrl,
+          video_url_720p: publicUrl,
+          video_url_480p: publicUrl,
+          size_bytes: file.size,
+          duration_seconds: 30,
+          storage_paths: [storagePath],
+          sort_order: bgSortOrder,
+          is_active: true,
+          is_draft: false,
+          is_premium: bgIsPremium,
+        },
+      });
+
+      // Activate immediately in player and save to local storage
+      setActiveBackgroundVideoId(publicUrl);
+      try { localStorage.setItem('activeBackgroundVideoId', publicUrl); } catch {}
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'done', stageLabel: 'Active & Playing Live', progress: 100, isDraft: false }
+            : it
+        )
+      );
+
+      showToast(`Background video "${cleanTitle}" uploaded and playing live!`, 'success');
+      await loadCloudCatalog();
+      await refreshGlobalCatalog();
+    } catch (err: any) {
+      console.error('Gallery upload error:', err);
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed' } : it
+        )
+      );
+      showToast(err?.message || 'Gallery upload failed.', 'error');
+    } finally {
+      setIsProcessingQueue(false);
     }
   };
 
@@ -684,6 +771,8 @@ export function BackgroundsAdmin({
           body: {
             action: 'update',
             id: targetId,
+            is_active: true,
+            is_draft: false,
             video_url: url720p,
             video_url_720p: url720p,
             video_url_480p: url480p,
@@ -694,7 +783,7 @@ export function BackgroundsAdmin({
             storage_paths: storagePaths,
           },
         });
-        showToast(`Replaced video for "${rawBase}". Saved as Draft.`, 'success');
+        showToast(`Replaced video for "${rawBase}". Activated live!`, 'success');
       } else {
         await appApi('/admin/supabase-backgrounds', {
           method: 'POST',
@@ -713,18 +802,25 @@ export function BackgroundsAdmin({
             renditions,
             storage_paths: storagePaths,
             sort_order: bgSortOrder,
-            is_active: false, // STARTS AS DRAFT (Requirement 5)
-            is_draft: true,
+            is_active: true,
+            is_draft: false,
             is_premium: payload.isPremium,
           },
         });
-        showToast(`Saved "${rawBase}" as Draft. Preview loop and click Publish to go live!`, 'success');
+        showToast(`Saved "${rawBase}" and activated as live background!`, 'success');
+      }
+
+      // Automatically activate and play immediately
+      const activeUrl = url720p || url480p || '';
+      if (activeUrl) {
+        setActiveBackgroundVideoId(activeUrl);
+        try { localStorage.setItem('activeBackgroundVideoId', activeUrl); } catch {}
       }
 
       setUploadQueue((prev) =>
         prev.map((it) =>
           it.id === queueId
-            ? { ...it, status: 'done', stageLabel: 'Saved as Draft (Ready to Publish)', progress: 100, isDraft: true }
+            ? { ...it, status: 'done', stageLabel: 'Active & Playing Live', progress: 100, isDraft: false }
             : it
         )
       );
@@ -743,18 +839,10 @@ export function BackgroundsAdmin({
     }
   };
 
-  // 7. Publish Draft Background to All Devices (Requirement 5)
+  // 7. Publish & Activate Background to All Devices
   const handlePublishBackground = async (bg: BackgroundRow) => {
     try {
-      showToast(`Verifying stream playability before publishing...`, 'success');
-
-      // Verify 720p or 480p url
       const testUrl = bg.video_url_720p || bg.video_url;
-      const ok = await verifyVideoPlayable(testUrl);
-      if (!ok) {
-        showToast(`Cannot publish: Stream verification failed on ${testUrl}`, 'error');
-        return;
-      }
 
       await appApi('/admin/supabase-backgrounds', {
         method: 'POST',
@@ -766,7 +854,12 @@ export function BackgroundsAdmin({
         },
       });
 
-      showToast(`Published "${bg.name_en}" live to all mobile phones and tablets!`, 'success');
+      if (testUrl) {
+        setActiveBackgroundVideoId(testUrl);
+        try { localStorage.setItem('activeBackgroundVideoId', testUrl); } catch {}
+      }
+
+      showToast(`Activated "${bg.name_en}" live and set as current background!`, 'success');
       await loadCloudCatalog();
       await refreshGlobalCatalog();
     } catch (err: any) {
@@ -865,7 +958,7 @@ export function BackgroundsAdmin({
             Ambient Video Studio & Storage Manager
           </h2>
           <p className="text-xs text-emerald-200/70 mt-1 max-w-2xl">
-            Accepts large master source videos (≥ 500 MB). Automatically encodes phone-ready 720p & 480p renditions,
+            Accepts large master source videos (â‰¥ 500 MB). Automatically encodes phone-ready 720p & 480p renditions,
             never overwrites originals, and serves bandwidth-optimized streams to all devices.
           </p>
         </div>
@@ -945,10 +1038,123 @@ export function BackgroundsAdmin({
             <div>
               <h3 className="text-base font-bold text-white">Upload Background Video</h3>
               <p className="text-xs text-emerald-300/70">
-                Choose an ambient video clip from your gallery or files. Uploads directly to Supabase Storage.
+                Choose an ambient video clip from your gallery or files. Uploads directly to Supabase Storage and plays instantly.
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Form Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+          <div className="sm:col-span-5">
+            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
+              Title / Name (Optional)
+            </label>
+            <input
+              type="text"
+              value={bgNameEn}
+              onChange={(e) => setBgNameEn(e.target.value)}
+              placeholder="e.g. Mountain River Stream"
+              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-emerald-900 focus:outline-none focus:border-emerald-400"
+            />
+          </div>
+
+          <div className="sm:col-span-4">
+            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
+              Category
+            </label>
+            <select
+              value={bgCategory}
+              onChange={(e) => setBgCategory(e.target.value)}
+              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400"
+            >
+              <option value="fireplace">Fireplace</option>
+              <option value="rain">Rain & Storm</option>
+              <option value="ocean">Ocean & Waves</option>
+              <option value="forest">Forest & Nature</option>
+              <option value="cosmos">Cosmos & Stars</option>
+              <option value="night">Night & Moon</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+
+          <div className="sm:col-span-3 flex items-end">
+            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050D0A] border border-emerald-900/80 w-full cursor-pointer hover:border-emerald-500/50">
+              <input
+                type="checkbox"
+                checked={bgIsPremium}
+                onChange={(e) => setBgIsPremium(e.target.checked)}
+                className="rounded accent-emerald-500"
+              />
+              <span className="text-xs text-emerald-200 font-medium">Premium Only</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Drag & Drop Zone + Big Upload Button */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (e.dataTransfer.files) handleSourceFileSelected(e.dataTransfer.files);
+          }}
+          className={`border-2 border-dashed rounded-2xl p-6 transition-all text-center ${
+            isDragging
+              ? 'border-emerald-400 bg-emerald-950/40 scale-[1.005]'
+              : 'border-emerald-900/50 bg-[#06140F]/60 hover:border-emerald-700/60'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*,.mp4,.mov,.webm,.mkv"
+            onChange={(e) => {
+              if (e.target.files) handleSourceFileSelected(e.target.files);
+            }}
+            className="hidden"
+          />
+
+          <input
+            ref={preProcessedInputRef}
+            type="file"
+            multiple
+            accept="video/mp4,image/jpeg,application/json,.mp4,.jpg,.json"
+            onChange={(e) => {
+              if (e.target.files) handleSourceFileSelected(e.target.files);
+            }}
+            className="hidden"
+          />
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessingQueue}
+              className="px-7 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Upload size={16} />
+              <span>{isProcessingQueue ? 'Uploading Video...' : 'Upload Video from Gallery'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => preProcessedInputRef.current?.click()}
+              className="px-4 py-3 rounded-2xl bg-emerald-950/40 border border-emerald-900 hover:bg-emerald-900/40 text-emerald-300 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
+            >
+              <FolderCheckIcon size={15} />
+              <span>Import Script Files</span>
+            </button>
+          </div>
+          <div className="text-[11px] text-emerald-400/60 mt-3">
+            Supports MP4, MOV, WebM clips from phones, laptops, and tablets.
+          </div>
+        </div>
+      </div>
         </div>
 
         {/* Form Inputs */}
@@ -1313,11 +1519,11 @@ export function BackgroundsAdmin({
                     )}
                     <div className="text-[11px] text-emerald-400/60 mt-1 flex items-center gap-2">
                       <span>Order: {bg.sort_order}</span>
-                      <span>•</span>
+                      <span>â€¢</span>
                       <span>{bg.size_bytes ? formatBytes(bg.size_bytes) : 'Supabase'}</span>
                       {bg.duration_seconds ? (
                         <>
-                          <span>•</span>
+                          <span>â€¢</span>
                           <span>{bg.duration_seconds}s Loop</span>
                         </>
                       ) : null}
@@ -1341,8 +1547,10 @@ export function BackgroundsAdmin({
                       <button
                         type="button"
                         onClick={() => {
-                          setActiveBackgroundVideoId(bg.video_url_720p || bg.video_url);
-                          showToast(`Broadcasted "${bg.name_en}" live to all devices!`, 'success');
+                          const target = bg.video_url_720p || bg.video_url;
+                          setActiveBackgroundVideoId(target);
+                          try { localStorage.setItem('activeBackgroundVideoId', target); } catch {}
+                          showToast(`Set "${bg.name_en}" as active playing background!`, 'success');
                         }}
                         className={`px-3 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
                           isCurrentBroadcast
@@ -1350,7 +1558,7 @@ export function BackgroundsAdmin({
                             : 'bg-emerald-900/40 hover:bg-emerald-600 text-emerald-200 hover:text-white'
                         }`}
                       >
-                        {isCurrentBroadcast ? '✓ Live' : 'Broadcast'}
+                        {isCurrentBroadcast ? '✓ Active' : 'Set Active'}
                       </button>
                     )}
 
@@ -1468,13 +1676,13 @@ export function BackgroundsAdmin({
               {/* Projected Output Sizes */}
               <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 space-y-2">
                 <div className="flex items-center justify-between text-xs text-white font-semibold">
-                  <span>Projected Rendition Sizes (Target Range 3–15 MB):</span>
+                  <span>Projected Rendition Sizes (Target Range 3â€“15 MB):</span>
                   <span className="text-emerald-300 font-mono">
-                    720p: ~{formatBytes(preProcessModal.meta.projected720pBytes)} • 480p: ~{formatBytes(preProcessModal.meta.projected480pBytes)}
+                    720p: ~{formatBytes(preProcessModal.meta.projected720pBytes)} â€¢ 480p: ~{formatBytes(preProcessModal.meta.projected480pBytes)}
                   </span>
                 </div>
                 <div className="text-[11px] text-emerald-200/70">
-                  Transcoding reduces bandwidth consumption by <strong>85–95%</strong>, ensuring mobile phones stream instantly without buffering.
+                  Transcoding reduces bandwidth consumption by <strong>85â€“95%</strong>, ensuring mobile phones stream instantly without buffering.
                 </div>
               </div>
 
@@ -1537,7 +1745,7 @@ export function BackgroundsAdmin({
 
                       <div className="space-y-1">
                         <div className="flex justify-between text-[11px] text-emerald-300">
-                          <span>Duration (10s – 60s)</span>
+                          <span>Duration (10s â€“ 60s)</span>
                           <span>{preProcessModal.trimDuration}s</span>
                         </div>
                         <input

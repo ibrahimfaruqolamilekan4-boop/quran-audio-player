@@ -479,7 +479,7 @@ CREATE TABLE IF NOT EXISTS public.plans (
 CREATE INDEX IF NOT EXISTS idx_plans_active_sort ON public.plans (is_active, sort_order ASC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_plans_code ON public.plans (code);
 
--- Seed ONE canonical row: premium_monthly at ₦500 for 30 days
+-- Seed ONE canonical row: premium_monthly at â‚¦500 for 30 days
 INSERT INTO public.plans (
   id,
   code,
@@ -495,7 +495,7 @@ INSERT INTO public.plans (
   'plan_premium_monthly',
   'premium_monthly',
   'Monthly Sanctuary',
-  'الاشتراك الشهري',
+  'Ø§Ù„Ø§Ø´ØªØ±Ø§Ùƒ Ø§Ù„Ø´Ù‡Ø±ÙŠ',
   500,
   'NGN',
   30,
@@ -640,7 +640,98 @@ ALTER TABLE public.plans REPLICA IDENTITY FULL;
 ALTER TABLE public.payments REPLICA IDENTITY FULL;
 
 -- ------------------------------------------------------------------------------
--- SECTION 7: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
+-- SECTION 8: ADHAN VOICES TABLE & REALTIME POLICIES
+-- Admin-managed voices for five daily prayers & Fajr. Seed nothing by default.
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.adhan_voices (
+  id text PRIMARY KEY,
+  name_en text NOT NULL,
+  name_ar text,
+  muezzin text NOT NULL,
+  mosque text,
+  audio_url text,
+  fajr_audio_url text,
+  duration integer DEFAULT 0,
+  license text,
+  source text,
+  attribution text,
+  is_active boolean DEFAULT true,
+  is_premium boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_adhan_voices_active ON public.adhan_voices (is_active, is_premium);
+
+ALTER TABLE public.adhan_voices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view active adhan voices" ON public.adhan_voices;
+CREATE POLICY "Anyone can view active adhan voices"
+  ON public.adhan_voices FOR SELECT
+  TO anon, authenticated, service_role
+  USING (is_active = true OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only admin or service_role can manage adhan voices" ON public.adhan_voices;
+CREATE POLICY "Only admin or service_role can manage adhan voices"
+  ON public.adhan_voices FOR ALL
+  TO authenticated, service_role
+  USING (auth.role() = 'service_role' OR public.is_admin())
+  WITH CHECK (auth.role() = 'service_role' OR public.is_admin());
+
+ALTER TABLE public.adhan_voices REPLICA IDENTITY FULL;
+
+-- ------------------------------------------------------------------------------
+-- SECTION 9: PRAYER PUSH SUBSCRIPTIONS (VAPID Web Push)
+-- Stores browser web push endpoints with user coordinates for scheduled adhan push
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.prayer_push_subscriptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  endpoint text NOT NULL UNIQUE,
+  keys jsonb NOT NULL,
+  latitude double precision NOT NULL,
+  longitude double precision NOT NULL,
+  timezone text NOT NULL DEFAULT 'UTC',
+  city text,
+  country text,
+  calculation_method text DEFAULT 'MWL',
+  juristic text DEFAULT 'Shafi',
+  prayer_preferences jsonb DEFAULT '{"fajr":true,"dhuhr":true,"asr":true,"maghrib":true,"isha":true}'::jsonb,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_prayer_push_subs_coords ON public.prayer_push_subscriptions (latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_prayer_push_subs_user ON public.prayer_push_subscriptions (user_id);
+
+ALTER TABLE public.prayer_push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can insert their own push subscriptions" ON public.prayer_push_subscriptions;
+CREATE POLICY "Users can insert their own push subscriptions"
+  ON public.prayer_push_subscriptions FOR INSERT
+  TO anon, authenticated, service_role
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Users can update their own push subscriptions" ON public.prayer_push_subscriptions;
+CREATE POLICY "Users can update their own push subscriptions"
+  ON public.prayer_push_subscriptions FOR UPDATE
+  TO anon, authenticated, service_role
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Users can delete their own push subscriptions" ON public.prayer_push_subscriptions;
+CREATE POLICY "Users can delete their own push subscriptions"
+  ON public.prayer_push_subscriptions FOR DELETE
+  TO anon, authenticated, service_role
+  USING (true);
+
+DROP POLICY IF EXISTS "Only service_role can view all subscriptions" ON public.prayer_push_subscriptions;
+CREATE POLICY "Only service_role can view all subscriptions"
+  ON public.prayer_push_subscriptions FOR SELECT
+  TO authenticated, service_role
+  USING (auth.role() = 'service_role' OR auth.uid() = user_id OR public.is_admin());
+
+-- ------------------------------------------------------------------------------
+-- SECTION 10: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
 -- ------------------------------------------------------------------------------
 -- UPDATE public.profiles
 -- SET role = 'admin'

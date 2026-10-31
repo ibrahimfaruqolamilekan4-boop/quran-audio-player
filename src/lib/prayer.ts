@@ -181,6 +181,8 @@ export interface PrayerSettings {
   is24Hour: boolean;
   notificationsEnabled: boolean;
   prayerReminders: Record<string, boolean>;
+  shortNotificationOnly?: Record<string, boolean>;
+  adhanVolume?: number;
   reminderMinutesBefore?: number;
   activeAdhanVoiceId?: string;
 }
@@ -213,8 +215,17 @@ export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
     maghrib: true,
     isha: true,
   },
+  shortNotificationOnly: {
+    fajr: false,
+    sunrise: true,
+    dhuhr: false,
+    asr: false,
+    maghrib: false,
+    isha: false,
+  },
+  adhanVolume: 0.9,
   reminderMinutesBefore: 0,
-  activeAdhanVoiceId: 'medina-standard',
+  activeAdhanVoiceId: '',
 };
 
 /**

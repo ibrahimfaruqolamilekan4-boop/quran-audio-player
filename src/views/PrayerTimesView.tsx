@@ -23,9 +23,12 @@ import {
   Info,
   ChevronDown,
   RotateCcw,
-  Sparkle,
   Globe,
   WifiOff,
+  Play,
+  Pause,
+  Square,
+  Music,
 } from 'lucide-react';
 import {
   CALCULATION_METHODS,
@@ -39,6 +42,13 @@ import {
 import { useLocationService } from '../lib/useLocationService';
 import { LocationPermissionModal } from '../components/LocationPermissionModal';
 import { LOCATION_PRIVACY_NOTICE } from '../lib/location';
+import { adhanAudio, AdhanVoice } from '../lib/adhanAudio';
+import {
+  getPushSubscriptionState,
+  subscribeToPrayerPush,
+  unsubscribeFromPrayerPush,
+  PushSubscriptionState,
+} from '../lib/pushNotifications';
 
 const PRAYER_NAMES = [
   { key: 'fajr', english: 'Fajr', arabic: 'الفجر', description: 'Dawn to Sunrise', icon: Sunrise },
@@ -79,6 +89,49 @@ export function PrayerTimesView() {
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [searchCityQuery, setSearchCityQuery] = useState('');
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Adhan voices state & preview
+  const [voices, setVoices] = useState<AdhanVoice[]>(() => adhanAudio.getVoices());
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+
+  // Web Push Subscription & Diagnostics State
+  const [pushState, setPushState] = useState<PushSubscriptionState | null>(null);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushFeedback, setPushFeedback] = useState<string | null>(null);
+
+  // Sync active adhan voices & listen to playback state
+  useEffect(() => {
+    adhanAudio.fetchVoices().then(setVoices);
+    getPushSubscriptionState().then(setPushState);
+
+    const handleAdhanState = () => {
+      const state = adhanAudio.getPlaybackState();
+      setPreviewingVoiceId(state.previewVoiceId);
+    };
+
+    // Service Worker incoming push adhan event listener
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NOORAYA_ADHAN_START') {
+        adhanAudio.playAdhan(event.data.prayer || 'dhuhr', settings.activeAdhanVoiceId);
+      }
+    };
+
+    window.addEventListener('nooraya-adhan-state-changed', handleAdhanState);
+    window.addEventListener('nooraya-adhan-started', handleAdhanState);
+    window.addEventListener('nooraya-adhan-ended', handleAdhanState);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
+    return () => {
+      window.removeEventListener('nooraya-adhan-state-changed', handleAdhanState);
+      window.removeEventListener('nooraya-adhan-started', handleAdhanState);
+      window.removeEventListener('nooraya-adhan-ended', handleAdhanState);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+    };
+  }, [settings.activeAdhanVoiceId]);
 
   // Auto-adapt calculation method when user country changes if user hasn't explicitly locked one
   const recommendedMethod = useMemo(() => {
@@ -133,6 +186,25 @@ export function PrayerTimesView() {
     settings.highLatitudeRule,
     settings.adjustments,
   ]);
+
+  // Drift-corrected 1-second Adhan scheduler (auto-ducking & background audio recovery)
+  useEffect(() => {
+    adhanAudio.setVolume(settings.adhanVolume ?? 0.9);
+    adhanAudio.startDriftCorrectedScheduler(() => ({
+      prayers: {
+        fajr: todayPrayers.fajr,
+        dhuhr: todayPrayers.dhuhr,
+        asr: todayPrayers.asr,
+        maghrib: todayPrayers.maghrib,
+        isha: todayPrayers.isha,
+      },
+      remindersEnabled: settings.prayerReminders || {},
+      voiceId: settings.activeAdhanVoiceId,
+      shortOnly: settings.shortNotificationOnly || {},
+    }));
+
+    return () => adhanAudio.stopScheduler();
+  }, [todayPrayers, settings]);
 
   // Tomorrow's Computed Prayers
   const tomorrowPrayers = useMemo(() => {
@@ -284,8 +356,38 @@ export function PrayerTimesView() {
   ]);
 
   const hijri = useMemo(() => getHijriDate(currentTime), [currentTime]);
-
   const filteredCities = searchCities(searchCityQuery);
+
+  // Push notifications toggle handler
+  const handleTogglePush = async () => {
+    setPushLoading(true);
+    setPushFeedback(null);
+    try {
+      if (pushState?.isSubscribed) {
+        const res = await unsubscribeFromPrayerPush();
+        setPushFeedback(res.message);
+        const updated = await getPushSubscriptionState();
+        setPushState(updated);
+      } else {
+        const res = await subscribeToPrayerPush({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          city: location.city,
+          country: location.country,
+          calculationMethod: settings.calculationMethod,
+          juristic: settings.madhab,
+          prayerPreferences: settings.prayerReminders,
+        });
+        setPushFeedback(res.message);
+        const updated = await getPushSubscriptionState();
+        setPushState(updated);
+      }
+    } catch (err: any) {
+      setPushFeedback(err?.message || 'Push registration failed');
+    } finally {
+      setPushLoading(false);
+    }
+  };
 
   // Per-prayer minute adjustments handler
   const handleAdjustmentChange = (prayerKey: keyof typeof settings.adjustments, delta: number) => {
@@ -333,7 +435,7 @@ export function PrayerTimesView() {
           <div>
             <div className="flex flex-wrap items-center gap-2.5 mb-2">
               <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
-                <Sparkle size={12} className="text-emerald-400" />
+                <Sparkles size={12} className="text-emerald-400" />
                 <span>{hijri.full}</span>
               </span>
 
@@ -359,7 +461,7 @@ export function PrayerTimesView() {
 
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-baseline gap-3">
               <span>Prayer Times</span>
-              <span className="text-lg font-normal text-emerald-400/80 font-serif">مواقيت الصلاة</span>
+              <span className="text-lg font-normal text-emerald-400/80 font-serif">Ù…ÙˆØ§Ù‚ÙŠØª Ø§Ù„ØµÙ„Ø§Ø©</span>
             </h1>
 
             <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-200/70 mt-1.5">
@@ -503,7 +605,7 @@ export function PrayerTimesView() {
           <div className="flex items-center justify-between border-b border-emerald-900/80 pb-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2.5">
               <Settings2 size={18} className="text-emerald-400" />
-              Calculation Authority, Juristic & Fine-Tuning Settings
+              Calculation Authority, Juristic & Adhan Audio Settings
             </h2>
             <button
               onClick={() => setShowSettings(false)}
@@ -526,7 +628,7 @@ export function PrayerTimesView() {
               >
                 {CALCULATION_METHODS.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} (Fajr {m.fajrAngle}°, Isha {m.ishaAngle}°)
+                    {m.name} (Fajr {m.fajrAngle}Â°, Isha {m.ishaAngle}Â°)
                   </option>
                 ))}
               </select>
@@ -568,107 +670,254 @@ export function PrayerTimesView() {
               </div>
             </div>
 
-            {/* Column 2: High Latitude Rules */}
-            <div>
-              <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider block mb-2">
-                High-Latitude Rule (Polar & Extreme North)
-              </label>
-              <select
-                value={settings.highLatitudeRule}
-                onChange={(e) =>
-                  setSettings((s) => ({
-                    ...s,
-                    highLatitudeRule: e.target.value as any,
-                  }))
-                }
-                className="w-full bg-[#020B07] border border-emerald-800/80 rounded-2xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400 mb-4"
-              >
-                <option value="MiddleOfTheNight">Middle of the Night (Default)</option>
-                <option value="SeventhOfTheNight">Seventh of the Night</option>
-                <option value="TwilightAngle">Twilight Angle Proportion</option>
-              </select>
-
-              <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider block mb-2">
-                Display Format & Mode
-              </label>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setSettings((s) => ({ ...s, is24Hour: false }))}
-                  className={`py-2 rounded-xl text-xs font-medium border ${
-                    !settings.is24Hour
-                      ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/60'
-                      : 'bg-[#020B07] text-emerald-400/60 border-emerald-950'
-                  }`}
-                >
-                  12-Hour (AM/PM)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSettings((s) => ({ ...s, is24Hour: true }))}
-                  className={`py-2 rounded-xl text-xs font-medium border ${
-                    settings.is24Hour
-                      ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/60'
-                      : 'bg-[#020B07] text-emerald-400/60 border-emerald-950'
-                  }`}
-                >
-                  24-Hour Military
-                </button>
-              </div>
-            </div>
-
-            {/* Column 3: Fine-Tuning Adjustments */}
+            {/* Column 2: Adhan Audio & Voice Selection */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                  Minute Fine-Tuning
+                  Adhan Voice & Audio Engine
                 </label>
                 <button
                   type="button"
-                  onClick={() =>
-                    setSettings((s) => ({
-                      ...s,
-                      adjustments: { fajr: 0, sunrise: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 },
-                    }))
-                  }
-                  className="text-[11px] text-emerald-400 hover:text-white"
+                  onClick={() => adhanAudio.playChime(3)}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
                 >
-                  Reset All to 0
+                  Test Audio Chime
                 </button>
               </div>
 
+              {/* Volume Slider */}
+              <div className="bg-[#020B07] border border-emerald-950 p-3 rounded-2xl mb-3">
+                <div className="flex items-center justify-between text-xs text-emerald-300 mb-1.5 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <Volume2 size={13} className="text-emerald-400" />
+                    <span>Adhan Playback Volume</span>
+                  </span>
+                  <span>{Math.round((settings.adhanVolume ?? 0.9) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={settings.adhanVolume ?? 0.9}
+                  onChange={(e) => {
+                    const vol = Number(e.target.value);
+                    setSettings((s) => ({ ...s, adhanVolume: vol }));
+                    adhanAudio.setVolume(vol);
+                  }}
+                  className="w-full accent-emerald-500 h-1.5 bg-emerald-950 rounded-lg cursor-pointer"
+                />
+              </div>
+
+              {/* Active Voice Selection */}
+              <label className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block mb-1.5">
+                Default Adhan Voice (Prophet's Mosque & Alafasy)
+              </label>
+              <select
+                value={settings.activeAdhanVoiceId || ''}
+                onChange={(e) => setSettings((s) => ({ ...s, activeAdhanVoiceId: e.target.value }))}
+                className="w-full bg-[#020B07] border border-emerald-800/80 rounded-2xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400 mb-2.5"
+              >
+                <option value="">Default (Gentle Islamic Chime)</option>
+                {voices.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name_en} ({v.muezzin}) {v.is_premium ? 'â­ Premium' : ''}
+                  </option>
+                ))}
+              </select>
+
+              {/* Voice Preview List */}
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {voices.length === 0 ? (
+                  <div className="p-3 bg-[#020B07] border border-emerald-950 rounded-xl text-[11px] text-emerald-400/70 text-center">
+                    No custom voices uploaded yet. Prophet's Mosque muezzins and Sheikh Mishary slots are ready in Admin.
+                  </div>
+                ) : (
+                  voices.map((v) => {
+                    const isPreviewing = previewingVoiceId === v.id;
+                    return (
+                      <div
+                        key={v.id}
+                        className="flex items-center justify-between p-2 bg-[#020B07] border border-emerald-950 rounded-xl text-xs"
+                      >
+                        <div className="truncate mr-2">
+                          <div className="font-semibold text-white truncate">{v.name_en}</div>
+                          <div className="text-[10px] text-emerald-400/60 truncate">{v.muezzin}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => adhanAudio.previewVoice(v)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-[11px] font-bold flex items-center gap-1 shrink-0"
+                        >
+                          {isPreviewing ? <Pause size={12} /> : <Play size={12} />}
+                          <span>{isPreviewing ? 'Stop' : 'Preview'}</span>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Column 3: Per-Prayer Notifications & Reminders */}
+            <div>
+              <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider block mb-2">
+                Per-Prayer Adhan Toggles
+              </label>
+
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {(['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'] as const).map((key) => {
-                  const val = settings.adjustments[key] || 0;
+                {PRAYER_NAMES.map((prayer) => {
+                  const isEnabled = settings.prayerReminders?.[prayer.key] ?? true;
+                  const isShortOnly = settings.shortNotificationOnly?.[prayer.key] ?? (prayer.key === 'sunrise');
                   return (
                     <div
-                      key={key}
-                      className="flex items-center justify-between bg-[#020B07] border border-emerald-950 p-2 rounded-xl text-xs"
+                      key={prayer.key}
+                      className="flex items-center justify-between bg-[#020B07] border border-emerald-950 p-2.5 rounded-xl text-xs"
                     >
-                      <span className="font-semibold text-white capitalize">{key}</span>
-                      <div className="flex items-center gap-2">
+                      <div>
+                        <span className="font-bold text-white capitalize">{prayer.english}</span>
+                        {prayer.key === 'sunrise' && (
+                          <span className="text-[10px] text-emerald-400/70 block">
+                            Short notification only
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {prayer.key !== 'sunrise' && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSettings((s) => ({
+                                ...s,
+                                shortNotificationOnly: {
+                                  ...(s.shortNotificationOnly || {}),
+                                  [prayer.key]: !isShortOnly,
+                                },
+                              }))
+                            }
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                              isShortOnly
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : 'bg-emerald-950 text-emerald-400/60 border-emerald-900'
+                            }`}
+                          >
+                            {isShortOnly ? 'Chime' : 'Full Adhan'}
+                          </button>
+                        )}
+
                         <button
                           type="button"
-                          onClick={() => handleAdjustmentChange(key, -1)}
-                          className="w-6 h-6 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center font-bold"
+                          onClick={() =>
+                            setSettings((s) => ({
+                              ...s,
+                              prayerReminders: {
+                                ...(s.prayerReminders || {}),
+                                [prayer.key]: !isEnabled,
+                              },
+                            }))
+                          }
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs transition-all ${
+                            isEnabled
+                              ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                              : 'bg-emerald-950/80 text-emerald-600 border border-emerald-900'
+                          }`}
                         >
-                          -
-                        </button>
-                        <span className="font-mono min-w-[34px] text-center font-bold text-emerald-300">
-                          {val > 0 ? `+${val}` : val}m
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustmentChange(key, 1)}
-                          className="w-6 h-6 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center font-bold"
-                        >
-                          +
+                          {isEnabled ? <Bell size={13} /> : <BellOff size={13} />}
                         </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Minute Fine Tuning Reset Button */}
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((s) => ({
+                    ...s,
+                    adjustments: { fajr: 0, sunrise: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 },
+                  }))
+                }
+                className="mt-3 text-[11px] text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+              >
+                Reset all minute adjustments to 0
+              </button>
+            </div>
+
+            {/* Full-width Row 4: Background Web Push & Diagnostic System Status */}
+            <div className="md:col-span-3 pt-4 border-t border-emerald-950 mt-2">
+              <div className="bg-[#020B07] border border-emerald-900/60 rounded-2xl p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Bell size={16} className="text-emerald-400" />
+                      Background Web Push Notifications (Screen Locked / App Closed)
+                    </h3>
+                    <p className="text-xs text-emerald-300/70 mt-0.5">
+                      Receive time-accurate push alerts when prayer times arrive even if Nooraya is not open.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTogglePush}
+                    disabled={pushLoading}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap ${
+                      pushState?.isSubscribed
+                        ? 'bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    }`}
+                  >
+                    {pushLoading
+                      ? 'Connecting...'
+                      : pushState?.isSubscribed
+                      ? 'Disable Push Alerts'
+                      : 'Enable Web Push Alerts'}
+                  </button>
+                </div>
+
+                {pushFeedback && (
+                  <div className="text-xs px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800 text-emerald-200 mb-3">
+                    {pushFeedback}
+                  </div>
+                )}
+
+                {/* iOS 16.4+ Home Screen Educational Notice */}
+                {pushState?.isIOS && !pushState?.isStandalone && (
+                  <div className="text-xs p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 mb-3 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5 text-amber-300">
+                      <Info size={14} /> Apple iOS Home Screen Requirement:
+                    </p>
+                    <p>
+                      On iPhone/iPad (iOS 16.4+), Apple strictly requires web push apps to be added to your Home Screen.
+                      Tap the <strong>Share</strong> icon (square with arrow) at the bottom of Safari, then choose <strong>"Add to Home Screen"</strong>.
+                    </p>
+                  </div>
+                )}
+
+                {/* System Diagnostics Bar */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-emerald-950/80 text-[11px]">
+                  <div className="bg-[#010604] p-2 rounded-lg border border-emerald-950">
+                    <span className="text-emerald-400/70 block">Push Permission:</span>
+                    <span className="font-bold text-white capitalize">{pushState?.permission || 'Checking...'}</span>
+                  </div>
+                  <div className="bg-[#010604] p-2 rounded-lg border border-emerald-950">
+                    <span className="text-emerald-400/70 block">PWA Standalone:</span>
+                    <span className="font-bold text-white">{pushState?.isStandalone ? 'Yes (Installed)' : 'Browser Tab'}</span>
+                  </div>
+                  <div className="bg-[#010604] p-2 rounded-lg border border-emerald-950">
+                    <span className="text-emerald-400/70 block">Next Scheduled:</span>
+                    <span className="font-bold text-white capitalize">{nextPrayerMeta?.english || 'None'}</span>
+                  </div>
+                  <div className="bg-[#010604] p-2 rounded-lg border border-emerald-950">
+                    <span className="text-emerald-400/70 block">Active Authority:</span>
+                    <span className="font-bold text-white truncate block">{currentMethodDetails.label}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             </div>
           </div>
         </div>
