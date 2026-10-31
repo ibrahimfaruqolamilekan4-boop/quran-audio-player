@@ -475,12 +475,49 @@ export async function uploadToSupabaseStorage(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      // 1. Primary: Request a signed upload URL from backend (service_role bypasses RLS issues)
+      try {
+        const signedRes = await fetch('/api/admin/supabase-backgrounds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'signed-upload-url',
+            filename: cleanPath.split('/').pop() || 'media',
+            bucket: STORAGE_BUCKET,
+          }),
+        });
+
+        if (signedRes.ok) {
+          const { signedUrl, publicUrl } = await signedRes.json();
+          if (signedUrl && publicUrl) {
+            const uploadRes = await fetch(signedUrl, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': contentType,
+                'cache-control': 'max-age=31536000',
+              },
+              body: fileOrBlob,
+            });
+
+            if (uploadRes.ok) {
+              return publicUrl;
+            }
+          }
+        }
+      } catch (signedErr) {
+        console.warn('Signed upload attempt error, falling back to direct:', signedErr);
+      }
+
       if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+        const client = getSupabaseClient();
+        const session = await client?.auth.getSession().catch(() => null);
+        const authToken = session?.data?.session?.access_token || SUPABASE_ANON_KEY;
+
         const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
         const res = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${authToken}`,
             apikey: SUPABASE_ANON_KEY,
             'Content-Type': contentType,
             'x-upsert': 'true',

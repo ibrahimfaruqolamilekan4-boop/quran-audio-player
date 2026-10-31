@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { q, sendJson, getSupabaseAdmin } from './_lib';
+import { q, sendJson, getSupabaseAdmin } from './_lib.mjs';
 
 export interface AdhanVoiceRow {
   id: string;

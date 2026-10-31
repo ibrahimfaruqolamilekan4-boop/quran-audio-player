@@ -161,6 +161,7 @@ export function BackgroundsAdmin({
   const [bgSortOrder, setBgSortOrder] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const directUploadInputRef = useRef<HTMLInputElement>(null);
   const preProcessedInputRef = useRef<HTMLInputElement>(null);
   const loopPreviewVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -224,6 +225,92 @@ export function BackgroundsAdmin({
     }
   };
 
+  // Simple Direct Gallery / File Upload (1-Click, zero lag, no modal, RLS-safe)
+  const handleDirectGalleryUpload = async (file: File) => {
+    if (!file) return;
+    const cleanTitle = bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, '').trim();
+    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newQueueItem: UploadQueueItem = {
+      id: queueId,
+      name: cleanTitle,
+      category: bgCategory || 'general',
+      status: 'uploading',
+      progress: 10,
+      stageLabel: 'Uploading video from gallery...',
+    };
+
+    setUploadQueue((prev) => [newQueueItem, ...prev]);
+    setIsProcessingQueue(true);
+    showToast(`Uploading "${cleanTitle}" directly from gallery...`, 'success');
+
+    try {
+      const storagePath = `backgrounds/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === queueId ? { ...it, progress: 35, stageLabel: 'Streaming to cloud storage...' } : it))
+      );
+
+      const publicUrl = await uploadToSupabaseStorage(
+        file,
+        storagePath,
+        file.type || 'video/mp4'
+      );
+
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === queueId ? { ...it, progress: 80, stageLabel: 'Activating as live background...' } : it))
+      );
+
+      const targetId = `bg_${Date.now()}`;
+      await appApi('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'add',
+          id: targetId,
+          name_en: cleanTitle,
+          name_ar: bgNameAr.trim() || null,
+          category: bgCategory || 'general',
+          video_url: publicUrl,
+          video_url_720p: publicUrl,
+          video_url_480p: publicUrl,
+          size_bytes: file.size,
+          duration_seconds: 30,
+          storage_paths: [storagePath],
+          sort_order: bgSortOrder,
+          is_active: true,
+          is_draft: false,
+          is_premium: bgIsPremium,
+        },
+      });
+
+      // Activate immediately in player and save to local storage
+      setActiveBackgroundVideoId(publicUrl);
+      try { localStorage.setItem('activeBackgroundVideoId', publicUrl); } catch {}
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'done', stageLabel: 'Active & Playing Live', progress: 100, isDraft: false }
+            : it
+        )
+      );
+
+      showToast(`Background video "${cleanTitle}" uploaded and playing live!`, 'success');
+      await loadCloudCatalog();
+      await refreshGlobalCatalog();
+    } catch (err: any) {
+      console.error('Gallery upload error:', err);
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed' } : it
+        )
+      );
+      showToast(err?.message || 'Gallery upload failed.', 'error');
+    } finally {
+      setIsProcessingQueue(false);
+    }
+  };
+
   // 3. File Selection & Pre-processing Probing
   const handleSourceFileSelected = async (files: FileList | File[]) => {
     const fileList = Array.from(files);
@@ -248,6 +335,10 @@ export function BackgroundsAdmin({
 
     // Otherwise, probe raw source video (accepts large files >= 500 MB)
     const file = fileList[0];
+    if (isMobileDevice()) {
+      await handleDirectGalleryUpload(file);
+      return;
+    }
     showToast(`Analyzing "${file.name}" (${formatBytes(file.size)})...`, 'success');
 
     try {
@@ -843,6 +934,17 @@ export function BackgroundsAdmin({
         }`}
       >
         <input
+          ref={directUploadInputRef}
+          type="file"
+          accept="video/*,.mp4,.mov,.webm,.mkv"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleDirectGalleryUpload(f);
+          }}
+          className="hidden"
+        />
+
+        <input
           ref={fileInputRef}
           type="file"
           accept="video/*,.mp4,.mov,.webm,.mkv"
@@ -875,25 +977,35 @@ export function BackgroundsAdmin({
           Automatically encodes small, phone-ready 720p & 480p renditions and saves as Draft.
         </p>
 
-        {/* Action Buttons for Both Processing Methods */}
+        {/* Action Buttons for Uploading */}
         <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => directUploadInputRef.current?.click()}
+            disabled={isProcessingQueue}
+            className="px-7 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm shadow-xl transition-all inline-flex items-center gap-2 cursor-pointer"
+          >
+            <Upload size={18} />
+            <span>Upload Video from Gallery (1-Click Instant)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessingQueue}
-            className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer"
+            className="px-5 py-3 rounded-2xl bg-emerald-950/60 border border-emerald-700/50 hover:bg-emerald-900/60 text-emerald-200 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
           >
             <Film size={16} />
-            <span>Select Video File (Analyze & Transcode)</span>
+            <span>Advanced (Trim & Custom Transcoder)</span>
           </button>
 
           <button
             type="button"
             onClick={() => preProcessedInputRef.current?.click()}
-            className="px-5 py-3 rounded-2xl bg-emerald-950/60 border border-emerald-700/50 hover:bg-emerald-900/60 text-emerald-200 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
+            className="px-5 py-3 rounded-2xl bg-emerald-950/40 border border-emerald-800/40 hover:bg-emerald-900/40 text-emerald-300 text-xs font-medium transition-all inline-flex items-center gap-2 cursor-pointer"
           >
             <FolderCheckIcon size={16} />
-            <span>Import Pre-Processed Files (from Local Script)</span>
+            <span>Import Local Renditions</span>
           </button>
         </div>
       </div>

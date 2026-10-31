@@ -1,6 +1,6 @@
 // Admin API for Supabase / Neon backgrounds management
-// Supports: list all (including inactive and drafts), add, update, delete, reorder, publish
-import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
+// Supports: list all (including inactive and drafts), add, update, delete, reorder, publish, signed-upload-url
+import { type Handler, q, requireAdmin, sendJson, getSupabaseAdmin } from '../_lib.mjs';
 import { readJsonLarge } from '../media-lib.mjs';
 import { ensureBackgroundsTable } from '../backgrounds';
 
@@ -25,6 +25,34 @@ const handler: Handler = async (req, res) => {
     if (req.method === 'POST') {
       const body = await readJsonLarge(req);
       const action = body.action || 'add';
+
+      // Signed Upload URL for 1-Click Fast Background Video & Poster Upload (bypasses RLS issues)
+      if (action === 'signed-upload-url') {
+        const sb = getSupabaseAdmin();
+        if (!sb) {
+          return sendJson(res, 500, { error: 'Supabase admin client not initialized' });
+        }
+        const filename = String(body.filename || 'video.mp4').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const bucket = String(body.bucket || 'ambient-backgrounds');
+        const path = `backgrounds/${Date.now()}_${filename}`;
+
+        const { data, error } = await sb.storage
+          .from(bucket)
+          .createSignedUploadUrl(path);
+
+        if (error || !data) {
+          return sendJson(res, 500, { error: error?.message || 'Could not generate signed upload URL' });
+        }
+
+        const { data: publicUrlData } = sb.storage.from(bucket).getPublicUrl(path);
+
+        return sendJson(res, 200, {
+          signedUrl: data.signedUrl,
+          token: data.token,
+          path: data.path,
+          publicUrl: publicUrlData.publicUrl,
+        });
+      }
 
       if (action === 'add') {
         const id = body.id || `bg_${Date.now()}`;

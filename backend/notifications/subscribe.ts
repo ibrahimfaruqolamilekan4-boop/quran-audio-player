@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { q, sendJson, readJson, getSupabaseAdmin } from '../_lib';
+import { q, sendJson, readJson, getSupabaseAdmin } from '../_lib.mjs';
 
 export async function ensurePrayerPushSubscriptionsTable(): Promise<void> {
   await q(`
