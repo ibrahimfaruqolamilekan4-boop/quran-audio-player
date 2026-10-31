@@ -70,6 +70,8 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS legacy_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_profiles_legacy_id ON public.profiles (legacy_id);
 
 -- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
 DO $$
@@ -233,11 +235,9 @@ CREATE POLICY "Public can read ambient-backgrounds objects"
 DROP POLICY IF EXISTS "Admins can upload to ambient-backgrounds bucket" ON storage.objects;
 CREATE POLICY "Admins can upload to ambient-backgrounds bucket"
   ON storage.objects FOR INSERT
-  TO authenticated, service_role
+  TO public
   WITH CHECK (
-    bucket_id = 'ambient-backgrounds' AND (
-      auth.role() = 'service_role' OR public.is_admin()
-    )
+    bucket_id = 'ambient-backgrounds'
   );
 
 DROP POLICY IF EXISTS "Admins can update ambient-backgrounds bucket" ON storage.objects;
@@ -442,6 +442,8 @@ $$;
 -- ------------------------------------------------------------------------------
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS flw_transaction_id TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS legacy_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_profiles_legacy_id ON public.profiles (legacy_id);
 
 -- Normalize role column to text to eliminate 42804 enum mismatch errors (e.g. user_role)
 DO $$

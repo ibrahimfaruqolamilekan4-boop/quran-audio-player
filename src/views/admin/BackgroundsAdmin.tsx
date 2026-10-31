@@ -333,18 +333,12 @@ export function BackgroundsAdmin({
       return;
     }
 
-    // Otherwise, probe raw source video (accepts large files >= 500 MB)
+    // Otherwise, fast direct upload directly from gallery/device
     const file = fileList[0];
-    if (isMobileDevice()) {
-      await handleDirectGalleryUpload(file);
-      return;
-    }
-    showToast(`Analyzing "${file.name}" (${formatBytes(file.size)})...`, 'success');
+    showToast(`Uploading "${file.name}" (${formatBytes(file.size)})...`, 'success');
 
     try {
-      const meta = await probeSourceVideoMetadata(file);
-      const rawTitle = file.name.replace(/\.[^/.]+$/, '').trim();
-
+      const rawTitle = bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, '').trim();
       let autoCategory = bgCategory;
       const lower = rawTitle.toLowerCase();
       if (lower.includes('fire') || lower.includes('flame')) autoCategory = 'fireplace';
@@ -354,23 +348,14 @@ export function BackgroundsAdmin({
       else if (lower.includes('star') || lower.includes('space') || lower.includes('cosmos')) autoCategory = 'cosmos';
       else if (lower.includes('night') || lower.includes('moon')) autoCategory = 'night';
 
-      const defaultDuration = Math.min(30, Math.floor(meta.duration));
-
-      setPreProcessModal({
-        file,
-        meta,
+      // Upload immediately! Simple, fast, and direct
+      await handleFastDirectUpload(file, {
         title: rawTitle,
         category: autoCategory,
         isPremium: bgIsPremium,
-        trimStart: 0,
-        trimDuration: defaultDuration,
-        useTrim: meta.exceedsPreferredLimit || meta.duration > 35,
-        bitrateMode: 'standard',
-        mode: 'choice',
-        loopCrossfade: true,
       });
     } catch (err: any) {
-      showToast(err?.message || 'Failed to probe video.', 'error');
+      showToast(err?.message || 'Failed to upload video.', 'error');
     }
   };
 
@@ -409,6 +394,134 @@ export function BackgroundsAdmin({
       durationSeconds,
       isPremium: bgIsPremium,
     });
+  };
+
+  // 4b. Fast Direct Upload (Instant — No waiting, no 30-min canvas freeze)
+  const handleFastDirectUpload = async (
+    file: File,
+    customOptions?: { title?: string; category?: string; isPremium?: boolean }
+  ) => {
+    const rawTitle = customOptions?.title || file.name.replace(/\.[^/.]+$/, '').trim();
+    const category = customOptions?.category || bgCategory;
+    const isPremium = customOptions?.isPremium !== undefined ? customOptions.isPremium : bgIsPremium;
+
+    const safeBase = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24) || 'ambient';
+    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+    const newItem: UploadQueueItem = {
+      id: queueId,
+      name: rawTitle,
+      category,
+      status: 'uploading',
+      progress: 15,
+      stageLabel: 'Extracting poster & starting fast upload...',
+    };
+
+    setUploadQueue((prev) => [newItem, ...prev]);
+    setPreProcessModal(null);
+    setIsProcessingQueue(true);
+
+    try {
+      // 1. Fast poster extraction
+      let posterBlob: Blob | null = null;
+      try {
+        posterBlob = await extractVideoPoster(file);
+      } catch (pErr) {
+        console.warn('Poster extraction fallback:', pErr);
+      }
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, progress: 30, stageLabel: 'Uploading video directly to cloud...' }
+            : it
+        )
+      );
+
+      // 2. Upload video file to Supabase Storage
+      const videoFilename = `bg_${safeBase}_${uniqueSuffix}.mp4`;
+      const uploadedVideoUrl = await uploadToSupabaseStorage(
+        file,
+        `videos/${videoFilename}`,
+        file.type || 'video/mp4'
+      );
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId ? { ...it, progress: 75, stageLabel: 'Uploading poster thumbnail...' } : it
+        )
+      );
+
+      // 3. Upload poster if available
+      let uploadedPosterUrl: string | null = null;
+      if (posterBlob) {
+        try {
+          const posterFilename = `poster_${safeBase}_${uniqueSuffix}.jpg`;
+          uploadedPosterUrl = await uploadToSupabaseStorage(
+            posterBlob,
+            `posters/${posterFilename}`,
+            'image/jpeg'
+          );
+        } catch (e) {
+          console.warn('Poster upload fallback:', e);
+        }
+      }
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId ? { ...it, progress: 90, stageLabel: 'Saving background to catalog...' } : it
+        )
+      );
+
+      // 4. Save to database / catalog
+      const saveRes = await appApi<{ ok: boolean; background?: BackgroundRow }>('/admin/supabase-backgrounds', {
+        method: 'POST',
+        body: {
+          action: 'add',
+          name_en: rawTitle,
+          category,
+          video_url: uploadedVideoUrl,
+          video_url_720p: uploadedVideoUrl,
+          poster_url: uploadedPosterUrl,
+          size_bytes: file.size,
+          duration_seconds: 30,
+          is_active: true,
+          is_draft: false,
+          is_premium: isPremium,
+          storage_paths: [
+            `videos/${videoFilename}`,
+            uploadedPosterUrl ? `posters/poster_${safeBase}_${uniqueSuffix}.jpg` : '',
+          ].filter(Boolean),
+        },
+      });
+
+      if (!saveRes.ok) {
+        throw new Error('Failed to register background in database.');
+      }
+
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'done', progress: 100, stageLabel: 'Ready & Live on all devices!' }
+            : it
+        )
+      );
+
+      showToast(`Background "${rawTitle}" uploaded successfully and live!`, 'success');
+      await loadCloudCatalog();
+    } catch (err: any) {
+      setUploadQueue((prev) =>
+        prev.map((it) =>
+          it.id === queueId
+            ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed.' }
+            : it
+        )
+      );
+      showToast(err?.message || 'Upload failed. Check connection.', 'error');
+    } finally {
+      setIsProcessingQueue(false);
+    }
   };
 
   // 5. In-Browser Transcoder Execution
@@ -915,98 +1028,244 @@ export function BackgroundsAdmin({
         </div>
       )}
 
-      {/* MULTI-WAY UPLOADER CARD (Accepts Large Videos â‰¥ 500 MB) */}
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragging(false);
-          if (e.dataTransfer.files) handleSourceFileSelected(e.dataTransfer.files);
-        }}
-        className={`relative border-2 border-dashed rounded-3xl p-8 transition-all text-center ${
-          isDragging
-            ? 'border-emerald-400 bg-emerald-950/40 scale-[1.005]'
-            : 'border-emerald-900/50 bg-[#0A1A14]/70 hover:border-emerald-700/60'
-        }`}
-      >
-        <input
-          ref={directUploadInputRef}
-          type="file"
-          accept="video/*,.mp4,.mov,.webm,.mkv"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleDirectGalleryUpload(f);
-          }}
-          className="hidden"
-        />
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*,.mp4,.mov,.webm,.mkv"
-          onChange={(e) => {
-            if (e.target.files) handleSourceFileSelected(e.target.files);
-          }}
-          className="hidden"
-        />
-
-        <input
-          ref={preProcessedInputRef}
-          type="file"
-          multiple
-          accept="video/mp4,image/jpeg,application/json,.mp4,.jpg,.json"
-          onChange={(e) => {
-            if (e.target.files) handleSourceFileSelected(e.target.files);
-          }}
-          className="hidden"
-        />
-
-        <div className="w-16 h-16 mx-auto rounded-3xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 shadow-inner">
-          <Upload size={32} />
+      {/* SIMPLE & INSTANT UPLOADER CARD */}
+      <div className="bg-[#0A1A14]/80 border border-emerald-900/60 rounded-3xl p-6 lg:p-8 space-y-5 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-900/40 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <Upload size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Upload Background Video</h3>
+              <p className="text-xs text-emerald-300/70">
+                Choose an ambient video clip from your gallery or files. Uploads directly to Supabase Storage and plays instantly.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <h3 className="text-lg font-bold text-white mb-1">
-          Drop Master Video Here (Up to 500 MB+)
-        </h3>
-        <p className="text-xs text-emerald-200/70 max-w-xl mx-auto mb-6">
-          Your ~130 MB master videos are strictly safe: <strong>originals are never modified or overwritten</strong>.
-          Automatically encodes small, phone-ready 720p & 480p renditions and saves as Draft.
-        </p>
+        {/* Form Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+          <div className="sm:col-span-5">
+            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
+              Title / Name (Optional)
+            </label>
+            <input
+              type="text"
+              value={bgNameEn}
+              onChange={(e) => setBgNameEn(e.target.value)}
+              placeholder="e.g. Mountain River Stream"
+              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-emerald-900 focus:outline-none focus:border-emerald-400"
+            />
+          </div>
 
-        {/* Action Buttons for Uploading */}
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={() => directUploadInputRef.current?.click()}
-            disabled={isProcessingQueue}
-            className="px-7 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm shadow-xl transition-all inline-flex items-center gap-2 cursor-pointer"
-          >
-            <Upload size={18} />
-            <span>Upload Video from Gallery (1-Click Instant)</span>
-          </button>
+          <div className="sm:col-span-4">
+            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
+              Category
+            </label>
+            <select
+              value={bgCategory}
+              onChange={(e) => setBgCategory(e.target.value)}
+              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400"
+            >
+              <option value="fireplace">Fireplace</option>
+              <option value="rain">Rain & Storm</option>
+              <option value="ocean">Ocean & Waves</option>
+              <option value="forest">Forest & Nature</option>
+              <option value="cosmos">Cosmos & Stars</option>
+              <option value="night">Night & Moon</option>
+              <option value="general">General</option>
+            </select>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessingQueue}
-            className="px-5 py-3 rounded-2xl bg-emerald-950/60 border border-emerald-700/50 hover:bg-emerald-900/60 text-emerald-200 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
-          >
-            <Film size={16} />
-            <span>Advanced (Trim & Custom Transcoder)</span>
-          </button>
+          <div className="sm:col-span-3 flex items-end">
+            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050D0A] border border-emerald-900/80 w-full cursor-pointer hover:border-emerald-500/50">
+              <input
+                type="checkbox"
+                checked={bgIsPremium}
+                onChange={(e) => setBgIsPremium(e.target.checked)}
+                className="rounded accent-emerald-500"
+              />
+              <span className="text-xs text-emerald-200 font-medium">Premium Only</span>
+            </label>
+          </div>
+        </div>
 
-          <button
-            type="button"
-            onClick={() => preProcessedInputRef.current?.click()}
-            className="px-5 py-3 rounded-2xl bg-emerald-950/40 border border-emerald-800/40 hover:bg-emerald-900/40 text-emerald-300 text-xs font-medium transition-all inline-flex items-center gap-2 cursor-pointer"
-          >
-            <FolderCheckIcon size={16} />
-            <span>Import Local Renditions</span>
-          </button>
+        {/* Drag & Drop Zone + Big Upload Button */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (e.dataTransfer.files) handleSourceFileSelected(e.dataTransfer.files);
+          }}
+          className={`border-2 border-dashed rounded-2xl p-6 transition-all text-center ${
+            isDragging
+              ? 'border-emerald-400 bg-emerald-950/40 scale-[1.005]'
+              : 'border-emerald-900/50 bg-[#06140F]/60 hover:border-emerald-700/60'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*,.mp4,.mov,.webm,.mkv"
+            onChange={(e) => {
+              if (e.target.files) handleSourceFileSelected(e.target.files);
+            }}
+            className="hidden"
+          />
+
+          <input
+            ref={preProcessedInputRef}
+            type="file"
+            multiple
+            accept="video/mp4,image/jpeg,application/json,.mp4,.jpg,.json"
+            onChange={(e) => {
+              if (e.target.files) handleSourceFileSelected(e.target.files);
+            }}
+            className="hidden"
+          />
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessingQueue}
+              className="px-7 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Upload size={16} />
+              <span>{isProcessingQueue ? 'Uploading Video...' : 'Upload Video from Gallery'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => preProcessedInputRef.current?.click()}
+              className="px-4 py-3 rounded-2xl bg-emerald-950/40 border border-emerald-900 hover:bg-emerald-900/40 text-emerald-300 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
+            >
+              <FolderCheckIcon size={15} />
+              <span>Import Script Files</span>
+            </button>
+          </div>
+          <div className="text-[11px] text-emerald-400/60 mt-3">
+            Supports MP4, MOV, WebM clips from phones, laptops, and tablets.
+          </div>
+        </div>
+      </div>
+        </div>
+
+        {/* Form Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+          <div className="sm:col-span-5">
+            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
+              Title / Name (Optional)
+            </label>
+            <input
+              type="text"
+              value={bgNameEn}
+              onChange={(e) => setBgNameEn(e.target.value)}
+              placeholder="e.g. Mountain River Stream"
+              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-emerald-900 focus:outline-none focus:border-emerald-400"
+            />
+          </div>
+
+          <div className="sm:col-span-4">
+            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
+              Category
+            </label>
+            <select
+              value={bgCategory}
+              onChange={(e) => setBgCategory(e.target.value)}
+              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400"
+            >
+              <option value="fireplace">Fireplace</option>
+              <option value="rain">Rain & Storm</option>
+              <option value="ocean">Ocean & Waves</option>
+              <option value="forest">Forest & Nature</option>
+              <option value="cosmos">Cosmos & Stars</option>
+              <option value="night">Night & Moon</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+
+          <div className="sm:col-span-3 flex items-end">
+            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050D0A] border border-emerald-900/80 w-full cursor-pointer hover:border-emerald-500/50">
+              <input
+                type="checkbox"
+                checked={bgIsPremium}
+                onChange={(e) => setBgIsPremium(e.target.checked)}
+                className="rounded accent-emerald-500"
+              />
+              <span className="text-xs text-emerald-200 font-medium">Premium Only</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Drag & Drop Zone + Big Upload Button */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (e.dataTransfer.files) handleSourceFileSelected(e.dataTransfer.files);
+          }}
+          className={`border-2 border-dashed rounded-2xl p-6 transition-all text-center ${
+            isDragging
+              ? 'border-emerald-400 bg-emerald-950/40 scale-[1.005]'
+              : 'border-emerald-900/50 bg-[#06140F]/60 hover:border-emerald-700/60'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*,.mp4,.mov,.webm,.mkv"
+            onChange={(e) => {
+              if (e.target.files) handleSourceFileSelected(e.target.files);
+            }}
+            className="hidden"
+          />
+
+          <input
+            ref={preProcessedInputRef}
+            type="file"
+            multiple
+            accept="video/mp4,image/jpeg,application/json,.mp4,.jpg,.json"
+            onChange={(e) => {
+              if (e.target.files) handleSourceFileSelected(e.target.files);
+            }}
+            className="hidden"
+          />
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessingQueue}
+              className="px-7 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Upload size={16} />
+              <span>{isProcessingQueue ? 'Uploading Video...' : 'Upload Video from Gallery'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => preProcessedInputRef.current?.click()}
+              className="px-4 py-3 rounded-2xl bg-emerald-950/40 border border-emerald-900 hover:bg-emerald-900/40 text-emerald-300 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
+            >
+              <FolderCheckIcon size={15} />
+              <span>Import Script Files</span>
+            </button>
+          </div>
+          <div className="text-[11px] text-emerald-400/60 mt-3">
+            Supports MP4, MOV, WebM clips from phones, laptops, and tablets.
+          </div>
         </div>
       </div>
 
@@ -1617,9 +1876,35 @@ export function BackgroundsAdmin({
                 </div>
               </div>
 
-              {/* EXECUTION PATH CHOICES: METHOD A (Recommended) vs METHOD B */}
+              {/* EXECUTION PATH CHOICES: FAST DIRECT vs METHOD A vs METHOD B */}
               <div className="pt-4 border-t border-emerald-900/40 space-y-3">
-                <div className="text-xs font-bold text-white">Choose Processing Method:</div>
+                {/* Mode Fast: Direct Fast Upload */}
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-teal-950/80 border-2 border-emerald-400/80 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-emerald-300">
+                      <Sparkles size={18} className="text-emerald-400" />
+                      <span>⚡ Instant Fast Upload (Recommended)</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-100/80 mt-1">
+                      Extracts poster and uploads directly to Supabase Storage in 2–5 seconds. No waiting for transcoding.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleFastDirectUpload(preProcessModal.file, {
+                        title: preProcessModal.title,
+                        category: preProcessModal.category,
+                        isPremium: preProcessModal.isPremium,
+                      })
+                    }
+                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs whitespace-nowrap shadow-md cursor-pointer transition-all"
+                  >
+                    Upload Now (Instant)
+                  </button>
+                </div>
+
+                <div className="text-xs font-bold text-slate-400 pt-1">Advanced Options:</div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Mode A: Local Script (Recommended for 130MB+) */}
