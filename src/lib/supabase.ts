@@ -69,6 +69,7 @@ export const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KE
 export const STORAGE_BUCKET = 'ambient-backgrounds';
 
 let supabaseInstance: SupabaseClient | null = null;
+export { supabaseInstance };
 
 export function getSupabaseClient(): SupabaseClient | null {
   if (supabaseInstance) return supabaseInstance;
