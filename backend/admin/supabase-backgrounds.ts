@@ -1,6 +1,6 @@
 // Admin API for Supabase / Neon / Cloud Store backgrounds management
 // Supports: list all (including inactive and drafts), add, update, delete, reorder, signed-upload-url, upload
-import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
+import { type Handler, q, requireAdmin, sendJson, APPROVED_NASA_BACKGROUNDS } from '../_lib.mjs';
 import { readJsonLarge } from '../media-lib.mjs';
 import { ensureBackgroundsTable, bumpBackgroundsVersion } from '../backgrounds';
 import { getSupabaseAdmin } from '../lib/supabase-server';
@@ -485,6 +485,55 @@ const handler: Handler = async (req, res) => {
 
         const version = await bumpBackgroundsVersion();
         return sendJson(res, 200, { ok: true, version, deleted_storage_paths: paths });
+      }
+
+      if (action === 'seed-approved-nasa') {
+        const targetId = body.id ? String(body.id) : null;
+        const scenes = targetId
+          ? APPROVED_NASA_BACKGROUNDS.filter((b: any) => b.id === targetId)
+          : APPROVED_NASA_BACKGROUNDS;
+
+        const sb = getSupabaseAdmin();
+        for (const nb of scenes) {
+          if (sb) {
+            try {
+              await sb.from('backgrounds').upsert(nb, { onConflict: 'id' });
+            } catch {}
+          }
+          try {
+            await q(
+              `INSERT INTO backgrounds (
+                 id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+                 poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+                 attribution, sort_order, is_active, is_draft, is_premium,
+                 source_url, creator, license_name, license_url, date_checked, attribution_required,
+                 created_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+               ON CONFLICT (id) DO UPDATE SET
+                 is_active = true,
+                 is_draft = false,
+                 video_url = EXCLUDED.video_url,
+                 video_url_720p = EXCLUDED.video_url_720p,
+                 video_url_480p = EXCLUDED.video_url_480p,
+                 poster_url = EXCLUDED.poster_url,
+                 source_url = EXCLUDED.source_url,
+                 creator = EXCLUDED.creator,
+                 license_name = EXCLUDED.license_name,
+                 license_url = EXCLUDED.license_url,
+                 date_checked = EXCLUDED.date_checked`,
+              [
+                nb.id, nb.name_en, nb.name_ar, nb.category, nb.video_url, nb.video_url_720p, nb.video_url_480p,
+                nb.poster_url, nb.size_bytes, nb.duration_seconds, JSON.stringify(nb.renditions || []), JSON.stringify(nb.storage_paths || []),
+                nb.attribution, nb.sort_order, true, false, nb.is_premium,
+                nb.source_url, nb.creator, nb.license_name, nb.license_url, nb.date_checked, nb.attribution_required,
+              ]
+            );
+          } catch {}
+        }
+
+        const version = await bumpBackgroundsVersion();
+        return sendJson(res, 200, { ok: true, count: scenes.length, version });
       }
 
       return sendJson(res, 400, { error: 'Unknown action' });

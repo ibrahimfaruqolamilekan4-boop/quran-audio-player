@@ -63,4 +63,6 @@ export function validEmail(email: unknown): email is string;
 export function adminEmail(): string;
 export function cleanImageUrl(value: unknown): string | null;
 export const serverStore: any;
+export const APPROVED_NASA_BACKGROUNDS: any[];
 export function saveStore(): Promise<void>;
+

@@ -1,6 +1,8 @@
 // GET /api/backgrounds -> { backgrounds: BackgroundRow[], version: number, updated_at: string }
-import { type Handler, q, sendJson } from './_lib.mjs';
+import { type Handler, q, sendJson, APPROVED_NASA_BACKGROUNDS } from './_lib.mjs';
 import { getSupabaseAdmin } from './lib/supabase-server';
+
+let seededNasaOnce = false;
 
 export async function ensureBackgroundsTable() {
   await q(`
@@ -65,6 +67,29 @@ export async function ensureBackgroundsTable() {
   await q(`
     CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON backgrounds (is_active, sort_order ASC, created_at DESC)
   `).catch(() => {});
+
+  if (!seededNasaOnce) {
+    seededNasaOnce = true;
+    for (const nb of APPROVED_NASA_BACKGROUNDS) {
+      await q(
+        `INSERT INTO backgrounds (
+           id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+           poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+           attribution, sort_order, is_active, is_draft, is_premium,
+           source_url, creator, license_name, license_url, date_checked, attribution_required,
+           created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          nb.id, nb.name_en, nb.name_ar, nb.category, nb.video_url, nb.video_url_720p, nb.video_url_480p,
+          nb.poster_url, nb.size_bytes, nb.duration_seconds, JSON.stringify(nb.renditions || []), JSON.stringify(nb.storage_paths || []),
+          nb.attribution, nb.sort_order, nb.is_active, nb.is_draft, nb.is_premium,
+          nb.source_url, nb.creator, nb.license_name, nb.license_url, nb.date_checked, nb.attribution_required,
+        ]
+      ).catch(() => {});
+    }
+  }
 }
 
 export async function bumpBackgroundsVersion(): Promise<number> {

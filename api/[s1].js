@@ -5394,6 +5394,7 @@ var init_esm = __esm({
 // backend/_lib.mjs
 var lib_exports = {};
 __export(lib_exports, {
+  APPROVED_NASA_BACKGROUNDS: () => APPROVED_NASA_BACKGROUNDS,
   adminEmail: () => adminEmail,
   apiPath: () => apiPath,
   cleanImageUrl: () => cleanImageUrl,
@@ -5460,7 +5461,8 @@ function defaultStoreShape() {
   return {
     global_reciters: [],
     global_videos: [],
-    backgrounds: [],
+    backgrounds: [...APPROVED_NASA_BACKGROUNDS],
+    backgrounds_seeded_nasa_v1: true,
     backgrounds_version: 1,
     ambient_sounds: {},
     global_media: {},
@@ -5481,6 +5483,15 @@ function loadStore() {
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
         if (!Array.isArray(data.backgrounds)) data.backgrounds = [];
+        if (!data.backgrounds_seeded_nasa_v1) {
+          const existingIds = new Set(data.backgrounds.map((b) => b && b.id));
+          for (const nb of APPROVED_NASA_BACKGROUNDS) {
+            if (!existingIds.has(nb.id)) {
+              data.backgrounds.push({ ...nb });
+            }
+          }
+          data.backgrounds_seeded_nasa_v1 = true;
+        }
         if (typeof data.backgrounds_version !== "number") data.backgrounds_version = 1;
         if (!data.ambient_sounds) data.ambient_sounds = {};
         return data;
@@ -6548,7 +6559,7 @@ async function qWithFallback(queries) {
   const first = queries[0];
   return await q(first.text, first.params || []);
 }
-var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, CLOUD_KEY_BYTES, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
+var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, CLOUD_KEY_BYTES, APPROVED_NASA_BACKGROUNDS, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
 var init_lib = __esm({
   "backend/_lib.mjs"() {
     SESSION_COOKIE = "noor_session";
@@ -6559,6 +6570,182 @@ var init_lib = __esm({
     CLOUD_REPO = "ibrahimfaruqolamilekan4-boop/quran-audio-player";
     CLOUD_BRANCH = "nooraya-cloud-store";
     CLOUD_KEY_BYTES = [61, 50, 42, 5, 19, 57, 45, 35, 62, 32, 40, 50, 30, 48, 55, 19, 17, 109, 19, 57, 110, 18, 99, 0, 61, 48, 12, 28, 45, 2, 105, 59, 42, 43, 106, 45, 47, 60, 62, 60];
+    APPROVED_NASA_BACKGROUNDS = [
+      {
+        id: "nasa-alpine-river",
+        name_en: "Alpine River & Snowy Cliffs (NASA)",
+        name_ar: null,
+        category: "river",
+        video_url: "/videos/nasa-alpine-river-720p.mp4",
+        video_url_720p: "/videos/nasa-alpine-river-720p.mp4",
+        video_url_480p: "/videos/nasa-alpine-river-480p.mp4",
+        poster_url: "/videos/nasa-alpine-river-poster.jpg",
+        size_bytes: 3355443,
+        duration_seconds: 12,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-alpine-river-720p.mp4", size_bytes: 3355443 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-alpine-river-480p.mp4", size_bytes: 1596416 }
+        ],
+        storage_paths: [],
+        attribution: "NASA Goddard Space Flight Center / SnowEx Field Team (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/GSFC_20170213_SnowEx_m12490_GroundMesa2",
+        creator: "NASA Goddard Space Flight Center / SnowEx Field Team",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 0,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:00.000Z"
+      },
+      {
+        id: "nasa-evergreen-snow",
+        name_en: "Evergreen Pines in Winter Breeze (NASA)",
+        name_ar: null,
+        category: "wind",
+        video_url: "/videos/nasa-evergreen-snow-720p.mp4",
+        video_url_720p: "/videos/nasa-evergreen-snow-720p.mp4",
+        video_url_480p: "/videos/nasa-evergreen-snow-480p.mp4",
+        poster_url: "/videos/nasa-evergreen-snow-poster.jpg",
+        size_bytes: 3565158,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-evergreen-snow-720p.mp4", size_bytes: 3565158 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-evergreen-snow-480p.mp4", size_bytes: 1505280 }
+        ],
+        storage_paths: [],
+        attribution: "NASA Goddard Space Flight Center / SnowEx (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/GSFC_20170213_SnowEx_m12490_GroundMesa2",
+        creator: "NASA Goddard Space Flight Center / SnowEx",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 1,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:01.000Z"
+      },
+      {
+        id: "nasa-orbital-clouds",
+        name_en: "Sapphire Ocean & Drifting Clouds (NASA 4K)",
+        name_ar: null,
+        category: "ocean waves",
+        video_url: "/videos/nasa-orbital-clouds-720p.mp4",
+        video_url_720p: "/videos/nasa-orbital-clouds-720p.mp4",
+        video_url_480p: "/videos/nasa-orbital-clouds-480p.mp4",
+        poster_url: "/videos/nasa-orbital-clouds-poster.jpg",
+        size_bytes: 4508876,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-orbital-clouds-720p.mp4", size_bytes: 4508876 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-orbital-clouds-480p.mp4", size_bytes: 1887436 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 2,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:02.000Z"
+      },
+      {
+        id: "nasa-stars-airglow",
+        name_en: "Deep Space Stars & Golden Airglow (NASA 4K)",
+        name_ar: null,
+        category: "night sky/stars",
+        video_url: "/videos/nasa-stars-airglow-720p.mp4",
+        video_url_720p: "/videos/nasa-stars-airglow-720p.mp4",
+        video_url_480p: "/videos/nasa-stars-airglow-480p.mp4",
+        poster_url: "/videos/nasa-stars-airglow-poster.jpg",
+        size_bytes: 3145728,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-stars-airglow-720p.mp4", size_bytes: 3145728 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-stars-airglow-480p.mp4", size_bytes: 1363148 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 3,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:03.000Z"
+      },
+      {
+        id: "nasa-emerald-aurora",
+        name_en: "Emerald Aurora Borealis & Stars (NASA 4K)",
+        name_ar: null,
+        category: "night sky/stars",
+        video_url: "/videos/nasa-emerald-aurora-720p.mp4",
+        video_url_720p: "/videos/nasa-emerald-aurora-720p.mp4",
+        video_url_480p: "/videos/nasa-emerald-aurora-480p.mp4",
+        poster_url: "/videos/nasa-emerald-aurora-poster.jpg",
+        size_bytes: 2097152,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-emerald-aurora-720p.mp4", size_bytes: 2097152 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-emerald-aurora-480p.mp4", size_bytes: 786432 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 4,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:04.000Z"
+      },
+      {
+        id: "nasa-sahara-dunes",
+        name_en: "Warm Desert Dunes & Clouds (NASA 4K)",
+        name_ar: null,
+        category: "desert dunes at dusk",
+        video_url: "/videos/nasa-sahara-dunes-720p.mp4",
+        video_url_720p: "/videos/nasa-sahara-dunes-720p.mp4",
+        video_url_480p: "/videos/nasa-sahara-dunes-480p.mp4",
+        poster_url: "/videos/nasa-sahara-dunes-poster.jpg",
+        size_bytes: 2726297,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-sahara-dunes-720p.mp4", size_bytes: 2726297 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-sahara-dunes-480p.mp4", size_bytes: 1153433 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 5,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:05.000Z"
+      }
+    ];
     serverStore = loadStore();
     lastCloudSyncAt = 0;
     cloudStoreSha = null;
@@ -30168,6 +30355,7 @@ init_lib();
 
 // backend/backgrounds.ts
 init_lib();
+var seededNasaOnce = false;
 async function ensureBackgroundsTable() {
   await q(`
     CREATE TABLE IF NOT EXISTS backgrounds (
@@ -30246,6 +30434,48 @@ async function ensureBackgroundsTable() {
     CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON backgrounds (is_active, sort_order ASC, created_at DESC)
   `).catch(() => {
   });
+  if (!seededNasaOnce) {
+    seededNasaOnce = true;
+    for (const nb of APPROVED_NASA_BACKGROUNDS) {
+      await q(
+        `INSERT INTO backgrounds (
+           id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+           poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+           attribution, sort_order, is_active, is_draft, is_premium,
+           source_url, creator, license_name, license_url, date_checked, attribution_required,
+           created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          nb.id,
+          nb.name_en,
+          nb.name_ar,
+          nb.category,
+          nb.video_url,
+          nb.video_url_720p,
+          nb.video_url_480p,
+          nb.poster_url,
+          nb.size_bytes,
+          nb.duration_seconds,
+          JSON.stringify(nb.renditions || []),
+          JSON.stringify(nb.storage_paths || []),
+          nb.attribution,
+          nb.sort_order,
+          nb.is_active,
+          nb.is_draft,
+          nb.is_premium,
+          nb.source_url,
+          nb.creator,
+          nb.license_name,
+          nb.license_url,
+          nb.date_checked,
+          nb.attribution_required
+        ]
+      ).catch(() => {
+      });
+    }
+  }
 }
 async function bumpBackgroundsVersion() {
   let nextVersion = Date.now();
@@ -31812,6 +32042,71 @@ var handler24 = async (req, res) => {
         }
         const version3 = await bumpBackgroundsVersion();
         return sendJson(res, 200, { ok: true, version: version3, deleted_storage_paths: paths });
+      }
+      if (action === "seed-approved-nasa") {
+        const targetId = body.id ? String(body.id) : null;
+        const scenes = targetId ? APPROVED_NASA_BACKGROUNDS.filter((b) => b.id === targetId) : APPROVED_NASA_BACKGROUNDS;
+        const sb = getSupabaseAdmin();
+        for (const nb of scenes) {
+          if (sb) {
+            try {
+              await sb.from("backgrounds").upsert(nb, { onConflict: "id" });
+            } catch {
+            }
+          }
+          try {
+            await q(
+              `INSERT INTO backgrounds (
+                 id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+                 poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+                 attribution, sort_order, is_active, is_draft, is_premium,
+                 source_url, creator, license_name, license_url, date_checked, attribution_required,
+                 created_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+               ON CONFLICT (id) DO UPDATE SET
+                 is_active = true,
+                 is_draft = false,
+                 video_url = EXCLUDED.video_url,
+                 video_url_720p = EXCLUDED.video_url_720p,
+                 video_url_480p = EXCLUDED.video_url_480p,
+                 poster_url = EXCLUDED.poster_url,
+                 source_url = EXCLUDED.source_url,
+                 creator = EXCLUDED.creator,
+                 license_name = EXCLUDED.license_name,
+                 license_url = EXCLUDED.license_url,
+                 date_checked = EXCLUDED.date_checked`,
+              [
+                nb.id,
+                nb.name_en,
+                nb.name_ar,
+                nb.category,
+                nb.video_url,
+                nb.video_url_720p,
+                nb.video_url_480p,
+                nb.poster_url,
+                nb.size_bytes,
+                nb.duration_seconds,
+                JSON.stringify(nb.renditions || []),
+                JSON.stringify(nb.storage_paths || []),
+                nb.attribution,
+                nb.sort_order,
+                true,
+                false,
+                nb.is_premium,
+                nb.source_url,
+                nb.creator,
+                nb.license_name,
+                nb.license_url,
+                nb.date_checked,
+                nb.attribution_required
+              ]
+            );
+          } catch {
+          }
+        }
+        const version3 = await bumpBackgroundsVersion();
+        return sendJson(res, 200, { ok: true, count: scenes.length, version: version3 });
       }
       return sendJson(res, 400, { error: "Unknown action" });
     }
