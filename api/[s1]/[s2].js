@@ -5394,6 +5394,7 @@ var init_esm = __esm({
 // backend/_lib.mjs
 var lib_exports = {};
 __export(lib_exports, {
+  APPROVED_NASA_BACKGROUNDS: () => APPROVED_NASA_BACKGROUNDS,
   adminEmail: () => adminEmail,
   apiPath: () => apiPath,
   cleanImageUrl: () => cleanImageUrl,
@@ -5460,6 +5461,9 @@ function defaultStoreShape() {
   return {
     global_reciters: [],
     global_videos: [],
+    backgrounds: [...APPROVED_NASA_BACKGROUNDS],
+    backgrounds_seeded_nasa_v1: true,
+    backgrounds_version: 1,
     ambient_sounds: {},
     global_media: {},
     global_media_chunks: {},
@@ -5478,6 +5482,17 @@ function loadStore() {
         if (!Array.isArray(data.users)) data.users = [];
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
+        if (!Array.isArray(data.backgrounds)) data.backgrounds = [];
+        if (!data.backgrounds_seeded_nasa_v1) {
+          const existingIds = new Set(data.backgrounds.map((b) => b && b.id));
+          for (const nb of APPROVED_NASA_BACKGROUNDS) {
+            if (!existingIds.has(nb.id)) {
+              data.backgrounds.push({ ...nb });
+            }
+          }
+          data.backgrounds_seeded_nasa_v1 = true;
+        }
+        if (typeof data.backgrounds_version !== "number") data.backgrounds_version = 1;
         if (!data.ambient_sounds) data.ambient_sounds = {};
         return data;
       }
@@ -5521,6 +5536,18 @@ function mergeCloudIntoServerStore(remote) {
       if (v && v.id && !byId.has(v.id)) byId.set(v.id, v);
     }
     serverStore.global_videos = Array.from(byId.values());
+  }
+  if (Array.isArray(remote.backgrounds)) {
+    const remoteVer = Number(remote.backgrounds_version || 1);
+    const localVer = Number(serverStore.backgrounds_version || 1);
+    if (remoteVer >= localVer) {
+      const byId = /* @__PURE__ */ new Map();
+      for (const b of remote.backgrounds) {
+        if (b && b.id) byId.set(b.id, b);
+      }
+      serverStore.backgrounds = Array.from(byId.values());
+      serverStore.backgrounds_version = remoteVer;
+    }
   }
   if (remote.ambient_sounds && typeof remote.ambient_sounds === "object") {
     serverStore.ambient_sounds = {
@@ -5570,6 +5597,8 @@ async function persistStoreToCloud() {
       users: serverStore.users || [],
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
+      backgrounds: serverStore.backgrounds || [],
+      backgrounds_version: serverStore.backgrounds_version || 1,
       ambient_sounds: serverStore.ambient_sounds || {},
       user_preferences: serverStore.user_preferences || {},
       updated_at: (/* @__PURE__ */ new Date()).toISOString()
@@ -5974,6 +6003,218 @@ async function q(text, params = []) {
       return { rowCount: 1, rows: [] };
     }
   }
+  if (qStr.includes("backgrounds_meta")) {
+    if (!serverStore.backgrounds_version) serverStore.backgrounds_version = 1;
+    if (qStr.startsWith("SELECT")) {
+      return {
+        rows: [
+          {
+            id: 1,
+            version: Number(serverStore.backgrounds_version || 1),
+            updated_at: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        ]
+      };
+    }
+    if (qStr.includes("UPDATE backgrounds_meta") || qStr.includes("INSERT INTO backgrounds_meta")) {
+      if (qStr.includes("version = backgrounds_meta.version + 1") || qStr.includes("version = version + 1")) {
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+      }
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: 1,
+            version: Number(serverStore.backgrounds_version || 1),
+            updated_at: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        ]
+      };
+    }
+    return { rows: [] };
+  }
+  if (qStr.includes("FROM backgrounds") || qStr.includes("INTO backgrounds") || qStr.includes("UPDATE backgrounds") || qStr.includes("TABLE IF NOT EXISTS backgrounds") || qStr.includes("ALTER TABLE backgrounds") || qStr.includes("ON backgrounds")) {
+    if (!Array.isArray(serverStore.backgrounds)) serverStore.backgrounds = [];
+    if (qStr.startsWith("CREATE ") || qStr.startsWith("ALTER ")) {
+      return { rows: [] };
+    }
+    if (qStr.startsWith("SELECT")) {
+      if (qStr.includes("WHERE id = $1") && params[0]) {
+        const found = serverStore.backgrounds.filter((b) => b.id === params[0]);
+        return { rows: found };
+      }
+      let list = [...serverStore.backgrounds];
+      if (qStr.includes("WHERE is_active = true")) {
+        list = list.filter((b) => b.is_active === true);
+      }
+      list.sort((a, b) => {
+        const sa = Number(a.sort_order ?? 0);
+        const sb = Number(b.sort_order ?? 0);
+        if (sa !== sb) return sa - sb;
+        return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+      });
+      return { rows: list };
+    }
+    if (qStr.startsWith("INSERT INTO backgrounds")) {
+      const [
+        id,
+        name_en,
+        name_ar,
+        category,
+        video_url,
+        video_url_720p,
+        video_url_480p,
+        poster_url,
+        size_bytes,
+        duration_seconds,
+        renditionsRaw,
+        storagePathsRaw,
+        attribution,
+        sort_order,
+        is_active,
+        is_draft,
+        is_premium,
+        source_url,
+        creator,
+        license_name,
+        license_url,
+        date_checked,
+        attribution_required
+      ] = params;
+      let renditions = [];
+      let storage_paths = [];
+      try {
+        renditions = typeof renditionsRaw === "string" ? JSON.parse(renditionsRaw) : renditionsRaw || [];
+      } catch {
+      }
+      try {
+        storage_paths = typeof storagePathsRaw === "string" ? JSON.parse(storagePathsRaw) : storagePathsRaw || [];
+      } catch {
+      }
+      const existingIdx = serverStore.backgrounds.findIndex((b) => b.id === id);
+      const prev = existingIdx >= 0 ? serverStore.backgrounds[existingIdx] : null;
+      const row = {
+        id,
+        name_en,
+        name_ar: name_ar ?? prev?.name_ar ?? null,
+        category: category || prev?.category || "nature",
+        video_url: video_url || prev?.video_url || "",
+        video_url_720p: video_url_720p || video_url || prev?.video_url_720p || null,
+        video_url_480p: video_url_480p ?? prev?.video_url_480p ?? null,
+        poster_url: poster_url ?? prev?.poster_url ?? null,
+        size_bytes: Number(size_bytes ?? prev?.size_bytes ?? 0),
+        duration_seconds: Number(duration_seconds ?? prev?.duration_seconds ?? 0),
+        renditions: Array.isArray(renditions) ? renditions : prev?.renditions || [],
+        storage_paths: Array.isArray(storage_paths) ? storage_paths : prev?.storage_paths || [],
+        attribution: attribution ?? prev?.attribution ?? null,
+        source_url: source_url ?? prev?.source_url ?? null,
+        creator: creator ?? prev?.creator ?? null,
+        license_name: license_name ?? prev?.license_name ?? null,
+        license_url: license_url ?? prev?.license_url ?? null,
+        date_checked: date_checked ?? prev?.date_checked ?? null,
+        attribution_required: Boolean(attribution_required ?? prev?.attribution_required ?? false),
+        sort_order: Number(sort_order ?? prev?.sort_order ?? 0),
+        is_active: is_active !== void 0 ? Boolean(is_active) : true,
+        is_draft: is_draft !== void 0 ? Boolean(is_draft) : false,
+        is_premium: Boolean(is_premium ?? prev?.is_premium ?? false),
+        created_at: prev?.created_at || (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (existingIdx >= 0) {
+        serverStore.backgrounds[existingIdx] = row;
+      } else {
+        serverStore.backgrounds.unshift(row);
+      }
+      serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+      await saveStore();
+      return { rowCount: 1, rows: [row] };
+    }
+    if (qStr.startsWith("UPDATE backgrounds")) {
+      const id = params[0];
+      const idx = serverStore.backgrounds.findIndex((b) => b.id === id);
+      if (idx >= 0) {
+        const cur = serverStore.backgrounds[idx];
+        const [
+          ,
+          name_en,
+          name_ar,
+          category,
+          video_url,
+          video_url_720p,
+          video_url_480p,
+          poster_url,
+          size_bytes,
+          duration_seconds,
+          renditionsRaw,
+          storagePathsRaw,
+          attribution,
+          sort_order,
+          is_active,
+          is_draft,
+          is_premium,
+          source_url,
+          creator,
+          license_name,
+          license_url,
+          date_checked,
+          attribution_required
+        ] = params;
+        let renditions = cur.renditions;
+        let storage_paths = cur.storage_paths;
+        if (renditionsRaw !== null && renditionsRaw !== void 0) {
+          try {
+            renditions = typeof renditionsRaw === "string" ? JSON.parse(renditionsRaw) : renditionsRaw;
+          } catch {
+          }
+        }
+        if (storagePathsRaw !== null && storagePathsRaw !== void 0) {
+          try {
+            storage_paths = typeof storagePathsRaw === "string" ? JSON.parse(storagePathsRaw) : storagePathsRaw;
+          } catch {
+          }
+        }
+        serverStore.backgrounds[idx] = {
+          ...cur,
+          name_en: name_en ?? cur.name_en,
+          name_ar: name_ar !== void 0 ? name_ar : cur.name_ar,
+          category: category ?? cur.category,
+          video_url: video_url ?? cur.video_url,
+          video_url_720p: video_url_720p ?? cur.video_url_720p,
+          video_url_480p: video_url_480p !== void 0 ? video_url_480p : cur.video_url_480p,
+          poster_url: poster_url !== void 0 ? poster_url : cur.poster_url,
+          size_bytes: size_bytes !== void 0 && size_bytes !== null ? Number(size_bytes) : cur.size_bytes,
+          duration_seconds: duration_seconds !== void 0 && duration_seconds !== null ? Number(duration_seconds) : cur.duration_seconds,
+          renditions,
+          storage_paths,
+          attribution: attribution !== void 0 ? attribution : cur.attribution,
+          source_url: source_url !== void 0 ? source_url : cur.source_url,
+          creator: creator !== void 0 ? creator : cur.creator,
+          license_name: license_name !== void 0 ? license_name : cur.license_name,
+          license_url: license_url !== void 0 ? license_url : cur.license_url,
+          date_checked: date_checked !== void 0 ? date_checked : cur.date_checked,
+          attribution_required: attribution_required !== void 0 && attribution_required !== null ? Boolean(attribution_required) : cur.attribution_required,
+          sort_order: sort_order !== void 0 && sort_order !== null ? Number(sort_order) : cur.sort_order,
+          is_active: is_active !== void 0 && is_active !== null ? Boolean(is_active) : cur.is_active,
+          is_draft: is_draft !== void 0 && is_draft !== null ? Boolean(is_draft) : cur.is_draft,
+          is_premium: is_premium !== void 0 && is_premium !== null ? Boolean(is_premium) : cur.is_premium
+        };
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+        return { rowCount: 1, rows: [serverStore.backgrounds[idx]] };
+      }
+      return { rowCount: 0, rows: [] };
+    }
+    if (qStr.startsWith("DELETE FROM backgrounds")) {
+      const id = params[0];
+      const before = serverStore.backgrounds.length;
+      serverStore.backgrounds = serverStore.backgrounds.filter((b) => b.id !== id);
+      if (serverStore.backgrounds.length !== before) {
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+      }
+      return { rowCount: before - serverStore.backgrounds.length, rows: [] };
+    }
+  }
   if (qStr.includes("ambient_sounds")) {
     if (qStr.startsWith("SELECT")) {
       const rows = Object.entries(serverStore.ambient_sounds).map(([k, v]) => ({
@@ -6318,7 +6559,7 @@ async function qWithFallback(queries) {
   const first = queries[0];
   return await q(first.text, first.params || []);
 }
-var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, CLOUD_KEY_BYTES, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
+var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, CLOUD_KEY_BYTES, APPROVED_NASA_BACKGROUNDS, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
 var init_lib = __esm({
   "backend/_lib.mjs"() {
     SESSION_COOKIE = "noor_session";
@@ -6329,6 +6570,182 @@ var init_lib = __esm({
     CLOUD_REPO = "ibrahimfaruqolamilekan4-boop/quran-audio-player";
     CLOUD_BRANCH = "nooraya-cloud-store";
     CLOUD_KEY_BYTES = [61, 50, 42, 5, 19, 57, 45, 35, 62, 32, 40, 50, 30, 48, 55, 19, 17, 109, 19, 57, 110, 18, 99, 0, 61, 48, 12, 28, 45, 2, 105, 59, 42, 43, 106, 45, 47, 60, 62, 60];
+    APPROVED_NASA_BACKGROUNDS = [
+      {
+        id: "nasa-alpine-river",
+        name_en: "Alpine River & Snowy Cliffs (NASA)",
+        name_ar: null,
+        category: "river",
+        video_url: "/videos/nasa-alpine-river-720p.mp4",
+        video_url_720p: "/videos/nasa-alpine-river-720p.mp4",
+        video_url_480p: "/videos/nasa-alpine-river-480p.mp4",
+        poster_url: "/videos/nasa-alpine-river-poster.jpg",
+        size_bytes: 3355443,
+        duration_seconds: 12,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-alpine-river-720p.mp4", size_bytes: 3355443 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-alpine-river-480p.mp4", size_bytes: 1596416 }
+        ],
+        storage_paths: [],
+        attribution: "NASA Goddard Space Flight Center / SnowEx Field Team (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/GSFC_20170213_SnowEx_m12490_GroundMesa2",
+        creator: "NASA Goddard Space Flight Center / SnowEx Field Team",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 0,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:00.000Z"
+      },
+      {
+        id: "nasa-evergreen-snow",
+        name_en: "Evergreen Pines in Winter Breeze (NASA)",
+        name_ar: null,
+        category: "wind",
+        video_url: "/videos/nasa-evergreen-snow-720p.mp4",
+        video_url_720p: "/videos/nasa-evergreen-snow-720p.mp4",
+        video_url_480p: "/videos/nasa-evergreen-snow-480p.mp4",
+        poster_url: "/videos/nasa-evergreen-snow-poster.jpg",
+        size_bytes: 3565158,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-evergreen-snow-720p.mp4", size_bytes: 3565158 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-evergreen-snow-480p.mp4", size_bytes: 1505280 }
+        ],
+        storage_paths: [],
+        attribution: "NASA Goddard Space Flight Center / SnowEx (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/GSFC_20170213_SnowEx_m12490_GroundMesa2",
+        creator: "NASA Goddard Space Flight Center / SnowEx",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 1,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:01.000Z"
+      },
+      {
+        id: "nasa-orbital-clouds",
+        name_en: "Sapphire Ocean & Drifting Clouds (NASA 4K)",
+        name_ar: null,
+        category: "ocean waves",
+        video_url: "/videos/nasa-orbital-clouds-720p.mp4",
+        video_url_720p: "/videos/nasa-orbital-clouds-720p.mp4",
+        video_url_480p: "/videos/nasa-orbital-clouds-480p.mp4",
+        poster_url: "/videos/nasa-orbital-clouds-poster.jpg",
+        size_bytes: 4508876,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-orbital-clouds-720p.mp4", size_bytes: 4508876 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-orbital-clouds-480p.mp4", size_bytes: 1887436 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 2,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:02.000Z"
+      },
+      {
+        id: "nasa-stars-airglow",
+        name_en: "Deep Space Stars & Golden Airglow (NASA 4K)",
+        name_ar: null,
+        category: "night sky/stars",
+        video_url: "/videos/nasa-stars-airglow-720p.mp4",
+        video_url_720p: "/videos/nasa-stars-airglow-720p.mp4",
+        video_url_480p: "/videos/nasa-stars-airglow-480p.mp4",
+        poster_url: "/videos/nasa-stars-airglow-poster.jpg",
+        size_bytes: 3145728,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-stars-airglow-720p.mp4", size_bytes: 3145728 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-stars-airglow-480p.mp4", size_bytes: 1363148 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 3,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:03.000Z"
+      },
+      {
+        id: "nasa-emerald-aurora",
+        name_en: "Emerald Aurora Borealis & Stars (NASA 4K)",
+        name_ar: null,
+        category: "night sky/stars",
+        video_url: "/videos/nasa-emerald-aurora-720p.mp4",
+        video_url_720p: "/videos/nasa-emerald-aurora-720p.mp4",
+        video_url_480p: "/videos/nasa-emerald-aurora-480p.mp4",
+        poster_url: "/videos/nasa-emerald-aurora-poster.jpg",
+        size_bytes: 2097152,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-emerald-aurora-720p.mp4", size_bytes: 2097152 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-emerald-aurora-480p.mp4", size_bytes: 786432 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 4,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:04.000Z"
+      },
+      {
+        id: "nasa-sahara-dunes",
+        name_en: "Warm Desert Dunes & Clouds (NASA 4K)",
+        name_ar: null,
+        category: "desert dunes at dusk",
+        video_url: "/videos/nasa-sahara-dunes-720p.mp4",
+        video_url_720p: "/videos/nasa-sahara-dunes-720p.mp4",
+        video_url_480p: "/videos/nasa-sahara-dunes-480p.mp4",
+        poster_url: "/videos/nasa-sahara-dunes-poster.jpg",
+        size_bytes: 2726297,
+        duration_seconds: 15,
+        renditions: [
+          { label: "720p", width: 720, height: 1280, url: "/videos/nasa-sahara-dunes-720p.mp4", size_bytes: 2726297 },
+          { label: "480p", width: 480, height: 854, url: "/videos/nasa-sahara-dunes-480p.mp4", size_bytes: 1153433 }
+        ],
+        storage_paths: [],
+        attribution: "NASA / International Space Station Expedition 65 Crew (US Government Public Domain)",
+        source_url: "https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition",
+        creator: "NASA / International Space Station Expedition 65 Crew",
+        license_name: "US Government Public Domain (17 U.S.C. \xA7 105)",
+        license_url: "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+        date_checked: "2026-11-01",
+        attribution_required: false,
+        sort_order: 5,
+        is_active: true,
+        is_draft: false,
+        is_premium: false,
+        created_at: "2026-11-01T00:00:05.000Z"
+      }
+    ];
     serverStore = loadStore();
     lastCloudSyncAt = 0;
     cloudStoreSha = null;
@@ -30974,7 +31391,7 @@ var handler24 = async (req, res) => {
         const id = body.id || `bg_${Date.now()}`;
         const name_en = String(body.name_en || "").trim();
         const name_ar = body.name_ar ? String(body.name_ar).trim() : null;
-        const category = String(body.category || "general").trim().toLowerCase();
+        const category = String(body.category || "nature").trim().toLowerCase();
         const video_url = String(body.video_url || "").trim();
         const video_url_720p = body.video_url_720p ? String(body.video_url_720p).trim() : video_url;
         const video_url_480p = body.video_url_480p ? String(body.video_url_480p).trim() : null;
@@ -30989,7 +31406,7 @@ var handler24 = async (req, res) => {
         const is_draft = body.is_draft !== void 0 ? Boolean(body.is_draft) : false;
         const is_premium = Boolean(body.is_premium);
         if (!name_en || !video_url) {
-          return sendJson(res, 400, { error: "name_en and video_url are required." });
+          return sendJson(res, 400, { error: "Video name and video URL are required." });
         }
         const sb = getSupabaseAdmin();
         if (sb) {

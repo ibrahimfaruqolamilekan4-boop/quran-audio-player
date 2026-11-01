@@ -80,11 +80,12 @@ export function SettingsView() {
   const { user, role, logOut, refreshUser } = useAuth();
   const navigate = useNavigate();
 
-  // Admin check: true if role === 'admin' OR signed in with the admin email OR in owner studio
-  const isAdmin =
-    !user ||
-    role === 'admin' ||
-    (user?.email && user.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com');
+  // Admin check: true if authenticated with role === 'admin' OR signed in with the admin email
+  const isAdmin = Boolean(
+    user &&
+      (role === 'admin' ||
+        (user.email && user.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com'))
+  );
 
   // Search & Filter state for Reciters List
   const [reciterSearch, setReciterSearch] = useState('');

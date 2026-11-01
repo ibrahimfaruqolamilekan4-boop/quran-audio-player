@@ -1,6 +1,6 @@
-// GET /api/ambient -> { ambientSounds: Record<string, string>, videos: Array<{ id, name, videoUrl, description, isDefault }>, activeDefaultVideoUrl: string | null }
+// GET /api/ambient -> { ambientSounds: Record<string, string>, videos: Array<CustomVideo>, activeDefaultVideoUrl: string | null, version: number }
 import { type Handler, q, sendJson } from './_lib.mjs';
-import { ensureBackgroundsTable } from './backgrounds';
+import { getActiveBackgroundsAndVersion } from './backgrounds';
 
 function normalizeStoredVideoUrl(rawUrl: string | null | undefined): string | null {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
@@ -12,7 +12,7 @@ function normalizeStoredVideoUrl(rawUrl: string | null | undefined): string | nu
 const handler: Handler = async (req, res) => {
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
   try {
-    await ensureBackgroundsTable().catch(() => {});
+    const { backgrounds, version, updated_at } = await getActiveBackgroundsAndVersion();
 
     const ambient = await q<{ id: string; video_url: string | null }>(
       'SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL'
@@ -30,35 +30,34 @@ const handler: Handler = async (req, res) => {
       }
     }
 
-    const videos: Array<{ id: string; name: string; videoUrl: string; posterUrl?: string; description?: string; isDefault?: boolean }> = [];
+    const videos: Array<any> = [];
 
-    // Query 'backgrounds' table (Supabase & Postgres sync)
-    try {
-      const bgRes = await q<{
-        id: string;
-        name_en: string;
-        video_url: string;
-        poster_url: string | null;
-        sort_order: number;
-        is_active: boolean;
-      }>(
-        'SELECT id, name_en, video_url, poster_url, sort_order, is_active FROM backgrounds WHERE is_active = true ORDER BY sort_order ASC, created_at DESC'
-      );
-
-      for (const r of bgRes.rows) {
-        const validUrl = normalizeStoredVideoUrl(r.video_url);
-        if (validUrl) {
-          videos.push({
-            id: r.id,
-            name: r.name_en,
-            videoUrl: validUrl,
-            posterUrl: r.poster_url || undefined,
-            isDefault: videos.length === 0,
-          });
-        }
+    for (const r of backgrounds) {
+      const validUrl = normalizeStoredVideoUrl(r.video_url);
+      if (validUrl) {
+        videos.push({
+          id: r.id,
+          name: r.name_en,
+          category: r.category || 'nature',
+          videoUrl: validUrl,
+          videoUrl720p: normalizeStoredVideoUrl(r.video_url_720p) || validUrl,
+          videoUrl480p: normalizeStoredVideoUrl(r.video_url_480p) || undefined,
+          posterUrl: r.poster_url || undefined,
+          poster_url: r.poster_url || undefined,
+          renditions: Array.isArray(r.renditions) ? r.renditions : undefined,
+          attribution: r.attribution || undefined,
+          sourceUrl: r.source_url || undefined,
+          creator: r.creator || undefined,
+          licenseName: r.license_name || undefined,
+          licenseUrl: r.license_url || undefined,
+          dateChecked: r.date_checked || undefined,
+          attributionRequired: Boolean(r.attribution_required),
+          sizeBytes: Number(r.size_bytes || 0),
+          durationSeconds: Number(r.duration_seconds || 0),
+          isActive: true,
+          isDefault: videos.length === 0,
+        });
       }
-    } catch (e) {
-      console.warn('backgrounds table query note:', e);
     }
 
     // Also include custom uploads from global_background_videos if present
@@ -68,13 +67,13 @@ const handler: Handler = async (req, res) => {
       );
       for (const r of vidRes.rows) {
         const validUrl = normalizeStoredVideoUrl(r.video_url);
-        if (validUrl && !videos.some(v => v.videoUrl === validUrl)) {
+        if (validUrl && !videos.some(v => v.videoUrl === validUrl || v.id === r.id)) {
           videos.push({
             id: r.id,
             name: r.name,
             videoUrl: validUrl,
             description: r.description || undefined,
-            isDefault: Boolean(r.is_default),
+            isDefault: videos.length === 0 && Boolean(r.is_default),
           });
         }
       }
@@ -85,14 +84,21 @@ const handler: Handler = async (req, res) => {
       activeDefaultVideoUrl = defVid.videoUrl;
     }
 
-    res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
-    return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
+    return sendJson(res, 200, {
+      ambientSounds,
+      videos,
+      activeDefaultVideoUrl,
+      version,
+      updated_at,
+    });
   } catch (err) {
     return sendJson(res, 200, {
       ambientSounds: {},
       videos: [],
       activeDefaultVideoUrl: null,
+      version: 1,
     });
   }
 };
