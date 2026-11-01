@@ -30355,29 +30355,37 @@ init_lib();
 
 // backend/backgrounds.ts
 init_lib();
+var seededNasaOnce = false;
 async function ensureBackgroundsTable() {
   await q(`
     CREATE TABLE IF NOT EXISTS backgrounds (
-      id               TEXT PRIMARY KEY,
-      name_en          TEXT NOT NULL,
-      name_ar          TEXT,
-      category         TEXT NOT NULL,
-      video_url        TEXT NOT NULL,
-      video_url_720p   TEXT,
-      video_url_480p   TEXT,
-      poster_url       TEXT,
-      size_bytes       BIGINT DEFAULT 0,
-      duration_seconds NUMERIC DEFAULT 0,
-      renditions       JSONB DEFAULT '[]'::jsonb,
-      storage_paths    JSONB DEFAULT '[]'::jsonb,
-      attribution      TEXT,
-      sort_order       INT DEFAULT 0,
-      is_active        BOOLEAN DEFAULT false,
-      is_draft         BOOLEAN DEFAULT true,
-      is_premium       BOOLEAN DEFAULT false,
-      created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      id                   TEXT PRIMARY KEY,
+      name_en              TEXT NOT NULL,
+      name_ar              TEXT,
+      category             TEXT NOT NULL,
+      video_url            TEXT NOT NULL,
+      video_url_720p       TEXT,
+      video_url_480p       TEXT,
+      poster_url           TEXT,
+      size_bytes           BIGINT DEFAULT 0,
+      duration_seconds     NUMERIC DEFAULT 0,
+      renditions           JSONB DEFAULT '[]'::jsonb,
+      storage_paths        JSONB DEFAULT '[]'::jsonb,
+      attribution          TEXT,
+      source_url           TEXT,
+      creator              TEXT,
+      license_name         TEXT,
+      license_url          TEXT,
+      date_checked         TEXT,
+      attribution_required BOOLEAN DEFAULT false,
+      sort_order           INT DEFAULT 0,
+      is_active            BOOLEAN DEFAULT true,
+      is_draft             BOOLEAN DEFAULT false,
+      is_premium           BOOLEAN DEFAULT false,
+      created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
     )
-  `);
+  `).catch(() => {
+  });
   await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS video_url_720p TEXT`).catch(() => {
   });
   await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS video_url_480p TEXT`).catch(() => {
@@ -30390,29 +30398,204 @@ async function ensureBackgroundsTable() {
   });
   await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS attribution TEXT`).catch(() => {
   });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS source_url TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS creator TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS license_name TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS license_url TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS date_checked TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS attribution_required BOOLEAN DEFAULT false`).catch(() => {
+  });
   await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT false`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ALTER COLUMN is_active SET DEFAULT true`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ALTER COLUMN is_draft SET DEFAULT false`).catch(() => {
+  });
+  await q(`
+    CREATE TABLE IF NOT EXISTS backgrounds_meta (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      version BIGINT NOT NULL DEFAULT 1,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+  await q(`
+    INSERT INTO backgrounds_meta (id, version, updated_at)
+    VALUES (1, 1, now())
+    ON CONFLICT (id) DO NOTHING
+  `).catch(() => {
   });
   await q(`
     CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON backgrounds (is_active, sort_order ASC, created_at DESC)
   `).catch(() => {
   });
+  if (!seededNasaOnce) {
+    seededNasaOnce = true;
+    for (const nb of APPROVED_NASA_BACKGROUNDS) {
+      await q(
+        `INSERT INTO backgrounds (
+           id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+           poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+           attribution, sort_order, is_active, is_draft, is_premium,
+           source_url, creator, license_name, license_url, date_checked, attribution_required,
+           created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          nb.id,
+          nb.name_en,
+          nb.name_ar,
+          nb.category,
+          nb.video_url,
+          nb.video_url_720p,
+          nb.video_url_480p,
+          nb.poster_url,
+          nb.size_bytes,
+          nb.duration_seconds,
+          JSON.stringify(nb.renditions || []),
+          JSON.stringify(nb.storage_paths || []),
+          nb.attribution,
+          nb.sort_order,
+          nb.is_active,
+          nb.is_draft,
+          nb.is_premium,
+          nb.source_url,
+          nb.creator,
+          nb.license_name,
+          nb.license_url,
+          nb.date_checked,
+          nb.attribution_required
+        ]
+      ).catch(() => {
+      });
+    }
+  }
+}
+async function bumpBackgroundsVersion() {
+  let nextVersion = Date.now();
+  try {
+    const res = await q(
+      `UPDATE backgrounds_meta SET version = version + 1, updated_at = now() WHERE id = 1 RETURNING version`
+    );
+    if (res.rows?.[0]?.version) {
+      nextVersion = Number(res.rows[0].version);
+    }
+  } catch {
+  }
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    try {
+      const { data: curr } = await sb.from("backgrounds_meta").select("version").eq("id", 1).maybeSingle();
+      const v = Number(curr?.version || 1) + 1;
+      nextVersion = Math.max(nextVersion, v);
+      await sb.from("backgrounds_meta").upsert(
+        { id: 1, version: v, updated_at: (/* @__PURE__ */ new Date()).toISOString() },
+        { onConflict: "id" }
+      );
+    } catch {
+    }
+  }
+  return nextVersion;
+}
+async function getActiveBackgroundsAndVersion() {
+  await ensureBackgroundsTable().catch(() => {
+  });
+  const byId = /* @__PURE__ */ new Map();
+  let hiddenIds = /* @__PURE__ */ new Set();
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from("backgrounds").select("*").order("sort_order", { ascending: true }).order("created_at", { ascending: false });
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          if (row.is_active === false) {
+            hiddenIds.add(row.id);
+          } else {
+            byId.set(row.id, row);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase active backgrounds query fallback:", e);
+    }
+  }
+  try {
+    const result = await q(`
+      SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url,
+             size_bytes, duration_seconds, renditions, attribution, source_url, creator,
+             license_name, license_url, date_checked, attribution_required,
+             sort_order, is_active, is_draft, is_premium, created_at
+      FROM backgrounds
+      ORDER BY sort_order ASC, created_at DESC
+    `);
+    for (const row of result.rows || []) {
+      if (row.is_active === false) {
+        hiddenIds.add(row.id);
+        byId.delete(row.id);
+      } else if (!hiddenIds.has(row.id) && !byId.has(row.id)) {
+        byId.set(row.id, row);
+      }
+    }
+  } catch (e) {
+    console.warn("Local/Postgres active backgrounds query notice:", e);
+  }
+  const backgrounds = Array.from(byId.values()).sort((a, b) => {
+    const sa = Number(a.sort_order ?? 0);
+    const sbOrder = Number(b.sort_order ?? 0);
+    if (sa !== sbOrder) return sa - sbOrder;
+    return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+  });
+  let version3 = 1;
+  let updated_at = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    const metaRes = await q(
+      `SELECT version, updated_at FROM backgrounds_meta WHERE id = 1`
+    );
+    if (metaRes.rows?.[0]) {
+      version3 = Number(metaRes.rows[0].version || 1);
+      updated_at = metaRes.rows[0].updated_at || updated_at;
+    }
+  } catch {
+  }
+  if (sb) {
+    try {
+      const { data: meta } = await sb.from("backgrounds_meta").select("version, updated_at").eq("id", 1).maybeSingle();
+      if (meta?.version && Number(meta.version) > version3) {
+        version3 = Number(meta.version);
+        updated_at = meta.updated_at || updated_at;
+      }
+    } catch {
+    }
+  }
+  return { backgrounds, version: version3, updated_at };
 }
 var handler17 = async (req, res) => {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
   try {
-    await ensureBackgroundsTable().catch(() => {
-    });
-    const result = await q(`
-      SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url, size_bytes, duration_seconds, renditions, attribution, sort_order, is_active, is_draft, is_premium, created_at
-      FROM backgrounds
-      WHERE is_active = true
-      ORDER BY sort_order ASC, created_at DESC
-    `);
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    const { backgrounds, version: version3, updated_at } = await getActiveBackgroundsAndVersion();
+    const urlObj = new URL(req.url || "/api/backgrounds", "http://localhost");
+    if (urlObj.searchParams.get("version_only") === "1") {
+      return sendJson(res, 200, {
+        version: version3,
+        count: backgrounds.length,
+        updated_at
+      });
+    }
     return sendJson(res, 200, {
-      backgrounds: result.rows || []
+      backgrounds,
+      version: version3,
+      updated_at
     });
   } catch (err) {
     console.error("Failed to load backgrounds:", err);
@@ -30431,8 +30614,7 @@ function normalizeStoredVideoUrl(rawUrl) {
 var handler18 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
   try {
-    await ensureBackgroundsTable().catch(() => {
-    });
+    const { backgrounds, version: version3, updated_at } = await getActiveBackgroundsAndVersion();
     const ambient = await q(
       "SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL"
     );
@@ -30448,24 +30630,32 @@ var handler18 = async (req, res) => {
       }
     }
     const videos = [];
-    try {
-      const bgRes = await q(
-        "SELECT id, name_en, video_url, poster_url, sort_order, is_active FROM backgrounds WHERE is_active = true ORDER BY sort_order ASC, created_at DESC"
-      );
-      for (const r of bgRes.rows) {
-        const validUrl = normalizeStoredVideoUrl(r.video_url);
-        if (validUrl) {
-          videos.push({
-            id: r.id,
-            name: r.name_en,
-            videoUrl: validUrl,
-            posterUrl: r.poster_url || void 0,
-            isDefault: videos.length === 0
-          });
-        }
+    for (const r of backgrounds) {
+      const validUrl = normalizeStoredVideoUrl(r.video_url);
+      if (validUrl) {
+        videos.push({
+          id: r.id,
+          name: r.name_en,
+          category: r.category || "nature",
+          videoUrl: validUrl,
+          videoUrl720p: normalizeStoredVideoUrl(r.video_url_720p) || validUrl,
+          videoUrl480p: normalizeStoredVideoUrl(r.video_url_480p) || void 0,
+          posterUrl: r.poster_url || void 0,
+          poster_url: r.poster_url || void 0,
+          renditions: Array.isArray(r.renditions) ? r.renditions : void 0,
+          attribution: r.attribution || void 0,
+          sourceUrl: r.source_url || void 0,
+          creator: r.creator || void 0,
+          licenseName: r.license_name || void 0,
+          licenseUrl: r.license_url || void 0,
+          dateChecked: r.date_checked || void 0,
+          attributionRequired: Boolean(r.attribution_required),
+          sizeBytes: Number(r.size_bytes || 0),
+          durationSeconds: Number(r.duration_seconds || 0),
+          isActive: true,
+          isDefault: videos.length === 0
+        });
       }
-    } catch (e) {
-      console.warn("backgrounds table query note:", e);
     }
     try {
       const vidRes = await q(
@@ -30473,13 +30663,13 @@ var handler18 = async (req, res) => {
       );
       for (const r of vidRes.rows) {
         const validUrl = normalizeStoredVideoUrl(r.video_url);
-        if (validUrl && !videos.some((v) => v.videoUrl === validUrl)) {
+        if (validUrl && !videos.some((v) => v.videoUrl === validUrl || v.id === r.id)) {
           videos.push({
             id: r.id,
             name: r.name,
             videoUrl: validUrl,
             description: r.description || void 0,
-            isDefault: Boolean(r.is_default)
+            isDefault: videos.length === 0 && Boolean(r.is_default)
           });
         }
       }
@@ -30489,13 +30679,20 @@ var handler18 = async (req, res) => {
     if (defVid && !activeDefaultVideoUrl) {
       activeDefaultVideoUrl = defVid.videoUrl;
     }
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
-    return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    return sendJson(res, 200, {
+      ambientSounds,
+      videos,
+      activeDefaultVideoUrl,
+      version: version3,
+      updated_at
+    });
   } catch (err) {
     return sendJson(res, 200, {
       ambientSounds: {},
       videos: [],
-      activeDefaultVideoUrl: null
+      activeDefaultVideoUrl: null,
+      version: 1
     });
   }
 };
@@ -31366,23 +31563,47 @@ var handler24 = async (req, res) => {
     await ensureBackgroundsTable().catch(() => {
     });
     if (req.method === "GET") {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const byId = /* @__PURE__ */ new Map();
       const sb = getSupabaseAdmin();
       if (sb) {
         try {
-          const { data, error } = await sb.from("backgrounds").select("*").order("sort_order", { ascending: true });
+          const { data, error } = await sb.from("backgrounds").select("*").order("sort_order", { ascending: true }).order("created_at", { ascending: false });
           if (!error && Array.isArray(data)) {
-            return sendJson(res, 200, { backgrounds: data });
+            for (const row of data) {
+              byId.set(row.id, row);
+            }
           }
         } catch (e) {
           console.warn("Supabase admin GET backgrounds notice:", e);
         }
       }
-      const result = await q(`
-        SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url, size_bytes, duration_seconds, renditions, storage_paths, attribution, sort_order, is_active, is_draft, is_premium, created_at
-        FROM backgrounds
-        ORDER BY sort_order ASC, created_at DESC
-      `);
-      return sendJson(res, 200, { backgrounds: result.rows });
+      try {
+        const result = await q(`
+          SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url,
+                 size_bytes, duration_seconds, renditions, storage_paths, attribution,
+                 source_url, creator, license_name, license_url, date_checked, attribution_required,
+                 sort_order, is_active, is_draft, is_premium, created_at
+          FROM backgrounds
+          ORDER BY sort_order ASC, created_at DESC
+        `);
+        for (const row of result.rows || []) {
+          if (!byId.has(row.id)) {
+            byId.set(row.id, row);
+          } else {
+            byId.set(row.id, { ...byId.get(row.id), ...row });
+          }
+        }
+      } catch (e) {
+        console.warn("Local/Postgres admin GET backgrounds notice:", e);
+      }
+      const backgrounds = Array.from(byId.values()).sort((a, b) => {
+        const sa = Number(a.sort_order ?? 0);
+        const sbOrder = Number(b.sort_order ?? 0);
+        if (sa !== sbOrder) return sa - sbOrder;
+        return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+      });
+      return sendJson(res, 200, { backgrounds });
     }
     if (req.method === "POST") {
       const body = await readJsonLarge(req);
@@ -31401,6 +31622,12 @@ var handler24 = async (req, res) => {
         const renditions = Array.isArray(body.renditions) ? body.renditions : [];
         const storage_paths = Array.isArray(body.storage_paths) ? body.storage_paths : [];
         const attribution = body.attribution ? String(body.attribution).trim() : null;
+        const source_url = body.source_url ? String(body.source_url).trim() : null;
+        const creator = body.creator ? String(body.creator).trim() : null;
+        const license_name = body.license_name ? String(body.license_name).trim() : null;
+        const license_url = body.license_url ? String(body.license_url).trim() : null;
+        const date_checked = body.date_checked ? String(body.date_checked).trim() : null;
+        const attribution_required = Boolean(body.attribution_required);
         const sort_order = Number(body.sort_order || 0);
         const is_active = body.is_active !== void 0 ? Boolean(body.is_active) : true;
         const is_draft = body.is_draft !== void 0 ? Boolean(body.is_draft) : false;
@@ -31408,33 +31635,59 @@ var handler24 = async (req, res) => {
         if (!name_en || !video_url) {
           return sendJson(res, 400, { error: "Video name and video URL are required." });
         }
+        let savedToSupabase = false;
+        let savedToDatabase = false;
+        let lastSaveError = "";
         const sb = getSupabaseAdmin();
         if (sb) {
           try {
-            const { error: sbErr } = await sb.from("backgrounds").upsert(
-              {
-                id,
-                name_en,
-                name_ar,
-                category,
-                video_url,
-                video_url_720p,
-                video_url_480p,
-                poster_url,
-                size_bytes,
-                duration_seconds,
-                renditions,
-                storage_paths,
-                attribution,
-                sort_order,
-                is_active,
-                is_draft,
-                is_premium
-              },
-              { onConflict: "id" }
-            );
-            if (sbErr) console.warn("Supabase service role backgrounds upsert warning:", sbErr.message);
+            const fullPayload = {
+              id,
+              name_en,
+              name_ar,
+              category,
+              video_url,
+              video_url_720p,
+              video_url_480p,
+              poster_url,
+              size_bytes,
+              duration_seconds,
+              renditions,
+              storage_paths,
+              attribution,
+              source_url,
+              creator,
+              license_name,
+              license_url,
+              date_checked,
+              attribution_required,
+              sort_order,
+              is_active,
+              is_draft,
+              is_premium
+            };
+            let { error: sbErr } = await sb.from("backgrounds").upsert(fullPayload, { onConflict: "id" });
+            if (sbErr && sbErr.message?.includes("column")) {
+              const {
+                source_url: _su,
+                creator: _cr,
+                license_name: _ln,
+                license_url: _lu,
+                date_checked: _dc,
+                attribution_required: _ar,
+                ...corePayload
+              } = fullPayload;
+              const retry = await sb.from("backgrounds").upsert(corePayload, { onConflict: "id" });
+              sbErr = retry.error;
+            }
+            if (!sbErr) {
+              savedToSupabase = true;
+            } else {
+              lastSaveError = `Supabase error: ${sbErr.message}`;
+              console.warn("Supabase service role backgrounds upsert warning:", sbErr.message);
+            }
           } catch (e) {
+            lastSaveError = e?.message || "Supabase write exception";
             console.warn("Supabase service role write exception:", e);
           }
         }
@@ -31443,9 +31696,11 @@ var handler24 = async (req, res) => {
             `INSERT INTO backgrounds (
                id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
                poster_url, size_bytes, duration_seconds, renditions, storage_paths,
-               attribution, sort_order, is_active, is_draft, is_premium, created_at
+               attribution, sort_order, is_active, is_draft, is_premium,
+               source_url, creator, license_name, license_url, date_checked, attribution_required,
+               created_at
              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
              ON CONFLICT (id) DO UPDATE SET
                name_en = EXCLUDED.name_en,
                name_ar = EXCLUDED.name_ar,
@@ -31462,7 +31717,13 @@ var handler24 = async (req, res) => {
                sort_order = EXCLUDED.sort_order,
                is_active = EXCLUDED.is_active,
                is_draft = EXCLUDED.is_draft,
-               is_premium = EXCLUDED.is_premium`,
+               is_premium = EXCLUDED.is_premium,
+               source_url = EXCLUDED.source_url,
+               creator = EXCLUDED.creator,
+               license_name = EXCLUDED.license_name,
+               license_url = EXCLUDED.license_url,
+               date_checked = EXCLUDED.date_checked,
+               attribution_required = EXCLUDED.attribution_required`,
             [
               id,
               name_en,
@@ -31480,14 +31741,29 @@ var handler24 = async (req, res) => {
               sort_order,
               is_active,
               is_draft,
-              is_premium
+              is_premium,
+              source_url,
+              creator,
+              license_name,
+              license_url,
+              date_checked,
+              attribution_required
             ]
           );
+          savedToDatabase = true;
         } catch (dbErr) {
-          console.warn("Neon backgrounds write notice:", dbErr);
+          lastSaveError = dbErr?.message || String(dbErr);
+          console.warn("Database backgrounds write notice:", dbErr);
         }
+        if (!savedToSupabase && !savedToDatabase) {
+          return sendJson(res, 500, {
+            error: `Upload worked, but saving the database row failed: ${lastSaveError || "permission or schema error"}`
+          });
+        }
+        const version3 = await bumpBackgroundsVersion();
         return sendJson(res, 201, {
           ok: true,
+          version: version3,
           background: {
             id,
             name_en,
@@ -31499,10 +31775,20 @@ var handler24 = async (req, res) => {
             poster_url,
             size_bytes,
             duration_seconds,
+            renditions,
+            storage_paths,
+            attribution,
+            source_url,
+            creator,
+            license_name,
+            license_url,
+            date_checked,
+            attribution_required,
             sort_order,
             is_active,
             is_draft,
-            is_premium
+            is_premium,
+            created_at: (/* @__PURE__ */ new Date()).toISOString()
           }
         });
       }
@@ -31521,6 +31807,12 @@ var handler24 = async (req, res) => {
         const renditions = body.renditions !== void 0 ? Array.isArray(body.renditions) ? body.renditions : [] : void 0;
         const storage_paths = body.storage_paths !== void 0 ? Array.isArray(body.storage_paths) ? body.storage_paths : [] : void 0;
         const attribution = body.attribution !== void 0 ? body.attribution ? String(body.attribution).trim() : null : void 0;
+        const source_url = body.source_url !== void 0 ? body.source_url ? String(body.source_url).trim() : null : void 0;
+        const creator = body.creator !== void 0 ? body.creator ? String(body.creator).trim() : null : void 0;
+        const license_name = body.license_name !== void 0 ? body.license_name ? String(body.license_name).trim() : null : void 0;
+        const license_url = body.license_url !== void 0 ? body.license_url ? String(body.license_url).trim() : null : void 0;
+        const date_checked = body.date_checked !== void 0 ? body.date_checked ? String(body.date_checked).trim() : null : void 0;
+        const attribution_required = body.attribution_required !== void 0 ? Boolean(body.attribution_required) : void 0;
         const sort_order = body.sort_order !== void 0 ? Number(body.sort_order) : void 0;
         const is_active = body.is_active !== void 0 ? Boolean(body.is_active) : void 0;
         const is_draft = body.is_draft !== void 0 ? Boolean(body.is_draft) : void 0;
@@ -31541,6 +31833,12 @@ var handler24 = async (req, res) => {
             if (renditions !== void 0) updatePayload.renditions = renditions;
             if (storage_paths !== void 0) updatePayload.storage_paths = storage_paths;
             if (attribution !== void 0) updatePayload.attribution = attribution;
+            if (source_url !== void 0) updatePayload.source_url = source_url;
+            if (creator !== void 0) updatePayload.creator = creator;
+            if (license_name !== void 0) updatePayload.license_name = license_name;
+            if (license_url !== void 0) updatePayload.license_url = license_url;
+            if (date_checked !== void 0) updatePayload.date_checked = date_checked;
+            if (attribution_required !== void 0) updatePayload.attribution_required = attribution_required;
             if (sort_order !== void 0) updatePayload.sort_order = sort_order;
             if (is_active !== void 0) updatePayload.is_active = is_active;
             if (is_draft !== void 0) updatePayload.is_draft = is_draft;
@@ -31568,7 +31866,13 @@ var handler24 = async (req, res) => {
                  sort_order = COALESCE($14, sort_order),
                  is_active = COALESCE($15, is_active),
                  is_draft = COALESCE($16, is_draft),
-                 is_premium = COALESCE($17, is_premium)
+                 is_premium = COALESCE($17, is_premium),
+                 source_url = COALESCE($18, source_url),
+                 creator = COALESCE($19, creator),
+                 license_name = COALESCE($20, license_name),
+                 license_url = COALESCE($21, license_url),
+                 date_checked = COALESCE($22, date_checked),
+                 attribution_required = COALESCE($23, attribution_required)
              WHERE id = $1`,
             [
               id,
@@ -31587,20 +31891,77 @@ var handler24 = async (req, res) => {
               sort_order,
               is_active,
               is_draft,
-              is_premium
+              is_premium,
+              source_url,
+              creator,
+              license_name,
+              license_url,
+              date_checked,
+              attribution_required
             ]
           );
         } catch (dbErr) {
-          console.warn("Neon backgrounds update notice:", dbErr);
+          console.warn("Database backgrounds update notice:", dbErr);
         }
-        return sendJson(res, 200, { ok: true });
+        const version3 = await bumpBackgroundsVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "reorder") {
+        const order = Array.isArray(body.order) ? body.order : [];
+        const sb = getSupabaseAdmin();
+        for (const item of order) {
+          if (!item?.id) continue;
+          const sortVal = Number(item.sort_order ?? 0);
+          if (sb) {
+            try {
+              await sb.from("backgrounds").update({ sort_order: sortVal }).eq("id", item.id);
+            } catch {
+            }
+          }
+          try {
+            await q(
+              `UPDATE backgrounds
+               SET name_en = COALESCE($2, name_en),
+                   sort_order = COALESCE($14, sort_order)
+               WHERE id = $1`,
+              [
+                item.id,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                null,
+                null,
+                void 0,
+                sortVal,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0,
+                void 0
+              ]
+            );
+          } catch {
+          }
+        }
+        const version3 = await bumpBackgroundsVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
       }
       if (action === "signed-upload-url") {
         const path4 = String(body.path || "").replace(/^\/+/, "");
         if (!path4) return sendJson(res, 400, { error: "Path is required" });
         const sb = getSupabaseAdmin();
         const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
-        if (sb) {
+        if (sb && supabaseUrl) {
           try {
             const { data, error } = await sb.storage.from("ambient-backgrounds").createSignedUploadUrl(path4);
             if (!error && data?.signedUrl) {
@@ -31616,7 +31977,7 @@ var handler24 = async (req, res) => {
             console.warn("createSignedUploadUrl error:", e?.message);
           }
         }
-        const fallbackPublicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+        const fallbackPublicUrl = supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}` : `/api/media/${path4.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
         return sendJson(res, 200, { ok: false, fallbackPublicUrl });
       }
       if (action === "upload") {
@@ -31627,11 +31988,12 @@ var handler24 = async (req, res) => {
         const buffer = Buffer.from(base64Data, "base64");
         const sb = getSupabaseAdmin();
         const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
-        if (sb) {
+        if (sb && supabaseUrl) {
           try {
-            const { data, error } = await sb.storage.from("ambient-backgrounds").upload(path4, buffer, {
+            const { error } = await sb.storage.from("ambient-backgrounds").upload(path4, buffer, {
               contentType,
-              upsert: true
+              upsert: true,
+              cacheControl: "31536000"
             });
             if (!error) {
               const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
@@ -31642,28 +32004,109 @@ var handler24 = async (req, res) => {
             console.warn("Upload exception:", e);
           }
         }
-        return sendJson(res, 500, { error: "Could not upload to storage." });
+        const mediaId = `bgmedia_${Date.now()}_${path4.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-36)}`;
+        const dataUrl = `data:${contentType};base64,${base64Data}`;
+        await q(
+          "INSERT INTO global_media (id, kind, mime_type, data_url) VALUES ($1, $2, $3, $4)",
+          [mediaId, contentType.startsWith("image/") ? "image" : "video", contentType, dataUrl]
+        );
+        return sendJson(res, 200, { ok: true, publicUrl: `/api/media/${mediaId}` });
       }
       if (action === "delete") {
         const id = String(body.id || "");
         if (!id) return sendJson(res, 400, { error: "ID is required" });
+        let paths = [];
         const sb = getSupabaseAdmin();
         if (sb) {
           try {
+            const { data: existingRow } = await sb.from("backgrounds").select("storage_paths").eq("id", id).maybeSingle();
+            if (Array.isArray(existingRow?.storage_paths)) {
+              paths = existingRow.storage_paths;
+            }
             await sb.from("backgrounds").delete().eq("id", id);
+            if (paths.length > 0) {
+              await sb.storage.from("ambient-backgrounds").remove(paths.map((p) => p.replace(/^\/+/, "")));
+            }
           } catch (e) {
             console.warn("Supabase delete background notice:", e);
           }
         }
-        let paths = [];
         try {
           const existing = await q("SELECT storage_paths FROM backgrounds WHERE id = $1", [id]);
           await q("DELETE FROM backgrounds WHERE id = $1", [id]);
-          paths = existing.rows?.[0]?.storage_paths || [];
+          if (paths.length === 0 && Array.isArray(existing.rows?.[0]?.storage_paths)) {
+            paths = existing.rows[0].storage_paths;
+          }
         } catch (dbErr) {
-          console.warn("Neon delete background notice:", dbErr);
+          console.warn("Database delete background notice:", dbErr);
         }
-        return sendJson(res, 200, { ok: true, deleted_storage_paths: paths });
+        const version3 = await bumpBackgroundsVersion();
+        return sendJson(res, 200, { ok: true, version: version3, deleted_storage_paths: paths });
+      }
+      if (action === "seed-approved-nasa") {
+        const targetId = body.id ? String(body.id) : null;
+        const scenes = targetId ? APPROVED_NASA_BACKGROUNDS.filter((b) => b.id === targetId) : APPROVED_NASA_BACKGROUNDS;
+        const sb = getSupabaseAdmin();
+        for (const nb of scenes) {
+          if (sb) {
+            try {
+              await sb.from("backgrounds").upsert(nb, { onConflict: "id" });
+            } catch {
+            }
+          }
+          try {
+            await q(
+              `INSERT INTO backgrounds (
+                 id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+                 poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+                 attribution, sort_order, is_active, is_draft, is_premium,
+                 source_url, creator, license_name, license_url, date_checked, attribution_required,
+                 created_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+               ON CONFLICT (id) DO UPDATE SET
+                 is_active = true,
+                 is_draft = false,
+                 video_url = EXCLUDED.video_url,
+                 video_url_720p = EXCLUDED.video_url_720p,
+                 video_url_480p = EXCLUDED.video_url_480p,
+                 poster_url = EXCLUDED.poster_url,
+                 source_url = EXCLUDED.source_url,
+                 creator = EXCLUDED.creator,
+                 license_name = EXCLUDED.license_name,
+                 license_url = EXCLUDED.license_url,
+                 date_checked = EXCLUDED.date_checked`,
+              [
+                nb.id,
+                nb.name_en,
+                nb.name_ar,
+                nb.category,
+                nb.video_url,
+                nb.video_url_720p,
+                nb.video_url_480p,
+                nb.poster_url,
+                nb.size_bytes,
+                nb.duration_seconds,
+                JSON.stringify(nb.renditions || []),
+                JSON.stringify(nb.storage_paths || []),
+                nb.attribution,
+                nb.sort_order,
+                true,
+                false,
+                nb.is_premium,
+                nb.source_url,
+                nb.creator,
+                nb.license_name,
+                nb.license_url,
+                nb.date_checked,
+                nb.attribution_required
+              ]
+            );
+          } catch {
+          }
+        }
+        const version3 = await bumpBackgroundsVersion();
+        return sendJson(res, 200, { ok: true, count: scenes.length, version: version3 });
       }
       return sendJson(res, 400, { error: "Unknown action" });
     }
