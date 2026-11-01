@@ -534,26 +534,33 @@ export async function uploadToSupabaseStorage(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // Method 1: Request signed upload URL from backend (bypasses RLS, fast & direct to CDN)
+      // Request signed upload URL from backend (bypasses RLS, fast & direct to CDN)
       try {
         const signRes = await fetch('/api/admin/supabase-backgrounds', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'signed-upload-url', path: cleanPath }),
+          body: JSON.stringify({
+            action: 'signed-upload-url',
+            path: cleanPath,
+            filename: cleanPath.split('/').pop() || 'media',
+            bucket: STORAGE_BUCKET,
+          }),
         });
         if (signRes.ok) {
           const signData = await signRes.json();
-          if (signData.ok && signData.signedUrl) {
-            const uploadRes = await fetch(signData.signedUrl, {
+          const targetUploadUrl = signData.signedUrl;
+          const targetPublicUrl = signData.publicUrl;
+          if (targetUploadUrl) {
+            const uploadRes = await fetch(targetUploadUrl, {
               method: 'PUT',
               headers: {
                 'Content-Type': contentType,
-                'cache-control': 'max-age=31536000',
+                'x-amz-acl': 'public-read',
               },
               body: fileOrBlob,
             });
-            if (uploadRes.ok && signData.publicUrl) {
-              return signData.publicUrl;
+            if (uploadRes.ok && targetPublicUrl) {
+              return targetPublicUrl;
             }
           }
         }
@@ -561,13 +568,17 @@ export async function uploadToSupabaseStorage(
         console.warn('Signed upload URL attempt notice:', signErr);
       }
 
-      // Method 2: Direct upload using Supabase Anon Key
+      // Method 2: Direct upload using Supabase client / Anon Key with session token
       if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+        const client = getSupabaseClient();
+        const session = await client?.auth.getSession().catch(() => null);
+        const authToken = session?.data?.session?.access_token || SUPABASE_ANON_KEY;
+
         const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
         const res = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${authToken}`,
             apikey: SUPABASE_ANON_KEY,
             'Content-Type': contentType,
             'x-upsert': 'true',

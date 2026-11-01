@@ -46,7 +46,7 @@ for (const outfile of TARGETS) {
     platform: 'node',
     format: 'esm',
     target: 'node20',
-    external: [],
+    external: ['pg-native', 'pg-cloudflare', 'cloudflare:*'],
     banner: { js: BANNER },
     logLevel: 'warning',
   });

@@ -536,7 +536,9 @@ function getVideoPoster(url: string | null | undefined): string {
         v.videoUrl !== failedSrc &&
         (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http://') || v.videoUrl.startsWith('https://'))
     );
-    setVideoUrl(fallbackCloud?.videoUrl || '');
+    if (fallbackCloud?.videoUrl) {
+      setVideoUrl(fallbackCloud.videoUrl);
+    }
   };
 
   // Global user interaction unblocker for mobile browser autoplay policy & iOS Low Power Mode
@@ -635,7 +637,7 @@ function getVideoPoster(url: string | null | undefined): string {
         loop
         muted
         playsInline
-        preload="none"
+        preload="auto"
         disablePictureInPicture
         aria-hidden="true"
         className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
@@ -673,7 +675,7 @@ function getVideoPoster(url: string | null | undefined): string {
         loop
         muted
         playsInline
-        preload="none"
+        preload="auto"
         disablePictureInPicture
         aria-hidden="true"
         className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"

@@ -49,7 +49,7 @@ const handler: Handler = async (req, res) => {
     const result = await q(`
       SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url, size_bytes, duration_seconds, renditions, attribution, sort_order, is_active, is_draft, is_premium, created_at
       FROM backgrounds
-      WHERE is_active = true
+      WHERE is_active = true OR is_active IS NULL
       ORDER BY sort_order ASC, created_at DESC
     `);
 

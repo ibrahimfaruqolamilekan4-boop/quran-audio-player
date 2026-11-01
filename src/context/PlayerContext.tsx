@@ -764,6 +764,34 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [isPlaying, currentAmbient]);
 
+  // Adhan playback coordination: duck / pause recitation when Adhan plays, resume afterwards
+  const wasPlayingBeforeAdhanRef = useRef(false);
+  useEffect(() => {
+    const handleDuck = (e: Event) => {
+      const customEvent = e as CustomEvent<{ ducked: boolean }>;
+      const shouldDuck = customEvent.detail?.ducked;
+
+      if (shouldDuck) {
+        if (isPlaying) {
+          wasPlayingBeforeAdhanRef.current = true;
+          quranAudioRef.current?.pause();
+          ambientAudioRef.current?.pause();
+        }
+      } else {
+        if (wasPlayingBeforeAdhanRef.current) {
+          wasPlayingBeforeAdhanRef.current = false;
+          quranAudioRef.current?.play().catch(() => {});
+          if (currentAmbient) {
+            ambientAudioRef.current?.play().catch(() => {});
+          }
+        }
+      }
+    };
+
+    window.addEventListener('nooraya-duck-recitation', handleDuck);
+    return () => window.removeEventListener('nooraya-duck-recitation', handleDuck);
+  }, [isPlaying, currentAmbient]);
+
   /**
    * Load one surah for one reciter: the cached copy if we already have it, otherwise the first
    * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens â€” the whole file

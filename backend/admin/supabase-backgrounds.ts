@@ -42,6 +42,34 @@ const handler: Handler = async (req, res) => {
       const body = await readJsonLarge(req);
       const action = body.action || 'add';
 
+      // Signed Upload URL for 1-Click Fast Background Video & Poster Upload (bypasses RLS issues)
+      if (action === 'signed-upload-url') {
+        const sb = getSupabaseAdmin();
+        if (!sb) {
+          return sendJson(res, 500, { error: 'Supabase admin client not initialized' });
+        }
+        const bucket = String(body.bucket || 'ambient-backgrounds');
+        const filename = String(body.filename || 'video.mp4').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = body.path ? String(body.path) : `backgrounds/${Date.now()}_${filename}`;
+
+        const { data, error } = await sb.storage
+          .from(bucket)
+          .createSignedUploadUrl(path);
+
+        if (error || !data) {
+          return sendJson(res, 500, { error: error?.message || 'Could not generate signed upload URL' });
+        }
+
+        const { data: publicUrlData } = sb.storage.from(bucket).getPublicUrl(path);
+
+        return sendJson(res, 200, {
+          signedUrl: data.signedUrl,
+          token: data.token,
+          path: data.path,
+          publicUrl: publicUrlData.publicUrl,
+        });
+      }
+
       if (action === 'add') {
         const id = body.id || `bg_${Date.now()}`;
         const name_en = String(body.name_en || '').trim();
@@ -57,6 +85,7 @@ const handler: Handler = async (req, res) => {
         const storage_paths = Array.isArray(body.storage_paths) ? body.storage_paths : [];
         const attribution = body.attribution ? String(body.attribution).trim() : null;
         const sort_order = Number(body.sort_order || 0);
+        // By default, new uploads go live immediately so they play instantly
         const is_active = body.is_active !== undefined ? Boolean(body.is_active) : true;
         const is_draft = body.is_draft !== undefined ? Boolean(body.is_draft) : false;
         const is_premium = Boolean(body.is_premium);

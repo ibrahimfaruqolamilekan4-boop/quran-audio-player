@@ -1043,3 +1043,8 @@ export async function qWithFallback(queries) {
   const first = queries[0];
   return await q(first.text, first.params || []);
 }
+
+let _cachedSbAdmin = null;
+export function getSupabaseAdmin() {
+  return null;
+}
