@@ -7,7 +7,7 @@ import {
   HighLatitudeRule,
 } from 'adhan';
 import {
-  UserLocation,
+  type UserLocation,
   POPULAR_GLOBAL_CITIES,
   DEFAULT_LOCATION,
   getDefaultCalculationMethod,
