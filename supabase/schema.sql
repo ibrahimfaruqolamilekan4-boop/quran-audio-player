@@ -189,9 +189,15 @@ CREATE TABLE IF NOT EXISTS public.backgrounds (
   renditions JSONB DEFAULT '[]'::jsonb,
   storage_paths JSONB DEFAULT '[]'::jsonb,
   attribution TEXT,
+  source_url TEXT,
+  creator TEXT,
+  license_name TEXT,
+  license_url TEXT,
+  date_checked TEXT,
+  attribution_required BOOLEAN DEFAULT false,
   sort_order INT DEFAULT 0,
-  is_active BOOLEAN DEFAULT false, -- Starts as DRAFT until published by admin
-  is_draft BOOLEAN DEFAULT true,
+  is_active BOOLEAN DEFAULT true, -- Publishes immediately by default
+  is_draft BOOLEAN DEFAULT false,
   is_premium BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -203,7 +209,31 @@ ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS duration_seconds NUMERIC
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS renditions JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS storage_paths JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS attribution TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS source_url TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS creator TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS license_name TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS license_url TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS date_checked TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS attribution_required BOOLEAN DEFAULT false;
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT false;
+ALTER TABLE public.backgrounds ALTER COLUMN is_active SET DEFAULT true;
+ALTER TABLE public.backgrounds ALTER COLUMN is_draft SET DEFAULT false;
+
+-- Single-row list version counter checked by phones on open, focus, and every 60s
+CREATE TABLE IF NOT EXISTS public.backgrounds_meta (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  version BIGINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO public.backgrounds_meta (id, version, updated_at)
+VALUES (1, 1, now())
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.backgrounds_meta ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can read backgrounds_meta" ON public.backgrounds_meta;
+CREATE POLICY "Public can read backgrounds_meta"
+  ON public.backgrounds_meta FOR SELECT
+  USING (true);
 
 CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON public.backgrounds (is_active, sort_order ASC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_backgrounds_category ON public.backgrounds (category);
@@ -405,6 +435,7 @@ CREATE POLICY "Only admin can delete backgrounds"
 DO $$
 BEGIN
   ALTER TABLE public.backgrounds REPLICA IDENTITY FULL;
+  ALTER TABLE public.backgrounds_meta REPLICA IDENTITY FULL;
   ALTER TABLE public.profiles REPLICA IDENTITY FULL;
 
   IF NOT EXISTS (
@@ -412,6 +443,13 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND tablename = 'backgrounds'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.backgrounds;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'backgrounds_meta'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.backgrounds_meta;
   END IF;
 
   IF NOT EXISTS (
