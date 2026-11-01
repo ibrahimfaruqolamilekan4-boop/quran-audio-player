@@ -86,6 +86,12 @@ export interface CustomVideo {
   }>;
   storagePaths?: string[];
   attribution?: string;
+  sourceUrl?: string;
+  creator?: string;
+  licenseName?: string;
+  licenseUrl?: string;
+  dateChecked?: string;
+  attributionRequired?: boolean;
   /** Optional longer label for the admin background library. */
   description?: string;
   sizeBytes?: number;

@@ -31,6 +31,12 @@ export interface BackgroundRow {
   renditions?: VideoRendition[] | null;
   storage_paths?: string[] | null;
   attribution?: string | null;
+  source_url?: string | null;
+  creator?: string | null;
+  license_name?: string | null;
+  license_url?: string | null;
+  date_checked?: string | null;
+  attribution_required?: boolean | null;
   sort_order: number;
   is_active: boolean;
   is_draft?: boolean;
