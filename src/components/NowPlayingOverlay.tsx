@@ -33,6 +33,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
 import { isSurahDownloaded, downloadSurah } from '../lib/offlineManager';
 import { SubscriptionModal } from './SubscriptionModal';
+import { MediaCreditsModal } from './MediaCreditsModal';
 import { AMBIENT_TRACKS } from '../lib/constants';
 import { ReciterAvatar } from './ReciterAvatar';
 import type { AmbientTrack, Chapter, Reciter } from '../types';
@@ -94,6 +95,7 @@ export function NowPlayingOverlay() {
   // Soundscape selector bottom sheet state
   const [showSoundModal, setShowSoundModal] = useState(false);
   const [soundSearch, setSoundSearch] = useState('');
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
   
   // Sleep timer state
   const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
@@ -554,7 +556,7 @@ export function NowPlayingOverlay() {
 
                   {/* Volume Slider for the chosen soundscape */}
                   {currentAmbient && (
-                    <div className="bg-[#131926] p-4 rounded-2xl border border-white/[0.06] flex items-center gap-4">
+                    <div className="bg-[#131926] p-4 rounded-2xl border border-white/[0.06] flex items-center gap-4 mb-6">
                       <Volume2 size={18} className="text-teal-400 shrink-0" />
                       <div className="flex-1">
                         <div className="flex justify-between text-xs text-slate-400 mb-1">
@@ -573,10 +575,94 @@ export function NowPlayingOverlay() {
                       </div>
                     </div>
                   )}
+
+                  {/* Live Background Video Switcher (Posters only; video fetched only when selected) */}
+                  <div className="pt-4 border-t border-white/[0.08] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-teal-400">
+                        Ambient Background Scene ({customVideos.length})
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreditsModal(true)}
+                        className="text-xs text-slate-400 hover:text-teal-300 underline transition"
+                      >
+                        Media Credits & Licences
+                      </button>
+                    </div>
+
+                    {customVideos.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-2">
+                        No active background videos published yet.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        {customVideos.map((vid) => {
+                          const isSelected =
+                            activeBackgroundVideoId === vid.id ||
+                            activeBackgroundVideoId === vid.videoUrl ||
+                            activeBackgroundVideoId === vid.videoUrl720p ||
+                            activeBackgroundVideoId === vid.videoUrl480p;
+                          const poster = vid.posterUrl || vid.poster_url;
+
+                          return (
+                            <button
+                              key={vid.id}
+                              type="button"
+                              onClick={() => {
+                                localStorage.setItem('activeBackgroundVideoId', vid.id);
+                                setActiveBackgroundVideoId(vid.id);
+                              }}
+                              className={`group relative rounded-2xl overflow-hidden border text-left transition-all cursor-pointer aspect-[16/10] ${
+                                isSelected
+                                  ? 'border-teal-400 ring-2 ring-teal-400/40 shadow-lg shadow-teal-500/10'
+                                  : 'border-white/10 hover:border-white/30'
+                              }`}
+                            >
+                              {poster ? (
+                                <img
+                                  src={poster}
+                                  alt={vid.name}
+                                  loading="lazy"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-[#071F17] to-[#04100C]" />
+                              )}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                              <div className="absolute bottom-2 left-2.5 right-2.5 flex items-end justify-between gap-1">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-white truncate">
+                                    {vid.name}
+                                  </p>
+                                  {vid.category && (
+                                    <p className="text-[10px] text-teal-300/80 uppercase tracking-wider truncate">
+                                      {vid.category}
+                                    </p>
+                                  )}
+                                </div>
+                                {isSelected && (
+                                  <div className="w-5 h-5 rounded-full bg-teal-400 text-slate-950 flex items-center justify-center shrink-0">
+                                    <Check size={12} strokeWidth={3} />
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               </motion.div>
             )}
           </AnimatePresence>
+
+          <MediaCreditsModal
+            isOpen={showCreditsModal}
+            onClose={() => setShowCreditsModal(false)}
+            videos={customVideos}
+          />
 
           {/* =========================================================================
               SLEEP TIMER MODAL

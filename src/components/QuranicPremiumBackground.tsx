@@ -421,11 +421,8 @@ export function QuranicPremiumBackground({
     let isMounted = true;
 
     async function loadCustomVideo() {
-      if (!activeBackgroundVideoId) {
-        if (isMounted) {
-          const def = customVideos.find(v => v.isDefault && v.videoUrl) || customVideos[0];
-          setVideoUrl(def?.videoUrl || '');
-        }
+      if (customVideos.length === 0 && !activeBackgroundVideoId) {
+        if (isMounted) setVideoUrl('');
         return;
       }
       try {
@@ -439,8 +436,7 @@ export function QuranicPremiumBackground({
       } catch (e) {
         console.error('Failed to load background video:', e);
         if (isMounted) {
-          const def = customVideos.find(v => v.isDefault && v.videoUrl) || customVideos[0];
-          setVideoUrl(def?.videoUrl || '');
+          setVideoUrl('');
         }
       }
     }
@@ -449,9 +445,19 @@ export function QuranicPremiumBackground({
     return () => { isMounted = false; };
   }, [activeBackgroundVideoId, customVideos]);
 
-  // Dual-buffer crossfade manager: smoothly transitions to new video without black frames or reload glitches
+  // Dual-buffer crossfade manager: smoothly transitions to new video and pauses inactive slot after crossfade
   useEffect(() => {
-    if (!videoUrl) return;
+    if (!videoUrl) {
+      setSlotAOpacity(0);
+      setSlotBOpacity(0);
+      const clearTimer = setTimeout(() => {
+        if (videoRefA.current) videoRefA.current.pause();
+        if (videoRefB.current) videoRefB.current.pause();
+        setSlotAUrl('');
+        setSlotBUrl(null);
+      }, 900);
+      return () => clearTimeout(clearTimer);
+    }
 
     if (activeSlot === 'A') {
       if (slotAUrl === videoUrl) {
@@ -459,22 +465,30 @@ export function QuranicPremiumBackground({
         setSlotBOpacity(0);
         return;
       }
-      // Load onto Slot B
+      // Load onto Slot B and crossfade
       setSlotBUrl(videoUrl);
       setSlotBOpacity(1);
       setSlotAOpacity(0);
       setActiveSlot('B');
+      const pauseTimer = setTimeout(() => {
+        if (videoRefA.current) videoRefA.current.pause();
+      }, 1100);
+      return () => clearTimeout(pauseTimer);
     } else {
       if (slotBUrl === videoUrl) {
         setSlotBOpacity(1);
         setSlotAOpacity(0);
         return;
       }
-      // Load onto Slot A
+      // Load onto Slot A and crossfade
       setSlotAUrl(videoUrl);
       setSlotAOpacity(1);
       setSlotBOpacity(0);
       setActiveSlot('A');
+      const pauseTimer = setTimeout(() => {
+        if (videoRefB.current) videoRefB.current.pause();
+      }, 1100);
+      return () => clearTimeout(pauseTimer);
     }
   }, [videoUrl]);
 

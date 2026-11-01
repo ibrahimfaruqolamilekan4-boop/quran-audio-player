@@ -276,9 +276,34 @@ export async function extractVideoPoster(fileOrBlob: Blob): Promise<Blob> {
 }
 
 /**
- * Verifies that an uploaded video URL can actually be loaded and played by the browser.
+ * Verifies that an uploaded video URL is genuinely reachable and loadable by a phone browser.
+ * Returns FALSE if the URL returns HTTP 4xx/5xx or fails to load.
  */
-export async function verifyVideoPlayable(url: string, timeoutMs = 4000): Promise<boolean> {
+export async function verifyVideoPlayable(url: string, timeoutMs = 6000): Promise<boolean> {
+  if (!url || typeof url !== 'string') return false;
+
+  // 1. First verify HTTP reachability with a lightweight ranged GET / HEAD check
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-1023' },
+      cache: 'no-store',
+      credentials: 'omit',
+    });
+    if (res.status >= 400) {
+      return false;
+    }
+    if (res.ok || res.status === 206) {
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (contentType.includes('video/') || contentType.includes('octet-stream') || url.startsWith('/api/media/')) {
+        return true;
+      }
+    }
+  } catch {
+    // Fall through to <video> element probe if CORS blocks fetch headers
+  }
+
+  // 2. Fallback: probe via HTML5 <video> element
   return new Promise((resolve) => {
     const video = document.createElement('video');
     video.preload = 'metadata';
@@ -295,10 +320,18 @@ export async function verifyVideoPlayable(url: string, timeoutMs = 4000): Promis
       if (!resolved) {
         resolved = true;
         cleanup();
-        // Return true so we don't abort successful uploads due to network inspection delay
-        resolve(true);
+        resolve(false);
       }
     }, timeoutMs);
+
+    video.onloadedmetadata = () => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        cleanup();
+        resolve(true);
+      }
+    };
 
     video.onloadeddata = () => {
       if (!resolved) {
@@ -314,8 +347,7 @@ export async function verifyVideoPlayable(url: string, timeoutMs = 4000): Promis
         resolved = true;
         clearTimeout(timer);
         cleanup();
-        // Return true so slow CDN propagation doesn't block catalog entry
-        resolve(true);
+        resolve(false);
       }
     };
 
@@ -328,6 +360,16 @@ export async function verifyVideoPlayable(url: string, timeoutMs = 4000): Promis
  * Verifies that an uploaded poster image URL loads properly in the browser.
  */
 export async function verifyImageLoadable(url: string, timeoutMs = 6000): Promise<boolean> {
+  if (!url) return false;
+  try {
+    const res = await fetch(url, { method: 'GET', cache: 'no-store', credentials: 'omit' });
+    if (res.status >= 400) return false;
+    if (res.ok) {
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (ct.includes('image/') || url.startsWith('/api/media/')) return true;
+    }
+  } catch {}
+
   return new Promise((resolve) => {
     const img = new Image();
     let done = false;
@@ -355,6 +397,177 @@ export async function verifyImageLoadable(url: string, timeoutMs = 6000): Promis
   });
 }
 
+export interface VideoStandardProbe {
+  valid: boolean;
+  error?: string;
+  meetsFastPath: boolean;
+  reasonForOptimize?: string;
+  width: number;
+  height: number;
+  duration: number;
+  hasAudio: boolean;
+  isMp4: boolean;
+  sizeBytes: number;
+}
+
+/**
+ * Inspects a selected video file to decide between:
+ * - FAST PATH: MP4 (H.264), <= 720p (short side <= 720 or max side <= 1280), no audio, under 45 MB -> upload right away!
+ * - OPTIMIZE PATH: > 45 MB (including 130 MB+ files), > 720p, has audio track, or non-MP4 -> optimize automatically!
+ */
+export async function probeVideoForOneStepUpload(file: File): Promise<VideoStandardProbe> {
+  const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|m4v)$/i.test(file.name);
+  if (!isVideo) {
+    return {
+      valid: false,
+      error: 'Please select a valid video file (MP4, MOV, or WebM).',
+      meetsFastPath: false,
+      width: 0,
+      height: 0,
+      duration: 0,
+      hasAudio: false,
+      isMp4: false,
+      sizeBytes: file.size,
+    };
+  }
+
+  const isMp4 = file.type === 'video/mp4' || /\.mp4$/i.test(file.name);
+  const maxFastBytes = 45 * 1024 * 1024; // 45 MB
+
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    (video as any).playsInline = true;
+
+    const objectUrl = URL.createObjectURL(file);
+    video.src = objectUrl;
+
+    const finish = (width: number, height: number, duration: number, hasAudio: boolean) => {
+      URL.revokeObjectURL(objectUrl);
+      video.removeAttribute('src');
+      video.load();
+
+      const shortSide = Math.min(width, height);
+      const longSide = Math.max(width, height);
+      const is720pOrLower = shortSide <= 720 && longSide <= 1280;
+      const isUnder45MB = file.size <= maxFastBytes;
+
+      const reasons: string[] = [];
+      if (!isMp4) reasons.push('non-MP4 container');
+      if (!isUnder45MB) reasons.push(`size ${(file.size / (1024 * 1024)).toFixed(1)} MB > 45 MB`);
+      if (!is720pOrLower) reasons.push(`resolution ${width}x${height} > 720p`);
+      if (hasAudio) reasons.push('contains audio track');
+
+      const meetsFastPath = isMp4 && isUnder45MB && is720pOrLower && !hasAudio;
+
+      resolve({
+        valid: true,
+        meetsFastPath,
+        reasonForOptimize: reasons.length > 0 ? reasons.join(', ') : undefined,
+        width,
+        height,
+        duration,
+        hasAudio,
+        isMp4,
+        sizeBytes: file.size,
+      });
+    };
+
+    const timer = setTimeout(() => {
+      // If metadata probe times out, route large files (>45MB) to Optimize Path and small MP4s to Fast Path
+      finish(1280, 720, 20, false);
+    }, 2500);
+
+    video.onloadedmetadata = () => {
+      clearTimeout(timer);
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      const duration = video.duration || 20;
+
+      // Detect if video has an audio track via browser media properties
+      const anyVid = video as any;
+      const hasAudio = Boolean(
+        (anyVid.mozHasAudio === true) ||
+        (typeof anyVid.webkitAudioDecodedByteCount === 'number' && anyVid.webkitAudioDecodedByteCount > 0) ||
+        (anyVid.audioTracks && anyVid.audioTracks.length > 0)
+      );
+
+      finish(width, height, duration, hasAudio);
+    };
+
+    video.onerror = () => {
+      clearTimeout(timer);
+      finish(1280, 720, 20, false);
+    };
+  });
+}
+
+/**
+ * Step 5 Verification: Fetches the public backgrounds list the exact same way an anonymous phone does
+ * (no credentials, no cache) and confirms the new item is returned and its video & poster URLs load.
+ */
+export async function verifyLiveOnPhones(bgId: string): Promise<{
+  live: boolean;
+  errorReason?: string;
+  matchedRow?: BackgroundRow;
+}> {
+  try {
+    const res = await fetch(`/api/backgrounds?_t=${Date.now()}`, {
+      method: 'GET',
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      return {
+        live: false,
+        errorReason: `Public phone endpoint returned HTTP ${res.status}`,
+      };
+    }
+
+    const data = await res.json();
+    const list: BackgroundRow[] = Array.isArray(data?.backgrounds) ? data.backgrounds : [];
+    const found = list.find((item) => item.id === bgId);
+
+    if (!found) {
+      return {
+        live: false,
+        errorReason: 'Saved to database, but item is not in the public active phone list (check is_active status).',
+      };
+    }
+
+    const videoToTest = found.video_url_480p || found.video_url_720p || found.video_url;
+    const videoOk = await verifyVideoPlayable(videoToTest, 6000);
+    if (!videoOk) {
+      return {
+        live: false,
+        errorReason: `Item is in the list, but the video URL failed to load (${videoToTest}).`,
+      };
+    }
+
+    if (found.poster_url) {
+      const posterOk = await verifyImageLoadable(found.poster_url, 5000);
+      if (!posterOk) {
+        return {
+          live: false,
+          errorReason: `Video loads, but the poster thumbnail URL failed to load (${found.poster_url}).`,
+        };
+      }
+    }
+
+    return {
+      live: true,
+      matchedRow: found,
+    };
+  } catch (err: any) {
+    return {
+      live: false,
+      errorReason: err?.message || 'Network error while verifying public phone list.',
+    };
+  }
+}
+
 export interface VideoMetadata {
   duration: number;
   width: number;
@@ -369,7 +582,6 @@ export interface VideoMetadata {
 
 /**
  * Probes large source videos (up to 500 MB+) without reading the entire file into memory.
- * Computes duration, dimensions, bitrate, and projected output sizes for 720p and 480p.
  */
 export async function probeSourceVideoMetadata(file: File): Promise<VideoMetadata> {
   return new Promise((resolve) => {
@@ -462,8 +674,8 @@ export async function fetchStorageStats(): Promise<StorageStats> {
   }
 
   // Fallback: estimate from backgrounds catalog
-  const bgs = await fetchActiveBackgrounds().catch(() => []);
-  const total = bgs.reduce((acc, b) => acc + (b.size_bytes || 0), 0);
+  const bgs = await fetchActiveBackgrounds().catch(() => [] as BackgroundRow[]);
+  const total = bgs.reduce((acc: number, b: BackgroundRow) => acc + Number(b.size_bytes || 0), 0);
   const limit = 1073741824; // 1 GB
   return {
     bucket: STORAGE_BUCKET,
@@ -524,10 +736,12 @@ export function selectAdaptiveRendition(bg: {
 }
 
 export { uploadResumableToSupabase, type ResumableUploadOptions, type UploadController } from './tusUpload';
+import { uploadMediaToServer } from './upload';
 
 /**
  * Uploads a file directly to Supabase Storage bucket 'ambient-backgrounds'
- * Sets Cache-Control to 31536000 (1 year immutable) and performs up to 3 automatic retries.
+ * Sets Cache-Control to 31536000 (1 year immutable) and performs automatic retries,
+ * with a chunked server media fallback so files of any size succeed.
  */
 export async function uploadToSupabaseStorage(
   fileOrBlob: Blob,
@@ -587,8 +801,8 @@ export async function uploadToSupabaseStorage(
         }
       }
 
-      // Method 3: Server-side service-role upload (for files under 4.5MB)
-      if (fileOrBlob.size <= 4.5 * 1024 * 1024) {
+      // Method 3: Server-side service-role upload (for files under 3.5MB)
+      if (fileOrBlob.size <= 3.5 * 1024 * 1024) {
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -615,6 +829,14 @@ export async function uploadToSupabaseStorage(
           const srvData = await srvRes.json();
           if (srvData.ok && srvData.publicUrl) return srvData.publicUrl;
         }
+      } else {
+        // Method 4: Chunked media upload for larger files (> 3.5MB) when Supabase direct upload isn't available
+        const chunkedUrl = await uploadMediaToServer(fileOrBlob, {
+          filename: cleanPath,
+          name: cleanPath,
+          type: contentType,
+        });
+        if (chunkedUrl) return chunkedUrl;
       }
 
       throw new Error(`Upload failed on attempt ${attempt}/${maxRetries}.`);
@@ -629,16 +851,74 @@ export async function uploadToSupabaseStorage(
   throw lastError || new Error(`Upload failed after ${maxRetries} attempts.`);
 }
 
+let lastKnownVersion = 0;
+
 /**
- * Fetches all active ambient backgrounds from Supabase or the backend API.
+ * Fetches the lightweight list version counter from `/api/backgrounds?version_only=1`
+ * or Supabase `backgrounds_meta`.
+ */
+export async function fetchBackgroundsVersion(): Promise<number> {
+  try {
+    const res = await fetch(`/api/backgrounds?version_only=1&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data?.version === 'number') {
+        return data.version;
+      }
+    }
+  } catch {}
+
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/backgrounds_meta?id=eq.1&select=version`, {
+        headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows[0]?.version) {
+          return Number(rows[0].version);
+        }
+      }
+    } catch {}
+  }
+
+  return lastKnownVersion;
+}
+
+/**
+ * Fetches all active ambient backgrounds from the unified backend API & Supabase.
  */
 export async function fetchActiveBackgrounds(forceRefresh = false): Promise<BackgroundRow[]> {
   const now = Date.now();
-  if (!forceRefresh && cachedBackgrounds && now - lastFetchTime < CACHE_TTL_MS) {
+  if (!forceRefresh && cachedBackgrounds && now - lastFetchTime < 10_000) {
     return cachedBackgrounds;
   }
 
-  // 1. Try Supabase REST API directly if credentials exist
+  // 1. Fetch from unified backend `/api/backgrounds` (which merges Supabase + Postgres/serverStore + version)
+  try {
+    const res = await fetch(`/api/backgrounds?_t=${now}`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data?.version === 'number') {
+        lastKnownVersion = data.version;
+      }
+      if (Array.isArray(data?.backgrounds)) {
+        cachedBackgrounds = data.backgrounds;
+        lastFetchTime = now;
+        return data.backgrounds;
+      }
+    }
+  } catch (err) {
+    console.warn('API /api/backgrounds fetch fallback to direct Supabase:', err);
+  }
+
+  // 2. Fallback: Direct Supabase REST API if backend is unreachable
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     try {
       const restUrl = `${SUPABASE_URL}/rest/v1/backgrounds?is_active=eq.true&order=sort_order.asc,created_at.desc`;
@@ -648,6 +928,7 @@ export async function fetchActiveBackgrounds(forceRefresh = false): Promise<Back
           apikey: SUPABASE_ANON_KEY,
           'Content-Type': 'application/json',
         },
+        cache: 'no-store',
       });
 
       if (res.ok) {
@@ -659,36 +940,22 @@ export async function fetchActiveBackgrounds(forceRefresh = false): Promise<Back
         }
       }
     } catch (err) {
-      console.warn('Direct Supabase fetch fallback to API:', err);
+      console.warn('Direct Supabase fetch error:', err);
     }
-  }
-
-  // 2. Fetch from backend /api/backgrounds
-  try {
-    const res = await fetch('/api/backgrounds');
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data?.backgrounds)) {
-        cachedBackgrounds = data.backgrounds;
-        lastFetchTime = now;
-        return data.backgrounds;
-      }
-    }
-  } catch (err) {
-    console.warn('API /api/backgrounds fetch error:', err);
   }
 
   return cachedBackgrounds || [];
 }
 
 /**
- * Subscribes to Realtime updates on the 'backgrounds' table.
- * Emits updated background rows whenever an insert, update, or delete occurs.
- * Also refetches when tab visibility returns to visible or network reconnects.
+ * Subscribes to Realtime updates on 'backgrounds' and 'backgrounds_meta' tables,
+ * plus checks the list version counter on app open, focus, visibilitychange, online,
+ * and a fast background heartbeat so phones update within seconds even if WebSocket drops.
  */
 export function subscribeToBackgrounds(onChange: (backgrounds: BackgroundRow[]) => void): () => void {
   const client = getSupabaseClient();
   let channel: RealtimeChannel | null = null;
+  let BroadcastChan: BroadcastChannel | null = null;
 
   const triggerRefresh = async () => {
     try {
@@ -699,15 +966,31 @@ export function subscribeToBackgrounds(onChange: (backgrounds: BackgroundRow[]) 
     }
   };
 
+  const checkVersionAndReconcile = async () => {
+    try {
+      const remoteVersion = await fetchBackgroundsVersion();
+      if (remoteVersion !== lastKnownVersion || !cachedBackgrounds) {
+        await triggerRefresh();
+      }
+    } catch {}
+  };
+
   if (client) {
     try {
       channel = client
-        .channel('public:backgrounds')
+        .channel('public:backgrounds-sync')
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'backgrounds' },
           () => {
-            triggerRefresh();
+            void triggerRefresh();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'backgrounds_meta' },
+          () => {
+            void triggerRefresh();
           }
         )
         .subscribe();
@@ -716,26 +999,60 @@ export function subscribeToBackgrounds(onChange: (backgrounds: BackgroundRow[]) 
     }
   }
 
-  // Resilience: Refetch when returning to app or coming online
+  // Same-origin cross-tab instant notification via BroadcastChannel
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      BroadcastChan = new BroadcastChannel('noor_backgrounds_live');
+      BroadcastChan.onmessage = () => {
+        void triggerRefresh();
+      };
+    }
+  } catch {}
+
+  // Resilience: Check version when returning to app, coming online, or on interval
   const handleVisibility = () => {
     if (document.visibilityState === 'visible') {
-      triggerRefresh();
+      void triggerRefresh();
     }
   };
-  const handleOnline = () => triggerRefresh();
+  const handleOnline = () => void triggerRefresh();
 
   window.addEventListener('visibilitychange', handleVisibility);
   window.addEventListener('focus', handleVisibility);
   window.addEventListener('online', handleOnline);
 
+  // Fast version check every 4s while visible + guaranteed 60s backup
+  const versionInterval = window.setInterval(() => {
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      void checkVersionAndReconcile();
+    }
+  }, 4000);
+
   return () => {
     if (channel && client) {
       client.removeChannel(channel).catch(() => {});
     }
+    if (BroadcastChan) {
+      try {
+        BroadcastChan.close();
+      } catch {}
+    }
+    window.clearInterval(versionInterval);
     window.removeEventListener('visibilitychange', handleVisibility);
     window.removeEventListener('focus', handleVisibility);
     window.removeEventListener('online', handleOnline);
   };
+}
+
+/** Broadcasts a local signal when admin mutates backgrounds so any open tab updates immediately */
+export function notifyBackgroundsChanged(): void {
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('noor_backgrounds_live');
+      bc.postMessage({ type: 'changed', ts: Date.now() });
+      bc.close();
+    }
+  } catch {}
 }
 
 /**

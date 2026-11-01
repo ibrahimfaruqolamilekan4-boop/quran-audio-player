@@ -1,2081 +1,1401 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
 import {
-  Video,
   Upload,
   Trash2,
-  Save,
-  RefreshCw,
-  Play,
-  X,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
   Film,
-  Sparkles,
-  AlertTriangle,
-  Layers,
+  RefreshCw,
+  Eye,
+  EyeOff,
   ArrowUp,
   ArrowDown,
-  Flame,
-  CloudRain,
-  Waves,
-  Trees,
-  Moon,
-  Compass,
-  CheckCircle2,
-  Loader2,
-  Pause,
-  FastForward,
-  Sliders,
-  HardDrive,
   Smartphone,
-  Monitor,
-  ShieldCheck,
-  Copy,
-  Check,
+  Sparkles,
   RotateCcw,
+  GripVertical,
+  Pencil,
+  ChevronDown,
+  ChevronUp,
+  Replace,
+  Clock,
+  FileWarning,
+  ShieldCheck,
 } from 'lucide-react';
-import { usePlayer } from '../../context/PlayerContext';
 import {
-  validateAmbientVideo,
+  type BackgroundRow,
+  type VideoRendition,
+  type StorageStats,
   extractVideoPoster,
+  probeVideoForOneStepUpload,
+  verifyLiveOnPhones,
   uploadToSupabaseStorage,
-  fetchActiveBackgrounds,
-  verifyVideoPlayable,
-  verifyImageLoadable,
-  testSupabaseConnection,
-  subscribeToBackgrounds,
-  probeSourceVideoMetadata,
+  uploadResumableToSupabase,
   fetchStorageStats,
   deleteSupabaseStorageObjects,
-  uploadResumableToSupabase,
-  type BackgroundRow,
-  type SupabaseDiagnosticResult,
-  type StorageStats,
-  type VideoMetadata,
-  type VideoRendition,
-  type UploadController,
+  subscribeToBackgrounds,
+  notifyBackgroundsChanged,
 } from '../../lib/supabase';
+import { transcodeInBrowser } from '../../lib/browserVideoTranscoder';
 import {
-  transcodeInBrowser,
-  isMobileDevice,
-  type TranscodeProgress,
-} from '../../lib/browserVideoTranscoder';
-import { formatBytes } from '../../lib/recitations';
-import { appApi } from '../../lib/api';
-
-type Toast = (message: string, type?: 'success' | 'error') => void;
-type AskConfirm = (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
-
-interface Props {
-  showToast: Toast;
-  askConfirm: AskConfirm;
-  ambientSettings: Record<string, string>;
-  setAmbientSettings: (mapping: Record<string, string>) => void;
-  onSaveAmbient: () => void;
-  savingAmbient: boolean;
-}
+  inferCategoryFromFilename,
+  matchCandidateMetadata,
+} from '../../lib/ambientCandidates';
+import { usePlayer } from '../../context/PlayerContext';
 
 const CATEGORIES = [
-  { id: 'all', label: 'All', icon: Layers },
-  { id: 'fireplace', label: 'Fireplace', icon: Flame },
-  { id: 'rain', label: 'Rain', icon: CloudRain },
-  { id: 'ocean', label: 'Ocean', icon: Waves },
-  { id: 'forest', label: 'Forest', icon: Trees },
-  { id: 'cosmos', label: 'Cosmos', icon: Compass },
-  { id: 'night', label: 'Night', icon: Moon },
+  'river',
+  'wind',
+  'fire',
+  'rain',
+  'ocean waves',
+  'waterfall',
+  'forest mist',
+  'mountains',
+  'night sky/stars',
+  'desert dunes at dusk',
+  'snow',
+  'clouds',
+  'nature',
 ];
 
-interface UploadQueueItem {
-  id: string;
-  name: string;
-  category: string;
-  status: 'transcoding' | 'uploading' | 'verifying' | 'paused' | 'done' | 'error';
-  progress: number;
-  stageLabel?: string;
-  etaSeconds?: number;
-  warning?: string;
-  error?: string;
-  isDraft?: boolean;
-  controller?: UploadController | null;
-  transcoderCancel?: (() => void) | null;
-}
+export type UploadStep =
+  | 'checking'
+  | 'optimizing'
+  | 'uploading'
+  | 'saving'
+  | 'live'
+  | 'failed';
 
-interface PreProcessModalState {
+export interface UploadQueueItem {
+  queueId: string;
   file: File;
-  meta: VideoMetadata;
+  replaceTargetId?: string;
   title: string;
   category: string;
-  isPremium: boolean;
-  trimStart: number;
-  trimDuration: number;
-  useTrim: boolean;
-  bitrateMode: 'standard' | 'economy';
-  mode: 'choice' | 'local_script' | 'transcoding';
-  loopCrossfade: boolean;
+  saveAsDraft: boolean;
+  pathType: 'fast' | 'optimize';
+  optimizeReason?: string;
+  step: UploadStep;
+  progressPct: number;
+  statusDetail: string;
+  errorReason?: string;
+  startedAt: number;
+  finishedAt?: number;
+  finalSizeBytes?: number;
+  backgroundId?: string;
+  // Auto-matched or optional licence metadata
+  sourceUrl?: string;
+  creator?: string;
+  licenseName?: string;
+  licenseUrl?: string;
+  dateChecked?: string;
+  attributionRequired?: boolean;
 }
 
-export function BackgroundsAdmin({
-  showToast,
-  askConfirm,
-}: Props) {
-  const {
-    activeBackgroundVideoId,
-    setActiveBackgroundVideoId,
-    refreshGlobalCatalog,
-  } = usePlayer();
+export interface UploadAttemptLog {
+  id: string;
+  fileName: string;
+  fileSizeBytes: number;
+  pathType: 'fast' | 'optimize';
+  status: 'live' | 'draft' | 'failed';
+  reason: string;
+  timestamp: string;
+  durationMs: number;
+}
 
-  // Cloud Backgrounds from Supabase / Postgres
-  const [cloudBackgrounds, setCloudBackgrounds] = useState<BackgroundRow[]>([]);
-  const [loadingCloud, setLoadingCloud] = useState(false);
-  const [activeCategory, setActiveCategory] = useState('all');
+const ATTEMPT_LOG_STORAGE_KEY = 'noor_admin_upload_attempts_v2';
 
-  // Storage usage stats
+function loadAttemptLogs(): UploadAttemptLog[] {
+  try {
+    const raw = localStorage.getItem(ATTEMPT_LOG_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 20) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAttemptLogs(logs: UploadAttemptLog[]): void {
+  try {
+    localStorage.setItem(ATTEMPT_LOG_STORAGE_KEY, JSON.stringify(logs.slice(0, 20)));
+  } catch {}
+}
+
+function cleanTitleFromFilename(filename: string): string {
+  return (
+    filename
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\d{5,}\b/g, '')
+      .replace(/\b(1080p|720p|480p|4k|uhd|hd|vertical|portrait|landscape)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (l) => l.toUpperCase()) || 'Ambient Scene'
+  );
+}
+
+function formatBytesHuman(bytes: number | null | undefined): string {
+  if (!bytes || bytes <= 0) return '0 MB';
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${mb.toFixed(1)} MB`;
+}
+
+const STEP_ORDER: Array<{ key: UploadStep; label: string }> = [
+  { key: 'checking', label: 'Checking' },
+  { key: 'optimizing', label: 'Optimizing' },
+  { key: 'uploading', label: 'Uploading' },
+  { key: 'saving', label: 'Saving' },
+  { key: 'live', label: 'Live on phones ✓' },
+];
+
+export function BackgroundsAdmin() {
+  const { refreshGlobalCatalog } = usePlayer();
+
+  const [backgrounds, setBackgrounds] = useState<BackgroundRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
 
-  // Single / Batch upload queue state
+  // Default upload preferences (optional controls before or during drop)
+  const [defaultCategory, setDefaultCategory] = useState<string>('auto');
+  const [saveAsDraftDefault, setSaveAsDraftDefault] = useState<boolean>(false);
+
+  // Active & Recent Upload Queue (keeps File references so Retry never requires re-selecting)
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
-  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [attemptLogs, setAttemptLogs] = useState<UploadAttemptLog[]>(() => loadAttemptLogs());
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  // Pre-processing analyzer modal
-  const [preProcessModal, setPreProcessModal] = useState<PreProcessModalState | null>(null);
-  const [loopPreviewPlaying, setLoopPreviewPlaying] = useState(false);
-  const [copiedScriptCommand, setCopiedScriptCommand] = useState(false);
+  // Drag reorder state
+  const [draggedBgId, setDraggedBgId] = useState<string | null>(null);
 
-  // Preview & Loop verification modal
-  const [previewBg, setPreviewBg] = useState<BackgroundRow | null>(null);
-  const [loopCheckStatus, setLoopCheckStatus] = useState<'idle' | 'checking' | 'smooth' | 'jitter'>('idle');
+  // Inline rename & details drawer state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState<string>('');
+  const [openDetailsId, setOpenDetailsId] = useState<string | null>(null);
 
-  // Edit metadata modal
-  const [editingBg, setEditingBg] = useState<BackgroundRow | null>(null);
+  // Replace file input ref
+  const addVideoInputRef = useRef<HTMLInputElement>(null);
+  const replaceVideoInputRef = useRef<HTMLInputElement>(null);
   const [replaceTargetBg, setReplaceTargetBg] = useState<BackgroundRow | null>(null);
 
-  // Diagnostics modal
-  const [diagResult, setDiagResult] = useState<SupabaseDiagnosticResult | null>(null);
-  const [testingConn, setTestingConn] = useState(false);
+  const recordAttemptLog = (entry: Omit<UploadAttemptLog, 'id' | 'timestamp'>) => {
+    const newEntry: UploadAttemptLog = {
+      ...entry,
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString(),
+    };
+    setAttemptLogs((prev) => {
+      const next = [newEntry, ...prev].slice(0, 20);
+      saveAttemptLogs(next);
+      return next;
+    });
+  };
 
-  // Single upload form fields
-  const [bgNameEn, setBgNameEn] = useState('');
-  const [bgNameAr, setBgNameAr] = useState('');
-  const [bgCategory, setBgCategory] = useState('fireplace');
-  const [bgIsPremium, setBgIsPremium] = useState(false);
-  const [bgSortOrder, setBgSortOrder] = useState(0);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const preProcessedInputRef = useRef<HTMLInputElement>(null);
-  const loopPreviewVideoRef = useRef<HTMLVideoElement>(null);
-
-  // 1. Load catalog & storage stats
-  const loadCloudCatalog = async () => {
-    setLoadingCloud(true);
+  const loadAllBackgrounds = async () => {
+    setLoading(true);
     try {
-      // Backgrounds catalog
-      const res = await fetch('/api/admin/supabase-backgrounds');
+      const [res, stats] = await Promise.all([
+        fetch(`/api/admin/supabase-backgrounds?_t=${Date.now()}`, { cache: 'no-store' }),
+        fetchStorageStats().catch(() => null),
+      ]);
+      if (stats) setStorageStats(stats);
+
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data?.backgrounds)) {
-          setCloudBackgrounds(data.backgrounds);
-        } else {
-          const fallback = await fetchActiveBackgrounds(true);
-          setCloudBackgrounds(fallback);
+          setBackgrounds(data.backgrounds);
         }
-      } else {
-        const fallback = await fetchActiveBackgrounds(true);
-        setCloudBackgrounds(fallback);
       }
-
-      // Storage quota stats
-      const stats = await fetchStorageStats();
-      setStorageStats(stats);
-    } catch (err: any) {
-      console.warn('Could not fetch cloud backgrounds:', err);
+    } catch (e) {
+      console.warn('Admin backgrounds load error:', e);
     } finally {
-      setLoadingCloud(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadCloudCatalog();
-    const unsubscribe = subscribeToBackgrounds((updated) => {
-      setCloudBackgrounds(updated);
-      fetchStorageStats().then(setStorageStats).catch(() => {});
+    void loadAllBackgrounds();
+    const unsub = subscribeToBackgrounds(() => {
+      void loadAllBackgrounds();
     });
-    return () => {
-      unsubscribe();
-    };
+    return () => unsub();
   }, []);
 
-  // 2. Test Supabase connection
-  const handleTestConnection = async () => {
-    setTestingConn(true);
-    try {
-      const result = await testSupabaseConnection();
-      setDiagResult(result);
-      if (result.tableReachable && result.bucketReachable) {
-        showToast('Supabase connection verified: Table and Storage bucket active!', 'success');
-      } else if (!result.urlConfigured || !result.anonKeyConfigured) {
-        showToast('Supabase environment variables missing on host.', 'error');
-      } else {
-        showToast(`Diagnostics: ${result.errorMessage || 'Check bucket and table setup.'}`, 'error');
-      }
-    } catch (e: any) {
-      showToast(`Diagnostic check failed: ${e?.message || 'Network error'}`, 'error');
-    } finally {
-      setTestingConn(false);
-    }
+  const updateQueueItem = (queueId: string, patch: Partial<UploadQueueItem>) => {
+    setUploadQueue((prev) =>
+      prev.map((item) => (item.queueId === queueId ? { ...item, ...patch } : item))
+    );
   };
 
-  // 3. File Selection & Pre-processing Probing
-  const handleSourceFileSelected = async (files: FileList | File[]) => {
-    const fileList = Array.from(files);
-    if (fileList.length === 0) return;
+  /**
+   * Executes the full 1-step upload pipeline for a single queued file:
+   * Step 1: Checking (probes resolution, size, codec, audio track)
+   * Step 2: Optimizing (runs automatically if >45MB, >720p, has audio, or non-MP4; skipped on Fast Path)
+   * Step 3: Uploading (uploads video renditions + poster to storage with retry)
+   * Step 4: Saving (inserts/updates database row, is_active = true by default)
+   * Step 5: Verifying & Live on phones ✓ (anonymous client confirms item is in public list and video/poster URLs load)
+   */
+  const runOneStepUpload = async (item: UploadQueueItem) => {
+    const startMs = Date.now();
+    const { queueId, file } = item;
 
-    // Check if user selected pre-processed files from the local script
-    const manifestFile = fileList.find((f) => f.name.toLowerCase() === 'manifest.json');
-    const p720 = fileList.find((f) => f.name.toLowerCase().includes('720p'));
-    const p480 = fileList.find((f) => f.name.toLowerCase().includes('480p'));
-    const poster = fileList.find((f) => f.name.toLowerCase().includes('poster'));
-
-    if (p720 && p480) {
-      // User dropped pre-processed local files
-      await handlePreProcessedFilesUpload({
-        file720p: p720,
-        file480p: p480,
-        posterFile: poster,
-        manifestFile,
-      });
-      return;
-    }
-
-    // Otherwise, fast direct upload directly from gallery/device
-    const file = fileList[0];
-    showToast(`Uploading "${file.name}" (${formatBytes(file.size)})...`, 'success');
-
-    try {
-      const rawTitle = bgNameEn.trim() || file.name.replace(/\.[^/.]+$/, '').trim();
-      let autoCategory = bgCategory;
-      const lower = rawTitle.toLowerCase();
-      if (lower.includes('fire') || lower.includes('flame')) autoCategory = 'fireplace';
-      else if (lower.includes('rain') || lower.includes('waterfall')) autoCategory = 'rain';
-      else if (lower.includes('ocean') || lower.includes('sea') || lower.includes('wave')) autoCategory = 'ocean';
-      else if (lower.includes('forest') || lower.includes('tree') || lower.includes('nature')) autoCategory = 'forest';
-      else if (lower.includes('star') || lower.includes('space') || lower.includes('cosmos')) autoCategory = 'cosmos';
-      else if (lower.includes('night') || lower.includes('moon')) autoCategory = 'night';
-
-      // Upload immediately! Simple, fast, and direct
-      await handleFastDirectUpload(file, {
-        title: rawTitle,
-        category: autoCategory,
-        isPremium: bgIsPremium,
-      });
-    } catch (err: any) {
-      showToast(err?.message || 'Failed to upload video.', 'error');
-    }
-  };
-
-  // 4. Handle Pre-Processed Local Files Import
-  const handlePreProcessedFilesUpload = async ({
-    file720p,
-    file480p,
-    posterFile,
-    manifestFile,
-  }: {
-    file720p: File;
-    file480p: File;
-    posterFile?: File;
-    manifestFile?: File;
-  }) => {
-    let title = bgNameEn || file720p.name.replace(/\.[^/.]+$/, '').replace(/_720p/i, '').trim();
-    let category = bgCategory;
-    let durationSeconds = 30;
-
-    if (manifestFile) {
-      try {
-        const text = await manifestFile.text();
-        const parsed = JSON.parse(text);
-        if (parsed.name) title = parsed.name;
-        if (parsed.category) category = parsed.category;
-        if (parsed.durationSeconds) durationSeconds = parsed.durationSeconds;
-      } catch {}
-    }
-
-    await startResumableUpload({
-      name: title,
-      category,
-      blob720p: file720p,
-      blob480p: file480p,
-      posterBlob: posterFile || null,
-      durationSeconds,
-      isPremium: bgIsPremium,
+    updateQueueItem(queueId, {
+      step: 'checking',
+      progressPct: 5,
+      statusDetail: 'Checking resolution, format, audio track, and file size...',
+      errorReason: undefined,
+      startedAt: startMs,
     });
-  };
 
-  // 4b. Fast Direct Upload (Instant — No waiting, no 30-min canvas freeze)
-  const handleFastDirectUpload = async (
-    file: File,
-    customOptions?: { title?: string; category?: string; isPremium?: boolean }
-  ) => {
-    const rawTitle = customOptions?.title || file.name.replace(/\.[^/.]+$/, '').trim();
-    const category = customOptions?.category || bgCategory;
-    const isPremium = customOptions?.isPremium !== undefined ? customOptions.isPremium : bgIsPremium;
-
-    const safeBase = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24) || 'ambient';
-    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-    const newItem: UploadQueueItem = {
-      id: queueId,
-      name: rawTitle,
-      category,
-      status: 'uploading',
-      progress: 15,
-      stageLabel: 'Extracting poster & starting fast upload...',
-    };
-
-    setUploadQueue((prev) => [newItem, ...prev]);
-    setPreProcessModal(null);
-    setIsProcessingQueue(true);
+    let chosenPath: 'fast' | 'optimize' = 'fast';
 
     try {
-      // 1. Fast poster extraction
-      let posterBlob: Blob | null = null;
-      try {
+      // 1. CHECKING
+      const probe = await probeVideoForOneStepUpload(file);
+      if (!probe.valid) {
+        throw new Error(probe.error || 'Unsupported file format. Please select an MP4, MOV, or WebM video.');
+      }
+
+      chosenPath = probe.meetsFastPath ? 'fast' : 'optimize';
+      updateQueueItem(queueId, {
+        pathType: chosenPath,
+        optimizeReason: probe.reasonForOptimize,
+      });
+
+      const ts = Date.now();
+      const safeSlug =
+        item.title
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, '_')
+          .replace(/_+/g, '_')
+          .slice(0, 36) || 'scene';
+
+      let blob720p: Blob = file;
+      let blob480p: Blob | null = null;
+      let posterBlob: Blob;
+      let durationSeconds = Math.round(probe.duration || 20);
+
+      // 2. FAST PATH vs OPTIMIZE PATH
+      if (chosenPath === 'fast') {
+        updateQueueItem(queueId, {
+          step: 'checking',
+          progressPct: 18,
+          statusDetail: 'Meets Fast Path standard (MP4, ≤720p, no audio, <45 MB). Extracting poster...',
+        });
         posterBlob = await extractVideoPoster(file);
-      } catch (pErr) {
-        console.warn('Poster extraction fallback:', pErr);
+      } else {
+        updateQueueItem(queueId, {
+          step: 'optimizing',
+          progressPct: 15,
+          statusDetail: `Optimizing (${probe.reasonForOptimize || 'converting to 720p & 480p muted MP4'})...`,
+        });
+
+        const controller = transcodeInBrowser(file, {
+          bitrateMode: file.size > 80 * 1024 * 1024 ? 'economy' : 'standard',
+          onProgress: (p) => {
+            const mappedPct = Math.min(55, Math.max(15, Math.round(15 + (p.percentage / 100) * 40)));
+            updateQueueItem(queueId, {
+              step: 'optimizing',
+              progressPct: mappedPct,
+              statusDetail: `${p.stageLabel} (${p.percentage}%)`,
+            });
+          },
+        });
+
+        const result = await controller.promise;
+        blob720p = result.blob720p;
+        blob480p = result.blob480p;
+        posterBlob = result.posterBlob;
+        durationSeconds = Math.round(result.durationSeconds || durationSeconds);
       }
 
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, progress: 30, stageLabel: 'Uploading video directly to cloud...' }
-            : it
-        )
-      );
+      // 3. UPLOADING TO STORAGE (Resumable for large files, automatic retry)
+      updateQueueItem(queueId, {
+        step: 'uploading',
+        progressPct: 58,
+        statusDetail: 'Uploading poster and video renditions to cloud storage...',
+      });
 
-      // 2. Upload video file to Supabase Storage
-      const videoFilename = `bg_${safeBase}_${uniqueSuffix}.mp4`;
-      const uploadedVideoUrl = await uploadToSupabaseStorage(
-        file,
-        `videos/${videoFilename}`,
-        file.type || 'video/mp4'
-      );
+      const posterPath = `posters/${ts}_${safeSlug}_poster.jpg`;
+      const path720p = `videos/${ts}_${safeSlug}_720p.mp4`;
+      const storagePaths: string[] = [posterPath, path720p];
 
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId ? { ...it, progress: 75, stageLabel: 'Uploading poster thumbnail...' } : it
-        )
-      );
+      let posterUrl: string;
+      let url720p: string;
+      let url480p: string | null = null;
 
-      // 3. Upload poster if available
-      let uploadedPosterUrl: string | null = null;
-      if (posterBlob) {
+      try {
+        posterUrl = await uploadToSupabaseStorage(posterBlob, posterPath, 'image/jpeg');
+      } catch (pErr: any) {
+        throw new Error(`Uploading poster failed: ${pErr?.message || 'Storage error'}`);
+      }
+
+      updateQueueItem(queueId, {
+        step: 'uploading',
+        progressPct: 68,
+        statusDetail: 'Uploading 720p video stream...',
+      });
+
+      try {
+        const up720 = uploadResumableToSupabase({
+          path: path720p,
+          fileOrBlob: blob720p,
+          contentType: blob720p.type || 'video/mp4',
+          onProgress: (_loaded, _total, pct) => {
+            const overall = Math.min(82, Math.round(68 + (pct / 100) * 14));
+            updateQueueItem(queueId, {
+              step: 'uploading',
+              progressPct: overall,
+              statusDetail: `Uploading 720p video (${pct}%)...`,
+            });
+          },
+        });
+        url720p = await up720.promise;
+      } catch (u720Err: any) {
+        throw new Error(`Uploading video to storage failed: ${u720Err?.message || 'Network or permission error'}`);
+      }
+
+      if (blob480p && blob480p !== blob720p) {
+        const path480p = `videos/${ts}_${safeSlug}_480p.mp4`;
+        storagePaths.push(path480p);
+        updateQueueItem(queueId, {
+          step: 'uploading',
+          progressPct: 84,
+          statusDetail: 'Uploading 480p mobile rendition...',
+        });
         try {
-          const posterFilename = `poster_${safeBase}_${uniqueSuffix}.jpg`;
-          uploadedPosterUrl = await uploadToSupabaseStorage(
-            posterBlob,
-            `posters/${posterFilename}`,
-            'image/jpeg'
-          );
-        } catch (e) {
-          console.warn('Poster upload fallback:', e);
+          const up480 = uploadResumableToSupabase({
+            path: path480p,
+            fileOrBlob: blob480p,
+            contentType: blob480p.type || 'video/mp4',
+          });
+          url480p = await up480.promise;
+        } catch {
+          url480p = url720p;
         }
+      } else {
+        url480p = url720p;
       }
 
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId ? { ...it, progress: 90, stageLabel: 'Saving background to catalog...' } : it
-        )
-      );
-
-      // 4. Save to database / catalog
-      const saveRes = await appApi<{ ok: boolean; background?: BackgroundRow }>('/admin/supabase-backgrounds', {
-        method: 'POST',
-        body: {
-          action: 'add',
-          name_en: rawTitle,
-          category,
-          video_url: uploadedVideoUrl,
-          video_url_720p: uploadedVideoUrl,
-          poster_url: uploadedPosterUrl,
-          size_bytes: file.size,
-          duration_seconds: 30,
-          is_active: true,
-          is_draft: false,
-          is_premium: isPremium,
-          storage_paths: [
-            `videos/${videoFilename}`,
-            uploadedPosterUrl ? `posters/poster_${safeBase}_${uniqueSuffix}.jpg` : '',
-          ].filter(Boolean),
-        },
-      });
-
-      if (!saveRes.ok) {
-        throw new Error('Failed to register background in database.');
-      }
-
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'done', progress: 100, stageLabel: 'Ready & Live on all devices!' }
-            : it
-        )
-      );
-
-      showToast(`Background "${rawTitle}" uploaded successfully and live!`, 'success');
-      await loadCloudCatalog();
-    } catch (err: any) {
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed.' }
-            : it
-        )
-      );
-      showToast(err?.message || 'Upload failed. Check connection.', 'error');
-    } finally {
-      setIsProcessingQueue(false);
-    }
-  };
-
-  // 5. In-Browser Transcoder Execution
-  const startInBrowserTranscode = async () => {
-    if (!preProcessModal) return;
-    const { file, title, category, isPremium, trimStart, trimDuration, useTrim, bitrateMode } = preProcessModal;
-
-    if (isMobileDevice()) {
-      showToast('In-browser transcoding is disabled on mobile devices. Use local script or desktop.', 'error');
-      return;
-    }
-
-    const queueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const newQueueItem: UploadQueueItem = {
-      id: queueId,
-      name: title,
-      category,
-      status: 'transcoding',
-      progress: 5,
-      stageLabel: 'Starting in-browser transcoder...',
-    };
-
-    setUploadQueue((prev) => [newQueueItem, ...prev]);
-    setPreProcessModal(null);
-    setIsProcessingQueue(true);
-
-    let transcoderCtrl: ReturnType<typeof transcodeInBrowser> | null = null;
-
-    try {
-      transcoderCtrl = transcodeInBrowser(file, {
-        trimStart: useTrim ? trimStart : 0,
-        trimDuration: useTrim ? trimDuration : undefined,
-        bitrateMode,
-        onProgress: (p: TranscodeProgress) => {
-          setUploadQueue((prev) =>
-            prev.map((it) =>
-              it.id === queueId
-                ? {
-                    ...it,
-                    progress: p.percentage,
-                    stageLabel: p.stageLabel,
-                    etaSeconds: p.etaSeconds,
-                  }
-                : it
-            )
-          );
-        },
-      });
-
-      // Attach cancel callback
-      setUploadQueue((prev) =>
-        prev.map((it) => (it.id === queueId ? { ...it, transcoderCancel: transcoderCtrl?.cancel } : it))
-      );
-
-      const result = await transcoderCtrl.promise;
-
-      // Transcoding finished! Immediately feed into Direct Resumable Upload
-      await startResumableUpload(
-        {
-          name: title,
-          category,
-          blob720p: result.blob720p,
-          blob480p: result.blob480p,
-          posterBlob: result.posterBlob,
-          durationSeconds: result.durationSeconds,
-          isPremium,
-        },
-        queueId
-      );
-    } catch (err: any) {
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'error', progress: 100, error: err?.message || 'Transcoding cancelled.' }
-            : it
-        )
-      );
-      showToast(err?.message || 'Transcoding failed.', 'error');
-    } finally {
-      setIsProcessingQueue(false);
-    }
-  };
-
-  // 6. Direct Browser Resumable Upload (TUS)
-  const startResumableUpload = async (
-    payload: {
-      name: string;
-      category: string;
-      blob720p: Blob;
-      blob480p: Blob;
-      posterBlob: Blob | null;
-      durationSeconds: number;
-      isPremium: boolean;
-      replaceTargetId?: string;
-    },
-    existingQueueId?: string
-  ) => {
-    const rawBase = payload.name.trim();
-    const safeBase = rawBase.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24) || 'ambient';
-    const queueId = existingQueueId || `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-    if (!existingQueueId) {
-      const newItem: UploadQueueItem = {
-        id: queueId,
-        name: rawBase,
-        category: payload.category,
-        status: 'uploading',
-        progress: 10,
-        stageLabel: 'Starting direct TUS resumable upload...',
-      };
-      setUploadQueue((prev) => [newItem, ...prev]);
-    } else {
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'uploading', progress: 10, stageLabel: 'Uploading renditions...' }
-            : it
-        )
-      );
-    }
-
-    try {
-      const storagePaths: string[] = [];
-
-      // File paths in storage
-      const path720p = `videos/bg_${safeBase}_720p_${uniqueSuffix}.mp4`;
-      const path480p = `videos/bg_${safeBase}_480p_${uniqueSuffix}.mp4`;
-      const pathPoster = `posters/poster_${safeBase}_${uniqueSuffix}.jpg`;
-
-      storagePaths.push(path720p, path480p);
-
-      // Upload 720p via TUS
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, stageLabel: 'Uploading 720p desktop rendition (TUS)...', progress: 20 }
-            : it
-        )
-      );
-
-      const ctrl720p = uploadResumableToSupabase({
-        path: path720p,
-        fileOrBlob: payload.blob720p,
-        contentType: 'video/mp4',
-        cacheControl: 'max-age=31536000',
-        onProgress: (_up, _tot, pct) => {
-          setUploadQueue((prev) =>
-            prev.map((it) =>
-              it.id === queueId ? { ...it, progress: Math.round(20 + pct * 0.35) } : it
-            )
-          );
-        },
-      });
-
-      setUploadQueue((prev) =>
-        prev.map((it) => (it.id === queueId ? { ...it, controller: ctrl720p } : it))
-      );
-      const url720p = await ctrl720p.promise;
-
-      // Upload 480p via TUS
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, stageLabel: 'Uploading 480p mobile rendition (TUS)...', progress: 60 }
-            : it
-        )
-      );
-
-      const ctrl480p = uploadResumableToSupabase({
-        path: path480p,
-        fileOrBlob: payload.blob480p,
-        contentType: 'video/mp4',
-        cacheControl: 'max-age=31536000',
-        onProgress: (_up, _tot, pct) => {
-          setUploadQueue((prev) =>
-            prev.map((it) =>
-              it.id === queueId ? { ...it, progress: Math.round(60 + pct * 0.25) } : it
-            )
-          );
-        },
-      });
-
-      setUploadQueue((prev) =>
-        prev.map((it) => (it.id === queueId ? { ...it, controller: ctrl480p } : it))
-      );
-      const url480p = await ctrl480p.promise;
-
-      // Upload Poster
-      let urlPoster: string | null = null;
-      if (payload.posterBlob) {
-        storagePaths.push(pathPoster);
-        setUploadQueue((prev) =>
-          prev.map((it) =>
-            it.id === queueId ? { ...it, stageLabel: 'Uploading poster thumbnail...', progress: 88 } : it
-          )
-        );
-        urlPoster = await uploadToSupabaseStorage(payload.posterBlob, pathPoster, 'image/jpeg');
-      }
-
-      // Playback Verification
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'verifying', stageLabel: 'Verifying public stream playback...', progress: 92 }
-            : it
-        )
-      );
-
-      const isPlayable720 = await verifyVideoPlayable(url720p);
-      const isPlayable480 = await verifyVideoPlayable(url480p);
-
-      if (!isPlayable720 && !isPlayable480) {
-        throw new Error('Video uploaded to storage, but browser verification timed out.');
-      }
-
-      if (urlPoster) {
-        await verifyImageLoadable(urlPoster).catch(() => {});
-      }
-
-      // Renditions JSON
       const renditions: VideoRendition[] = [
         {
           resolution: '720p',
           url: url720p,
-          size_bytes: payload.blob720p.size,
-          width: 1280,
-          height: 720,
-          bitrate_bps: 2200000,
+          size_bytes: blob720p.size,
+          width: probe.width || 1280,
+          height: probe.height || 720,
         },
         {
           resolution: '480p',
-          url: url480p,
-          size_bytes: payload.blob480p.size,
+          url: url480p || url720p,
+          size_bytes: blob480p ? blob480p.size : blob720p.size,
           width: 854,
           height: 480,
-          bitrate_bps: 1000000,
         },
       ];
 
-      const targetId = payload.replaceTargetId || `bg_${safeBase}_${uniqueSuffix}`;
+      const totalStoredBytes =
+        blob720p.size + (blob480p && blob480p !== blob720p ? blob480p.size : 0) + posterBlob.size;
 
-      // Insert or Update in backgrounds table
-      if (payload.replaceTargetId) {
-        await appApi('/admin/supabase-backgrounds', {
-          method: 'POST',
-          body: {
-            action: 'update',
-            id: targetId,
-            video_url: url720p,
-            video_url_720p: url720p,
-            video_url_480p: url480p,
-            poster_url: urlPoster,
-            size_bytes: payload.blob720p.size + payload.blob480p.size,
-            duration_seconds: payload.durationSeconds,
-            renditions,
-            storage_paths: storagePaths,
-          },
-        });
-        showToast(`Replaced video for "${rawBase}". Saved as Draft.`, 'success');
-      } else {
-        await appApi('/admin/supabase-backgrounds', {
-          method: 'POST',
-          body: {
-            action: 'add',
-            id: targetId,
-            name_en: rawBase,
-            name_ar: bgNameAr.trim() || null,
-            category: payload.category,
-            video_url: url720p,
-            video_url_720p: url720p,
-            video_url_480p: url480p,
-            poster_url: urlPoster,
-            size_bytes: payload.blob720p.size + payload.blob480p.size,
-            duration_seconds: payload.durationSeconds,
-            renditions,
-            storage_paths: storagePaths,
-            sort_order: bgSortOrder,
-            is_active: false, // STARTS AS DRAFT (Requirement 5)
-            is_draft: true,
-            is_premium: payload.isPremium,
-          },
-        });
-        showToast(`Saved "${rawBase}" as Draft. Preview loop and click Publish to go live!`, 'success');
-      }
-
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'done', stageLabel: 'Saved as Draft (Ready to Publish)', progress: 100, isDraft: true }
-            : it
-        )
-      );
-
-      await loadCloudCatalog();
-      await refreshGlobalCatalog();
-    } catch (err: any) {
-      setUploadQueue((prev) =>
-        prev.map((it) =>
-          it.id === queueId
-            ? { ...it, status: 'error', progress: 100, error: err?.message || 'Upload failed.' }
-            : it
-        )
-      );
-      showToast(err?.message || 'Upload failed.', 'error');
-    }
-  };
-
-  // 7. Publish Draft Background to All Devices (Requirement 5)
-  const handlePublishBackground = async (bg: BackgroundRow) => {
-    try {
-      showToast(`Verifying stream playability before publishing...`, 'success');
-
-      // Verify 720p or 480p url
-      const testUrl = bg.video_url_720p || bg.video_url;
-      const ok = await verifyVideoPlayable(testUrl);
-      if (!ok) {
-        showToast(`Cannot publish: Stream verification failed on ${testUrl}`, 'error');
-        return;
-      }
-
-      await appApi('/admin/supabase-backgrounds', {
-        method: 'POST',
-        body: {
-          action: 'update',
-          id: bg.id,
-          is_active: true,
-          is_draft: false,
-        },
+      // 4. SAVING TO DATABASE (Publish immediately by default: is_active = !saveAsDraft)
+      updateQueueItem(queueId, {
+        step: 'saving',
+        progressPct: 90,
+        statusDetail: 'Saving background record to database...',
       });
 
-      showToast(`Published "${bg.name_en}" live to all mobile phones and tablets!`, 'success');
-      await loadCloudCatalog();
-      await refreshGlobalCatalog();
-    } catch (err: any) {
-      showToast(err?.message || 'Publishing failed.', 'error');
-    }
-  };
+      const bgId = item.replaceTargetId || `bg_${ts}_${Math.random().toString(36).slice(2, 6)}`;
+      const isPublished = !item.saveAsDraft;
 
-  // 8. Delete Background & Associated Storage Objects (Requirement 5)
-  const handleDeleteBackground = (bg: BackgroundRow) => {
-    askConfirm(
-      'Delete Ambient Background',
-      `Are you sure you want to delete "${bg.name_en}"? It will be removed from Supabase and its video renditions deleted from storage.`,
-      async () => {
-        try {
-          const res = await appApi<{ deleted_storage_paths?: string[] }>('/admin/supabase-backgrounds', {
-            method: 'POST',
-            body: { action: 'delete', id: bg.id },
-          });
+      const saveRes = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: item.replaceTargetId ? 'update' : 'add',
+          id: bgId,
+          name_en: item.title,
+          category: item.category,
+          video_url: url720p,
+          video_url_720p: url720p,
+          video_url_480p: url480p || url720p,
+          poster_url: posterUrl,
+          size_bytes: totalStoredBytes,
+          duration_seconds: durationSeconds,
+          renditions,
+          storage_paths: storagePaths,
+          attribution: item.creator
+            ? `${item.creator}${item.licenseName ? ` (${item.licenseName})` : ''}`
+            : null,
+          source_url: item.sourceUrl || null,
+          creator: item.creator || null,
+          license_name: item.licenseName || null,
+          license_url: item.licenseUrl || null,
+          date_checked: item.dateChecked || null,
+          attribution_required: Boolean(item.attributionRequired),
+          sort_order: item.replaceTargetId
+            ? backgrounds.find((b) => b.id === item.replaceTargetId)?.sort_order ?? 0
+            : 0,
+          is_active: isPublished,
+          is_draft: item.saveAsDraft,
+          is_premium: false,
+        }),
+      });
 
-          // Also delete storage objects
-          const paths = bg.storage_paths || res.deleted_storage_paths || [];
-          if (Array.isArray(paths) && paths.length > 0) {
-            await deleteSupabaseStorageObjects(paths);
-          }
+      if (!saveRes.ok) {
+        const errBody = await saveRes.json().catch(() => ({}));
+        if (saveRes.status === 401 || saveRes.status === 403) {
+          throw new Error(
+            'Upload worked, but saving failed: Admin session expired or unauthorized. Please sign in again and click Retry.'
+          );
+        }
+        throw new Error(
+          errBody.error || `Upload worked, but saving to database failed (HTTP ${saveRes.status}).`
+        );
+      }
 
-          showToast(`Deleted "${bg.name_en}".`, 'success');
-          await loadCloudCatalog();
-          await refreshGlobalCatalog();
-        } catch (err: any) {
-          showToast(err?.message || 'Delete failed', 'error');
+      // 5. VERIFY BEFORE SAYING DONE (anonymous phone fetch + video & poster playability check)
+      if (isPublished) {
+        updateQueueItem(queueId, {
+          step: 'saving',
+          progressPct: 96,
+          statusDetail: 'Verifying anonymous phone list & testing video/poster URLs...',
+        });
+
+        const verification = await verifyLiveOnPhones(bgId);
+        if (!verification.live) {
+          throw new Error(
+            verification.errorReason ||
+              'Saved to database, but phone verification failed to load the new background.'
+          );
         }
       }
-    );
-  };
 
-  // 9. Loop Quality Checker
-  const checkLoopSmoothness = (video: HTMLVideoElement) => {
-    setLoopCheckStatus('checking');
-    let jumps = 0;
-    let lastTime = video.currentTime;
-
-    const interval = setInterval(() => {
-      const cur = video.currentTime;
-      // If time went backwards (looped)
-      if (cur < lastTime && lastTime > 1.0) {
-        jumps++;
-      }
-      lastTime = cur;
-    }, 150);
-
-    setTimeout(() => {
-      clearInterval(interval);
-      setLoopCheckStatus('smooth');
-    }, 3500);
-  };
-
-  // 10. Save metadata edit
-  const handleSaveEdit = async () => {
-    if (!editingBg) return;
-    try {
-      await appApi('/admin/supabase-backgrounds', {
-        method: 'POST',
-        body: {
-          action: 'update',
-          id: editingBg.id,
-          name_en: editingBg.name_en,
-          name_ar: editingBg.name_ar,
-          category: editingBg.category,
-          sort_order: editingBg.sort_order,
-          is_active: editingBg.is_active,
-          is_premium: editingBg.is_premium,
-        },
+      updateQueueItem(queueId, {
+        step: 'live',
+        progressPct: 100,
+        statusDetail: item.saveAsDraft ? 'Saved as draft ✓' : 'Live on phones ✓',
+        finishedAt: Date.now(),
+        finalSizeBytes: totalStoredBytes,
+        backgroundId: bgId,
       });
-      showToast('Background metadata updated.', 'success');
-      setEditingBg(null);
-      await loadCloudCatalog();
+
+      recordAttemptLog({
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        pathType: chosenPath,
+        status: item.saveAsDraft ? 'draft' : 'live',
+        reason: item.saveAsDraft
+          ? 'Saved as hidden draft'
+          : `Verified Live on phones (${chosenPath === 'fast' ? 'Fast Path direct' : 'Optimized 720p+480p'})`,
+        durationMs: Date.now() - startMs,
+      });
+
+      notifyBackgroundsChanged();
+      await loadAllBackgrounds();
       await refreshGlobalCatalog();
     } catch (err: any) {
-      showToast(err?.message || 'Save failed', 'error');
+      const reason = err?.message || 'Unexpected error during upload.';
+      updateQueueItem(queueId, {
+        step: 'failed',
+        statusDetail: reason,
+        errorReason: reason,
+        finishedAt: Date.now(),
+      });
+
+      recordAttemptLog({
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        pathType: chosenPath,
+        status: 'failed',
+        reason,
+        durationMs: Date.now() - startMs,
+      });
     }
   };
 
-  // Filtered backgrounds
-  const filteredBackgrounds = cloudBackgrounds.filter((b) => {
-    if (activeCategory === 'all') return true;
-    return b.category.toLowerCase() === activeCategory.toLowerCase();
-  });
+  /**
+   * Handles 1 or many dropped/selected video files immediately.
+   */
+  const enqueueAndStartFiles = (files: FileList | File[], replaceBg?: BackgroundRow | null) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+
+    const newItems: UploadQueueItem[] = list.map((file, idx) => {
+      const matchedCandidate = matchCandidateMetadata(file.name);
+      const guessedCategory =
+        defaultCategory !== 'auto'
+          ? defaultCategory
+          : replaceBg?.category || inferCategoryFromFilename(file.name);
+      const cleanName = replaceBg
+        ? replaceBg.name_en
+        : matchedCandidate?.title || cleanTitleFromFilename(file.name);
+
+      return {
+        queueId: `q_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+        file,
+        replaceTargetId: replaceBg?.id,
+        title: cleanName,
+        category: guessedCategory,
+        saveAsDraft: saveAsDraftDefault,
+        pathType: file.size > 45 * 1024 * 1024 ? 'optimize' : 'fast',
+        step: 'checking',
+        progressPct: 2,
+        statusDetail: 'Queued — starting check...',
+        startedAt: Date.now(),
+        sourceUrl: matchedCandidate?.pageLink,
+        creator: matchedCandidate?.creator,
+        licenseName: matchedCandidate?.licenseName,
+        licenseUrl: matchedCandidate?.licenseUrl,
+        dateChecked: matchedCandidate?.dateChecked,
+        attributionRequired: matchedCandidate?.attributionRequired,
+      };
+    });
+
+    setUploadQueue((prev) => [...newItems, ...prev]);
+
+    // Process each file automatically
+    for (const item of newItems) {
+      void runOneStepUpload(item);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      enqueueAndStartFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleRetryItem = (item: UploadQueueItem) => {
+    void runOneStepUpload(item);
+  };
+
+  const handleToggleHide = async (bg: BackgroundRow) => {
+    const nextActive = !bg.is_active;
+    try {
+      const res = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: bg.id,
+          is_active: nextActive,
+          is_draft: !nextActive,
+        }),
+      });
+      if (res.ok) {
+        notifyBackgroundsChanged();
+        await loadAllBackgrounds();
+        await refreshGlobalCatalog();
+      }
+    } catch (e) {
+      console.warn('Toggle hide error:', e);
+    }
+  };
+
+  const handleDelete = async (bg: BackgroundRow) => {
+    try {
+      if (Array.isArray(bg.storage_paths) && bg.storage_paths.length > 0) {
+        await deleteSupabaseStorageObjects(bg.storage_paths).catch(() => {});
+      }
+      const res = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: bg.id }),
+      });
+      if (res.ok) {
+        notifyBackgroundsChanged();
+        await loadAllBackgrounds();
+        await refreshGlobalCatalog();
+      }
+    } catch (e) {
+      console.warn('Delete background error:', e);
+    }
+  };
+
+  const handleSaveRename = async (bg: BackgroundRow) => {
+    const trimmed = editingName.trim();
+    setEditingId(null);
+    if (!trimmed || trimmed === bg.name_en) return;
+    try {
+      const res = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: bg.id,
+          name_en: trimmed,
+        }),
+      });
+      if (res.ok) {
+        notifyBackgroundsChanged();
+        await loadAllBackgrounds();
+        await refreshGlobalCatalog();
+      }
+    } catch {}
+  };
+
+  const handleCategoryChange = async (bg: BackgroundRow, newCategory: string) => {
+    try {
+      const res = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: bg.id,
+          category: newCategory,
+        }),
+      });
+      if (res.ok) {
+        notifyBackgroundsChanged();
+        await loadAllBackgrounds();
+        await refreshGlobalCatalog();
+      }
+    } catch {}
+  };
+
+  const handleSaveLicenceDetails = async (
+    bg: BackgroundRow,
+    details: {
+      creator: string;
+      source_url: string;
+      license_name: string;
+      license_url: string;
+      date_checked: string;
+      attribution_required: boolean;
+    }
+  ) => {
+    try {
+      const res = await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: bg.id,
+          ...details,
+          attribution: details.creator
+            ? `${details.creator}${details.license_name ? ` (${details.license_name})` : ''}`
+            : bg.attribution,
+        }),
+      });
+      if (res.ok) {
+        setOpenDetailsId(null);
+        notifyBackgroundsChanged();
+        await loadAllBackgrounds();
+        await refreshGlobalCatalog();
+      }
+    } catch {}
+  };
+
+  const persistNewOrder = async (ordered: BackgroundRow[]) => {
+    setBackgrounds(ordered);
+    try {
+      await fetch('/api/admin/supabase-backgrounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reorder',
+          order: ordered.map((b, idx) => ({ id: b.id, sort_order: idx })),
+        }),
+      });
+      notifyBackgroundsChanged();
+      await refreshGlobalCatalog();
+    } catch {}
+  };
+
+  const handleMoveOrder = (index: number, direction: -1 | 1) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= backgrounds.length) return;
+    const copy = [...backgrounds];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(targetIdx, 0, moved);
+    void persistNewOrder(copy);
+  };
+
+  const handleCardDropReorder = (targetId: string) => {
+    if (!draggedBgId || draggedBgId === targetId) return;
+    const fromIdx = backgrounds.findIndex((b) => b.id === draggedBgId);
+    const toIdx = backgrounds.findIndex((b) => b.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const copy = [...backgrounds];
+    const [moved] = copy.splice(fromIdx, 1);
+    copy.splice(toIdx, 0, moved);
+    setDraggedBgId(null);
+    void persistNewOrder(copy);
+  };
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto pb-16">
-      {/* HEADER & STORAGE QUOTA METER */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-emerald-900/30 pb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Video className="text-emerald-400" size={26} />
-            Ambient Video Studio & Storage Manager
-          </h2>
-          <p className="text-xs text-emerald-200/70 mt-1 max-w-2xl">
-            Accepts large master source videos (≥ 500 MB). Automatically encodes phone-ready 720p & 480p renditions,
-            never overwrites originals, and serves bandwidth-optimized streams to all devices.
-          </p>
-        </div>
+    <div className="space-y-6">
+      {/* Hidden file inputs for 1-step Add & Replace */}
+      <input
+        ref={addVideoInputRef}
+        type="file"
+        accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm,.m4v"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            enqueueAndStartFiles(e.target.files);
+            e.target.value = '';
+          }
+        }}
+      />
+      <input
+        ref={replaceVideoInputRef}
+        type="file"
+        accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm,.m4v"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0 && replaceTargetBg) {
+            enqueueAndStartFiles(e.target.files, replaceTargetBg);
+            setReplaceTargetBg(null);
+            e.target.value = '';
+          }
+        }}
+      />
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testingConn}
-            className="px-4 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
-          >
-            <Sparkles size={14} className={testingConn ? 'animate-spin' : ''} />
-            <span>{testingConn ? 'Testing...' : 'Test Connection'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={loadCloudCatalog}
-            disabled={loadingCloud}
-            className="px-4 py-2 rounded-xl bg-emerald-900/30 border border-emerald-700/40 text-xs font-semibold text-emerald-200 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
-          >
-            <RefreshCw size={14} className={loadingCloud ? 'animate-spin' : ''} />
-            <span>Refresh</span>
-          </button>
-        </div>
-      </div>
-
-      {/* STORAGE USAGE METER (Requirement 1 & 4) */}
-      {storageStats && (
-        <div className={`p-4 rounded-3xl border transition-all ${
-          storageStats.usage_percent > 80
-            ? 'bg-amber-950/30 border-amber-500/60 shadow-lg'
-            : 'bg-[#0A1A14]/70 border-emerald-900/40'
-        }`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 text-xs">
-            <div className="flex items-center gap-2 text-white font-bold">
-              <HardDrive size={16} className={storageStats.usage_percent > 80 ? 'text-amber-400' : 'text-emerald-400'} />
-              <span>Supabase Free Tier Quota: {formatBytes(storageStats.total_bytes)} / 1,024 MB ({storageStats.usage_percent}%)</span>
+      {/* ONE-STEP DROPZONE HEADER */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDrop}
+        className={`relative rounded-2xl border-2 border-dashed p-7 transition-all ${
+          isDraggingOver
+            ? 'border-emerald-400 bg-emerald-500/15 shadow-lg shadow-emerald-500/10'
+            : 'border-emerald-500/35 bg-[#071A14]/90 hover:border-emerald-400/60'
+        }`}
+      >
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 shrink-0">
+              <Upload className="w-6 h-6" />
             </div>
-            <div className="flex items-center gap-4 text-[11px] text-emerald-300/80">
-              <span>Max Upload: <strong>50 MB</strong></span>
-              <span>Bandwidth Quota: <strong>5 GB Egress / mo</strong></span>
-              <span>Items: <strong>{storageStats.count}</strong></span>
-            </div>
-          </div>
-
-          <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${
-                storageStats.usage_percent > 80
-                  ? 'bg-amber-500'
-                  : storageStats.usage_percent > 50
-                  ? 'bg-teal-400'
-                  : 'bg-emerald-500'
-              }`}
-              style={{ width: `${Math.min(100, storageStats.usage_percent)}%` }}
-            />
-          </div>
-
-          {storageStats.usage_percent > 80 && (
-            <div className="mt-3 p-2.5 rounded-xl bg-amber-950/50 border border-amber-500/40 text-amber-200 text-xs flex items-center gap-2">
-              <AlertTriangle size={16} className="text-amber-400 shrink-0" />
-              <span>
-                <strong>Warning:</strong> Storage usage is at {storageStats.usage_percent}%. Delete unused drafts or older renditions to avoid exceeding your 1 GB quota.
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* SIMPLE & INSTANT UPLOADER CARD */}
-      <div className="bg-[#0A1A14]/80 border border-emerald-900/60 rounded-3xl p-6 lg:p-8 space-y-5 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-900/40 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-              <Upload size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white">Upload Background Video</h3>
-              <p className="text-xs text-emerald-300/70">
-                Choose an ambient video clip from your gallery or files. Uploads directly to Supabase Storage.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Form Inputs */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-          <div className="sm:col-span-5">
-            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
-              Title / Name (Optional)
-            </label>
-            <input
-              type="text"
-              value={bgNameEn}
-              onChange={(e) => setBgNameEn(e.target.value)}
-              placeholder="e.g. Mountain River Stream"
-              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-emerald-900 focus:outline-none focus:border-emerald-400"
-            />
-          </div>
-
-          <div className="sm:col-span-4">
-            <label className="block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider mb-1">
-              Category
-            </label>
-            <select
-              value={bgCategory}
-              onChange={(e) => setBgCategory(e.target.value)}
-              className="w-full bg-[#050D0A] border border-emerald-900/80 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400"
-            >
-              <option value="fireplace">Fireplace</option>
-              <option value="rain">Rain & Storm</option>
-              <option value="ocean">Ocean & Waves</option>
-              <option value="forest">Forest & Nature</option>
-              <option value="cosmos">Cosmos & Stars</option>
-              <option value="night">Night & Moon</option>
-              <option value="general">General</option>
-            </select>
-          </div>
-
-          <div className="sm:col-span-3 flex items-end">
-            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050D0A] border border-emerald-900/80 w-full cursor-pointer hover:border-emerald-500/50">
-              <input
-                type="checkbox"
-                checked={bgIsPremium}
-                onChange={(e) => setBgIsPremium(e.target.checked)}
-                className="rounded accent-emerald-500"
-              />
-              <span className="text-xs text-emerald-200 font-medium">Premium Only</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Drag & Drop Zone + Big Upload Button */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            if (e.dataTransfer.files) handleSourceFileSelected(e.dataTransfer.files);
-          }}
-          className={`border-2 border-dashed rounded-2xl p-6 transition-all text-center ${
-            isDragging
-              ? 'border-emerald-400 bg-emerald-950/40 scale-[1.005]'
-              : 'border-emerald-900/50 bg-[#06140F]/60 hover:border-emerald-700/60'
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*,.mp4,.mov,.webm,.mkv"
-            onChange={(e) => {
-              if (e.target.files) handleSourceFileSelected(e.target.files);
-            }}
-            className="hidden"
-          />
-
-          <input
-            ref={preProcessedInputRef}
-            type="file"
-            multiple
-            accept="video/mp4,image/jpeg,application/json,.mp4,.jpg,.json"
-            onChange={(e) => {
-              if (e.target.files) handleSourceFileSelected(e.target.files);
-            }}
-            className="hidden"
-          />
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessingQueue}
-              className="px-7 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <Upload size={16} />
-              <span>{isProcessingQueue ? 'Uploading Video...' : 'Upload Video from Gallery'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => preProcessedInputRef.current?.click()}
-              className="px-4 py-3 rounded-2xl bg-emerald-950/40 border border-emerald-900 hover:bg-emerald-900/40 text-emerald-300 text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer"
-            >
-              <FolderCheckIcon size={15} />
-              <span>Import Script Files</span>
-            </button>
-          </div>
-          <div className="text-[11px] text-emerald-400/60 mt-3">
-            Supports MP4, MOV, WebM clips from phones, laptops, and tablets.
-          </div>
-        </div>
-      </div>
-
-      {/* UPLOAD QUEUE PROGRESS CARDS */}
-      {uploadQueue.length > 0 && (
-        <div className="space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center justify-between">
-            <span>Active Processing & Upload Queue</span>
-            <span className="text-[10px] text-emerald-400/60 font-mono">TUS Direct Browser Streaming</span>
-          </h4>
-
-          <div className="grid grid-cols-1 gap-2.5">
-            {uploadQueue.map((item) => (
-              <div
-                key={item.id}
-                className="p-4 rounded-2xl bg-black/50 border border-emerald-900/50 flex flex-col gap-2.5 shadow-md"
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate">
-                    {item.status === 'done' ? (
-                      <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-                    ) : item.status === 'error' ? (
-                      <AlertTriangle size={16} className="text-red-400 shrink-0" />
-                    ) : (
-                      <Loader2 size={16} className="text-teal-400 animate-spin shrink-0" />
-                    )}
-                    <span className="font-semibold text-white truncate">{item.name}</span>
-                    <span className="text-[10px] text-emerald-400/60 uppercase">({item.category})</span>
-                    {item.isDraft && (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
-                        Draft
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-mono text-emerald-300">
-                      {item.stageLabel || item.status} ({item.progress}%)
-                    </span>
-                    {item.etaSeconds ? (
-                      <span className="text-[10px] text-emerald-400/60">ETA: {item.etaSeconds}s</span>
-                    ) : null}
-
-                    {/* Pause / Resume Controls for TUS */}
-                    {item.controller && item.status === 'uploading' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          item.controller?.pause();
-                          setUploadQueue((prev) =>
-                            prev.map((it) => (it.id === item.id ? { ...it, status: 'paused' } : it))
-                          );
-                        }}
-                        className="p-1 rounded bg-black/60 text-slate-300 hover:text-white cursor-pointer"
-                        title="Pause Upload"
-                      >
-                        <Pause size={12} />
-                      </button>
-                    )}
-
-                    {item.controller && item.status === 'paused' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          item.controller?.resume();
-                          setUploadQueue((prev) =>
-                            prev.map((it) => (it.id === item.id ? { ...it, status: 'uploading' } : it))
-                          );
-                        }}
-                        className="p-1 rounded bg-emerald-600 text-white cursor-pointer"
-                        title="Resume Upload"
-                      >
-                        <Play size={12} />
-                      </button>
-                    )}
-
-                    {item.transcoderCancel && item.status === 'transcoding' && (
-                      <button
-                        type="button"
-                        onClick={() => item.transcoderCancel?.()}
-                        className="px-2 py-0.5 rounded bg-red-950/60 border border-red-500/40 text-[10px] text-red-300 hover:bg-red-600 hover:text-white cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      item.status === 'error'
-                        ? 'bg-red-500'
-                        : item.status === 'done'
-                        ? 'bg-emerald-400'
-                        : item.status === 'paused'
-                        ? 'bg-amber-400'
-                        : 'bg-teal-500'
-                    }`}
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
-
-                {item.error && (
-                  <div className="text-[11px] text-red-300 flex items-center gap-1.5">
-                    <X size={12} />
-                    <span>{item.error}</span>
-                  </div>
-                )}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-semibold text-white">
+                  One-Step Phone Background Uploader
+                </h2>
+                <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Publishes Immediately • Auto 720p/480p
+                </span>
               </div>
-            ))}
+              <p className="text-xs text-white/70 max-w-xl">
+                Drag & drop one or many videos here, or tap <strong>Add video</strong>. Compliant MP4s (≤720p, muted, &lt;45 MB) upload immediately; large files (130 MB+ or 4K) optimize automatically in the browser and verify live on phones before saying done.
+              </p>
+              <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-white/70">
+                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <span className="text-white/60">Category:</span>
+                  <select
+                    value={defaultCategory}
+                    onChange={(e) => setDefaultCategory(e.target.value)}
+                    className="rounded-lg bg-black/40 border border-white/15 px-2.5 py-1 text-xs text-white focus:outline-none focus:border-emerald-400"
+                  >
+                    <option value="auto">Auto-detect from filename</option>
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={saveAsDraftDefault}
+                    onChange={(e) => setSaveAsDraftDefault(e.target.checked)}
+                    className="rounded border-white/20 bg-black/40 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Save as draft (OFF by default)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0 w-full md:w-auto justify-end">
+            <button
+              type="button"
+              onClick={() => addVideoInputRef.current?.click()}
+              className="w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm shadow-lg shadow-emerald-500/20 transition cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              Add video
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* SECTION: CLOUD CATALOG MANAGEMENT */}
-      <div className="space-y-4">
-        {/* Category Filter Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {CATEGORIES.map((cat) => {
-            const Icon = cat.icon;
-            const isSel = activeCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => setActiveCategory(cat.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
-                  isSel
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-black/30 border border-emerald-900/40 text-emerald-200/70 hover:border-emerald-600'
-                }`}
-              >
-                <Icon size={14} />
-                <span>{cat.label}</span>
-              </button>
-            );
-          })}
-        </div>
+      {/* ACTIVE & RECENT UPLOADS PIPELINE (Checking → Optimizing → Uploading → Saving → Live on phones ✓) */}
+      {uploadQueue.length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-[#081511] p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              Recent Uploads ({uploadQueue.length})
+            </h3>
+            <button
+              type="button"
+              onClick={() =>
+                setUploadQueue((prev) =>
+                  prev.filter((i) => i.step !== 'live')
+                )
+              }
+              className="text-xs text-white/50 hover:text-white transition"
+            >
+              Clear finished
+            </button>
+          </div>
 
-        {/* Background Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredBackgrounds.map((bg) => {
-            const isCurrentBroadcast =
-              activeBackgroundVideoId === bg.video_url ||
-              activeBackgroundVideoId === bg.video_url_720p ||
-              activeBackgroundVideoId === bg.id;
-
-            const isDraft = !bg.is_active || bg.is_draft;
-
-            return (
-              <div
-                key={bg.id}
-                className={`p-4 rounded-3xl border transition-all flex flex-col justify-between gap-4 ${
-                  isDraft
-                    ? 'bg-amber-950/20 border-amber-900/50'
-                    : isCurrentBroadcast
-                    ? 'bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_20px_rgba(31,138,106,0.15)]'
-                    : 'bg-[#0A1A14]/70 border-emerald-900/40 hover:border-emerald-700/50'
-                }`}
-              >
-                <div>
-                  {/* Poster Thumbnail or Gradient */}
-                  <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/60 border border-emerald-900/30 group">
-                    {bg.poster_url ? (
-                      <img
-                        src={bg.poster_url}
-                        alt={bg.name_en}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-950 to-black text-emerald-400">
-                        <Film size={28} />
+          <div className="space-y-3">
+            {uploadQueue.map((item) => {
+              const currentStepIdx = STEP_ORDER.findIndex((s) => s.key === item.step);
+              return (
+                <div
+                  key={item.queueId}
+                  className={`rounded-xl border p-4 space-y-3 ${
+                    item.step === 'failed'
+                      ? 'border-red-500/40 bg-red-950/20'
+                      : item.step === 'live'
+                      ? 'border-emerald-500/40 bg-emerald-950/20'
+                      : 'border-white/10 bg-white/[0.03]'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      {item.step === 'live' ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                      ) : item.step === 'failed' ? (
+                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+                      ) : (
+                        <Loader2 className="w-5 h-5 text-emerald-400 animate-spin shrink-0" />
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{item.title}</span>
+                          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-white/10 text-white/80">
+                            {item.category}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
+                            {item.pathType === 'fast' ? 'Fast Path' : 'Optimize Path'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-white/60">
+                          Original: {item.file.name} ({formatBytesHuman(item.file.size)})
+                          {item.finalSizeBytes
+                            ? ` → Stored: ${formatBytesHuman(item.finalSizeBytes)}`
+                            : ''}
+                        </p>
                       </div>
+                    </div>
+
+                    {item.step === 'failed' && (
+                      <button
+                        type="button"
+                        onClick={() => handleRetryItem(item)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-500 hover:bg-red-400 text-slate-950 font-semibold text-xs transition cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Retry (File Kept)
+                      </button>
                     )}
+                  </div>
 
-                    {/* Preview Button Overlay */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPreviewBg(bg);
-                        setLoopCheckStatus('idle');
-                      }}
-                      className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-2 text-xs font-semibold cursor-pointer"
-                    >
-                      <Play size={20} className="fill-white" />
-                      <span>Preview Loop on Device</span>
-                    </button>
+                  {/* 5-Step Status Bar: Checking → Optimizing → Uploading → Saving → Live on phones ✓ */}
+                  <div className="grid grid-cols-5 gap-1.5 pt-1">
+                    {STEP_ORDER.map((st, idx) => {
+                      const isSkippedOptimize =
+                        st.key === 'optimizing' && item.pathType === 'fast' && item.step !== 'checking';
+                      const isCompleted =
+                        item.step === 'live' ||
+                        (item.step !== 'failed' && currentStepIdx > idx) ||
+                        isSkippedOptimize;
+                      const isCurrent = item.step === st.key;
 
-                    {/* Draft or Active Status Badge */}
-                    <span
-                      className={`absolute top-2 left-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider backdrop-blur-md border ${
-                        isDraft
-                          ? 'bg-amber-500/90 text-slate-950 border-amber-400/50'
-                          : 'bg-emerald-600/90 text-white border-emerald-400/50'
+                      return (
+                        <div
+                          key={st.key}
+                          className={`rounded-lg px-2 py-1.5 text-center text-[11px] font-medium border transition ${
+                            isCompleted
+                              ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300'
+                              : isCurrent
+                              ? 'border-emerald-400 bg-emerald-500/30 text-white animate-pulse'
+                              : 'border-white/10 bg-black/30 text-white/40'
+                          }`}
+                        >
+                          {isSkippedOptimize ? 'Optimizing (Skipped)' : st.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Progress Bar & Plain-English Status */}
+                  <div className="space-y-1">
+                    <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          item.step === 'failed' ? 'bg-red-500' : 'bg-emerald-400'
+                        }`}
+                        style={{ width: `${item.progressPct}%` }}
+                      />
+                    </div>
+                    <p
+                      className={`text-xs ${
+                        item.step === 'failed'
+                          ? 'text-red-300 font-medium'
+                          : item.step === 'live'
+                          ? 'text-emerald-300 font-medium'
+                          : 'text-white/70'
                       }`}
                     >
-                      {isDraft ? 'Draft' : 'Active'}
-                    </span>
-
-                    {/* Multi-Rendition indicator */}
-                    <div className="absolute bottom-2 left-2 flex items-center gap-1">
-                      {bg.video_url_720p && (
-                        <span className="px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-mono text-emerald-300 border border-white/10">
-                          720p
-                        </span>
-                      )}
-                      {bg.video_url_480p && (
-                        <span className="px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-mono text-teal-300 border border-white/10">
-                          480p
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Premium Badge */}
-                    {bg.is_premium && (
-                      <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-amber-500 text-[10px] font-bold text-slate-950">
-                        PREMIUM
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Titles */}
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-bold text-white truncate">{bg.name_en}</h4>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleReorder(bg, 'up')}
-                          title="Move Up"
-                          className="p-1 rounded text-emerald-400/80 hover:text-white cursor-pointer"
-                        >
-                          <ArrowUp size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleReorder(bg, 'down')}
-                          title="Move Down"
-                          className="p-1 rounded text-emerald-400/80 hover:text-white cursor-pointer"
-                        >
-                          <ArrowDown size={13} />
-                        </button>
-                      </div>
-                    </div>
-                    {bg.name_ar && (
-                      <div className="text-xs text-emerald-300/80 mt-0.5" dir="rtl">
-                        {bg.name_ar}
-                      </div>
-                    )}
-                    <div className="text-[11px] text-emerald-400/60 mt-1 flex items-center gap-2">
-                      <span>Order: {bg.sort_order}</span>
-                      <span>•</span>
-                      <span>{bg.size_bytes ? formatBytes(bg.size_bytes) : 'Supabase'}</span>
-                      {bg.duration_seconds ? (
-                        <>
-                          <span>•</span>
-                          <span>{bg.duration_seconds}s Loop</span>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Actions */}
-                <div className="pt-3 border-t border-emerald-900/30 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    {isDraft ? (
-                      <button
-                        type="button"
-                        onClick={() => handlePublishBackground(bg)}
-                        className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow-sm flex items-center gap-1 cursor-pointer"
-                      >
-                        <ShieldCheck size={13} />
-                        <span>Publish</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveBackgroundVideoId(bg.video_url_720p || bg.video_url);
-                          showToast(`Broadcasted "${bg.name_en}" live to all devices!`, 'success');
-                        }}
-                        className={`px-3 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                          isCurrentBroadcast
-                            ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                            : 'bg-emerald-900/40 hover:bg-emerald-600 text-emerald-200 hover:text-white'
-                        }`}
-                      >
-                        {isCurrentBroadcast ? '✓ Live' : 'Broadcast'}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setEditingBg(bg)}
-                      className="px-2.5 py-1 rounded-lg bg-black/40 hover:bg-emerald-900/30 text-emerald-300 text-[11px] font-medium border border-emerald-900/40 cursor-pointer"
-                    >
-                      Edit
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setReplaceTargetBg(bg)}
-                      title="Replace Video Renditions"
-                      className="px-2 py-1 rounded-lg bg-black/40 hover:bg-emerald-900/30 text-emerald-300 text-[11px] border border-emerald-900/40 cursor-pointer"
-                    >
-                      Replace
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteBackground(bg)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
-                      title="Delete Background"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* EMPTY STATE */}
-        {cloudBackgrounds.length === 0 ? (
-          <div className="text-center py-16 px-6 bg-[#0A1A14]/70 border border-emerald-900/40 rounded-3xl space-y-3">
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-              <Video size={24} />
-            </div>
-            <h3 className="text-base font-semibold text-white">No Ambient Backgrounds in Cloud</h3>
-            <p className="text-xs text-emerald-100/70 max-w-md mx-auto">
-              Supabase Storage is ready. Drag and drop your source videos into the dropzone above to encode phone-ready
-              renditions and stream live to all devices!
-            </p>
-          </div>
-        ) : filteredBackgrounds.length === 0 ? (
-          <div className="text-center py-12 text-xs text-emerald-300/60 bg-[#0A1A14]/70 border border-emerald-900/40 rounded-3xl">
-            No backgrounds found in category "{activeCategory}". Pick another category tab or upload a new video.
-          </div>
-        ) : null}
-      </div>
-
-      {/* PRE-PROCESSING ANALYZER & DECISION MODAL (Requirement 3) */}
-      <AnimatePresence>
-        {preProcessModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
-            onClick={() => setPreProcessModal(null)}
-          >
-            <div
-              className="bg-[#0C241B] border border-emerald-700/60 rounded-3xl p-6 max-w-2xl w-full shadow-2xl space-y-6 my-8"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-emerald-900/40 pb-4">
-                <div className="flex items-center gap-2">
-                  <Sliders size={20} className="text-emerald-400" />
-                  <h3 className="text-base font-bold text-white">
-                    Video Pre-Processing & Encoding Decisions
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPreProcessModal(null)}
-                  className="text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Source Stats Card */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-4 rounded-2xl bg-black/40 border border-emerald-900/40 text-center">
-                <div>
-                  <div className="text-[10px] text-emerald-400/70 uppercase">Original Size</div>
-                  <div className="text-sm font-bold text-amber-300 font-mono">
-                    {formatBytes(preProcessModal.meta.sizeBytes)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-400/70 uppercase">Duration</div>
-                  <div className="text-sm font-bold text-white font-mono">
-                    {Math.round(preProcessModal.meta.duration)}s
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-400/70 uppercase">Resolution</div>
-                  <div className="text-sm font-bold text-white font-mono">
-                    {preProcessModal.meta.width}x{preProcessModal.meta.height}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-400/70 uppercase">Bitrate</div>
-                  <div className="text-sm font-bold text-white font-mono">
-                    {preProcessModal.meta.bitrateMbps} Mbps
-                  </div>
-                </div>
-              </div>
-
-              {/* Projected Output Sizes */}
-              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 space-y-2">
-                <div className="flex items-center justify-between text-xs text-white font-semibold">
-                  <span>Projected Rendition Sizes (Target Range 3–15 MB):</span>
-                  <span className="text-emerald-300 font-mono">
-                    720p: ~{formatBytes(preProcessModal.meta.projected720pBytes)} • 480p: ~{formatBytes(preProcessModal.meta.projected480pBytes)}
-                  </span>
-                </div>
-                <div className="text-[11px] text-emerald-200/70">
-                  Transcoding reduces bandwidth consumption by <strong>85–95%</strong>, ensuring mobile phones stream instantly without buffering.
-                </div>
-              </div>
-
-              {/* Memory / Mobile Warnings */}
-              {preProcessModal.meta.sizeBytes > 150 * 1024 * 1024 && (
-                <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
-                  <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong>Pro Tip for Large Video ({formatBytes(preProcessModal.meta.sizeBytes)}):</strong> Browser memory limits can be tight on big files. The local script (`npm run process-video`) processes your master video at maximum speed with zero tab freezing.
-                  </div>
-                </div>
-              )}
-
-              {/* 3 Decisions / Options Form */}
-              <div className="space-y-4">
-                <div className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                  Optimization Options
-                </div>
-
-                {/* Option A: Trim to Seamless Loop */}
-                <div className="p-3.5 rounded-2xl bg-black/40 border border-emerald-900/40 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={preProcessModal.useTrim}
-                        onChange={(e) =>
-                          setPreProcessModal({ ...preProcessModal, useTrim: e.target.checked })
-                        }
-                        className="rounded accent-emerald-500"
-                      />
-                      <span>(a) Trim to Seamless Loop (Recommended)</span>
-                    </label>
-                    <span className="text-[10px] text-emerald-400 font-mono">
-                      {preProcessModal.useTrim ? `${preProcessModal.trimDuration}s loop` : 'Full Length'}
-                    </span>
-                  </div>
-
-                  {preProcessModal.useTrim && (
-                    <div className="space-y-3 pt-2">
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] text-emerald-300">
-                          <span>Start Offset: {preProcessModal.trimStart}s</span>
-                          <span>Loop Duration: {preProcessModal.trimDuration}s</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0, Math.floor(preProcessModal.meta.duration - preProcessModal.trimDuration))}
-                          value={preProcessModal.trimStart}
-                          onChange={(e) =>
-                            setPreProcessModal({
-                              ...preProcessModal,
-                              trimStart: parseInt(e.target.value, 10) || 0,
-                            })
-                          }
-                          className="w-full accent-emerald-500 cursor-pointer"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] text-emerald-300">
-                          <span>Duration (10s – 60s)</span>
-                          <span>{preProcessModal.trimDuration}s</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={10}
-                          max={Math.min(60, Math.floor(preProcessModal.meta.duration))}
-                          value={preProcessModal.trimDuration}
-                          onChange={(e) =>
-                            setPreProcessModal({
-                              ...preProcessModal,
-                              trimDuration: parseInt(e.target.value, 10) || 30,
-                            })
-                          }
-                          className="w-full accent-emerald-500 cursor-pointer"
-                        />
-                      </div>
-
-                      {/* Interactive Loop Preview */}
-                      <div className="pt-2 border-t border-emerald-900/30 flex items-center justify-between">
-                        <span className="text-[11px] text-emerald-200/80">Loop Point Crossfade Preview</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!loopPreviewVideoRef.current) return;
-                            if (loopPreviewPlaying) {
-                              loopPreviewVideoRef.current.pause();
-                              setLoopPreviewPlaying(false);
-                            } else {
-                              loopPreviewVideoRef.current.currentTime = preProcessModal.trimStart;
-                              loopPreviewVideoRef.current.play();
-                              setLoopPreviewPlaying(true);
-                            }
-                          }}
-                          className="px-3 py-1 rounded-xl bg-emerald-900/50 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Play size={12} className={loopPreviewPlaying ? 'fill-white' : ''} />
-                          <span>{loopPreviewPlaying ? 'Pause Loop' : 'Play Loop Interval'}</span>
-                        </button>
-                      </div>
-
-                      <video
-                        ref={loopPreviewVideoRef}
-                        src={URL.createObjectURL(preProcessModal.file)}
-                        muted
-                        playsInline
-                        className="w-full aspect-video rounded-xl bg-black object-cover mt-2 hidden"
-                        onTimeUpdate={() => {
-                          if (!loopPreviewVideoRef.current) return;
-                          const vid = loopPreviewVideoRef.current;
-                          const end = preProcessModal.trimStart + preProcessModal.trimDuration;
-                          if (vid.currentTime >= end) {
-                            vid.currentTime = preProcessModal.trimStart;
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Option B: Lower Bitrate Mode */}
-                <div className="p-3.5 rounded-2xl bg-black/40 border border-emerald-900/40 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs font-bold text-white">(b) Economy Bitrate Mode</div>
-                    <div className="text-[11px] text-emerald-200/70">
-                      Saves an extra 40% bandwidth (720p @ 1.4 Mbps / 480p @ 600 kbps)
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPreProcessModal({
-                        ...preProcessModal,
-                        bitrateMode: preProcessModal.bitrateMode === 'economy' ? 'standard' : 'economy',
-                      })
-                    }
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      preProcessModal.bitrateMode === 'economy'
-                        ? 'bg-emerald-500 text-slate-950'
-                        : 'bg-emerald-900/40 text-emerald-200'
-                    }`}
-                  >
-                    {preProcessModal.bitrateMode === 'economy' ? 'Economy Active' : 'Standard Bitrate'}
-                  </button>
-                </div>
-
-                {/* Option C: Keep Full Length */}
-                {!preProcessModal.useTrim && (
-                  <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-600/30 text-[11px] text-amber-200">
-                    <strong>(c) Full Length Warning:</strong> Video is {Math.round(preProcessModal.meta.duration)}s. Full video streaming will consume ~{formatBytes(preProcessModal.meta.projected720pBytes)} per mobile session. Recommended only if the full ambient motion is strictly necessary.
-                  </div>
-                )}
-              </div>
-
-              {/* Title & Category Input */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase text-emerald-300 mb-1">
-                    English Title
-                  </label>
-                  <input
-                    type="text"
-                    value={preProcessModal.title}
-                    onChange={(e) =>
-                      setPreProcessModal({ ...preProcessModal, title: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase text-emerald-300 mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={preProcessModal.category}
-                    onChange={(e) =>
-                      setPreProcessModal({ ...preProcessModal, category: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="fireplace">Fireplace</option>
-                    <option value="rain">Rain</option>
-                    <option value="ocean">Ocean</option>
-                    <option value="forest">Forest</option>
-                    <option value="cosmos">Cosmos</option>
-                    <option value="night">Night</option>
-                    <option value="nature">Nature</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* EXECUTION PATH CHOICES: FAST DIRECT vs METHOD A vs METHOD B */}
-              <div className="pt-4 border-t border-emerald-900/40 space-y-3">
-                {/* Mode Fast: Direct Fast Upload */}
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-teal-950/80 border-2 border-emerald-400/80 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-bold text-emerald-300">
-                      <Sparkles size={18} className="text-emerald-400" />
-                      <span>⚡ Instant Fast Upload (Recommended)</span>
-                    </div>
-                    <p className="text-[11px] text-emerald-100/80 mt-1">
-                      Extracts poster and uploads directly to Supabase Storage in 2–5 seconds. No waiting for transcoding.
+                      {item.statusDetail}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleFastDirectUpload(preProcessModal.file, {
-                        title: preProcessModal.title,
-                        category: preProcessModal.category,
-                        isPremium: preProcessModal.isPremium,
-                      })
-                    }
-                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs whitespace-nowrap shadow-md cursor-pointer transition-all"
-                  >
-                    Upload Now (Instant)
-                  </button>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-                <div className="text-xs font-bold text-slate-400 pt-1">Advanced Options:</div>
+      {/* ACTIVE PHONE CATALOG (Reorder, Rename, Replace, Hide, Delete, Optional Licence Details) */}
+      <div className="rounded-2xl border border-white/10 bg-[#081511] p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Smartphone className="w-5 h-5 text-emerald-400" />
+            <div>
+              <h3 className="text-sm font-semibold text-white">
+                Phone Background Catalog ({backgrounds.filter((b) => b.is_active).length} Live /{' '}
+                {backgrounds.length} Total)
+              </h3>
+              <p className="text-xs text-white/60">
+                Drag cards or use arrows to reorder. Changes sync to open phones within seconds.
+              </p>
+            </div>
+          </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Mode A: Local Script (Recommended for 130MB+) */}
-                  <div className="p-4 rounded-2xl bg-emerald-950/40 border-2 border-emerald-500/50 flex flex-col justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-300 mb-1">
-                        <Monitor size={16} />
-                        <span>Method A: Local Script (Recommended)</span>
-                      </div>
-                      <p className="text-[11px] text-emerald-200/80 leading-relaxed">
-                        Processes your master video via native FFmpeg on your laptop. Fast, handles any file size, and verifies SHA-256 integrity.
-                      </p>
+          <div className="flex items-center gap-3">
+            {storageStats && (
+              <span className="text-xs text-white/60 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10">
+                Storage: {formatBytesHuman(storageStats.total_bytes)} / 1 GB
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void loadAllBackgrounds()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/80 transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {loading && backgrounds.length === 0 ? (
+          <div className="py-12 text-center text-white/50 text-sm flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading backgrounds...
+          </div>
+        ) : backgrounds.length === 0 ? (
+          <div className="rounded-xl border border-white/10 bg-black/20 p-8 text-center space-y-2">
+            <Film className="w-8 h-8 text-emerald-400/60 mx-auto" />
+            <p className="text-sm font-medium text-white">No background videos uploaded yet</p>
+            <p className="text-xs text-white/60">
+              Drop any video above or click &ldquo;Add video&rdquo; to publish your first live phone background.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {backgrounds.map((bg, idx) => {
+              const isEditing = editingId === bg.id;
+              const isDetailsOpen = openDetailsId === bg.id;
+
+              return (
+                <div
+                  key={bg.id}
+                  draggable
+                  onDragStart={() => setDraggedBgId(bg.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleCardDropReorder(bg.id)}
+                  className={`rounded-xl border p-3.5 transition space-y-3 ${
+                    bg.is_active
+                      ? 'border-white/15 bg-white/[0.03]'
+                      : 'border-amber-500/30 bg-amber-950/10 opacity-75'
+                  }`}
+                >
+                  <div className="flex gap-3.5">
+                    {/* Poster / Video Preview */}
+                    <div className="relative w-24 h-36 rounded-lg overflow-hidden bg-black/60 border border-white/10 shrink-0">
+                      {bg.poster_url ? (
+                        <img
+                          src={bg.poster_url}
+                          alt={bg.name_en}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <video
+                          src={bg.video_url_480p || bg.video_url}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                      <span
+                        className={`absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          bg.is_active
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'bg-amber-500 text-slate-950'
+                        }`}
+                      >
+                        {bg.is_active ? 'Live ✓' : 'Hidden'}
+                      </span>
                     </div>
 
-                    <div className="space-y-2">
-                      <div className="p-2 rounded-lg bg-black/70 font-mono text-[10px] text-emerald-300 truncate flex items-center justify-between">
-                        <span className="truncate">
-                          npm run process-video -- "{preProcessModal.file.name}" --name "{preProcessModal.title}"
-                        </span>
+                    {/* Card Controls */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          {isEditing ? (
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="text"
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void handleSaveRename(bg);
+                                  if (e.key === 'Escape') setEditingId(null);
+                                }}
+                                autoFocus
+                                className="w-full rounded bg-black/60 border border-emerald-400 px-2 py-1 text-xs text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void handleSaveRename(bg)}
+                                className="px-2 py-1 rounded bg-emerald-500 text-slate-950 text-xs font-semibold"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <GripVertical className="w-4 h-4 text-white/30 cursor-grab shrink-0" />
+                              <h4 className="text-sm font-semibold text-white truncate">
+                                {bg.name_en}
+                              </h4>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(bg.id);
+                                  setEditingName(bg.name_en);
+                                }}
+                                className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white"
+                                title="Rename"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveOrder(idx, -1)}
+                              disabled={idx === 0}
+                              className="p-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white/70"
+                              title="Move up"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveOrder(idx, 1)}
+                              disabled={idx === backgrounds.length - 1}
+                              className="p-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white/70"
+                              title="Move down"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+                          <select
+                            value={bg.category || 'nature'}
+                            onChange={(e) => void handleCategoryChange(bg, e.target.value)}
+                            className="rounded bg-black/40 border border-white/15 px-2 py-0.5 text-[11px] text-emerald-300"
+                          >
+                            {CATEGORIES.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                          <span>• {formatBytesHuman(bg.size_bytes)}</span>
+                          {bg.video_url_480p && <span>• 720p + 480p</span>}
+                        </div>
+
+                        {(bg.creator || bg.license_name || bg.attribution) && (
+                          <p className="text-[11px] text-emerald-300/80 truncate flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 shrink-0" />
+                            {bg.creator || bg.attribution}
+                            {bg.license_name ? ` (${bg.license_name})` : ''}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Action Buttons: Replace, Hide/Show, Details, Delete */}
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/10">
                         <button
                           type="button"
                           onClick={() => {
-                            const cmd = `npm run process-video -- "${preProcessModal.file.name}" --name "${preProcessModal.title}"`;
-                            navigator.clipboard.writeText(cmd);
-                            setCopiedScriptCommand(true);
-                            setTimeout(() => setCopiedScriptCommand(false), 2000);
+                            setReplaceTargetBg(bg);
+                            replaceVideoInputRef.current?.click();
                           }}
-                          className="ml-2 text-emerald-400 hover:text-white cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/80 transition cursor-pointer"
                         >
-                          {copiedScriptCommand ? <Check size={14} /> : <Copy size={14} />}
+                          <Replace className="w-3.5 h-3.5" />
+                          Replace
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleHide(bg)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/80 transition cursor-pointer"
+                        >
+                          {bg.is_active ? (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                              Hide
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                              Publish
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenDetailsId(isDetailsOpen ? null : bg.id)
+                          }
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/70 transition cursor-pointer"
+                        >
+                          Details
+                          {isDetailsOpen ? (
+                            <ChevronUp className="w-3 h-3" />
+                          ) : (
+                            <ChevronDown className="w-3 h-3" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(bg)}
+                          className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-xs text-red-300 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
                         </button>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPreProcessModal(null);
-                          preProcessedInputRef.current?.click();
-                        }}
-                        className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all cursor-pointer"
-                      >
-                        Import Output Files From ./processed
-                      </button>
                     </div>
                   </div>
 
-                  {/* Mode B: In-Browser Transcoder */}
-                  <div className="p-4 rounded-2xl bg-black/40 border border-emerald-900/40 flex flex-col justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-white mb-1">
-                        <Smartphone size={16} />
-                        <span>Method B: In-Browser Transcoder</span>
-                      </div>
-                      <p className="text-[11px] text-slate-300 leading-relaxed">
-                        Converts directly inside your laptop browser tab without leaving the page. Zero COOP/COEP headers required.
-                      </p>
-                    </div>
+                  {/* Optional Licence / Source Details Drawer */}
+                  {isDetailsOpen && (
+                    <LicenceDetailsEditor
+                      bg={bg}
+                      onSave={(details) => void handleSaveLicenceDetails(bg, details)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-                    <button
-                      type="button"
-                      onClick={startInBrowserTranscode}
-                      className="w-full py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs transition-all cursor-pointer shadow-md"
+      {/* LOG OF LAST 20 UPLOAD ATTEMPTS WITH EXACT ERROR REASONS */}
+      <div className="rounded-2xl border border-white/10 bg-[#081511] p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-sm font-semibold text-white">
+              Last 20 Upload Attempts Log ({attemptLogs.length})
+            </h3>
+          </div>
+          {attemptLogs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setAttemptLogs([]);
+                saveAttemptLogs([]);
+              }}
+              className="text-xs text-white/40 hover:text-white/80 transition"
+            >
+              Clear log
+            </button>
+          )}
+        </div>
+
+        {attemptLogs.length === 0 ? (
+          <p className="text-xs text-white/50">
+            No upload attempts recorded on this browser yet. Every upload attempt and any error reason will appear here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-white/10 text-white/50">
+                  <th className="py-2 pr-3">Time</th>
+                  <th className="py-2 pr-3">File</th>
+                  <th className="py-2 pr-3">Size</th>
+                  <th className="py-2 pr-3">Path</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2">Result / Error Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {attemptLogs.map((log) => (
+                  <tr key={log.id} className="text-white/80">
+                    <td className="py-2 pr-3 whitespace-nowrap text-white/50">
+                      {new Date(log.timestamp).toLocaleTimeString()}
+                    </td>
+                    <td className="py-2 pr-3 font-medium text-white truncate max-w-[180px]">
+                      {log.fileName}
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {formatBytesHuman(log.fileSizeBytes)}
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded bg-white/5 text-[11px]">
+                        {log.pathType === 'fast' ? 'Fast' : 'Optimize'}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {log.status === 'live' ? (
+                        <span className="text-emerald-400 font-semibold">Live ✓</span>
+                      ) : log.status === 'draft' ? (
+                        <span className="text-amber-300 font-semibold">Draft</span>
+                      ) : (
+                        <span className="text-red-400 font-semibold inline-flex items-center gap-1">
+                          <FileWarning className="w-3 h-3" /> Failed
+                        </span>
+                      )}
+                    </td>
+                    <td
+                      className={`py-2 ${
+                        log.status === 'failed' ? 'text-red-300' : 'text-white/70'
+                      }`}
                     >
-                      Convert in Browser & Resumable Upload
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
+                      {log.reason} ({(log.durationMs / 1000).toFixed(1)}s)
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </AnimatePresence>
-
-      {/* PREVIEW & LOOP QUALITY MODAL (Requirement 5) */}
-      <AnimatePresence>
-        {previewBg && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-            onClick={() => setPreviewBg(null)}
-          >
-            <div
-              className="relative max-w-4xl w-full bg-black border border-emerald-800/80 rounded-3xl overflow-hidden shadow-2xl space-y-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="relative aspect-video bg-black flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={() => setPreviewBg(null)}
-                  className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-
-                <video
-                  src={previewBg.video_url_720p || previewBg.video_url}
-                  poster={previewBg.poster_url || undefined}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                  onPlay={(e) => checkLoopSmoothness(e.currentTarget)}
-                />
-
-                <div className="absolute bottom-4 left-4 flex items-center gap-2">
-                  <span className="px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-xs font-bold text-white border border-white/10">
-                    {previewBg.name_en}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-600/80 text-[10px] font-mono text-white">
-                    720p / 480p Adaptive
-                  </span>
-                </div>
-              </div>
-
-              {/* Loop Smoothness Checker Footer */}
-              <div className="p-4 bg-[#0A1A14] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs border-t border-emerald-900/40">
-                <div className="flex items-center gap-2">
-                  {loopCheckStatus === 'checking' && (
-                    <>
-                      <Loader2 size={16} className="text-teal-400 animate-spin" />
-                      <span className="text-teal-300">Analyzing frame looping smoothness...</span>
-                    </>
-                  )}
-                  {loopCheckStatus === 'smooth' && (
-                    <>
-                      <CheckCircle2 size={16} className="text-emerald-400" />
-                      <span className="text-emerald-300 font-semibold">Loop verified: Seamless transition, 0 frame drops detected!</span>
-                    </>
-                  )}
-                  {loopCheckStatus === 'idle' && (
-                    <span className="text-emerald-200/70">Playing live stream from Supabase Storage.</span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {!previewBg.is_active && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handlePublishBackground(previewBg);
-                        setPreviewBg(null);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <ShieldCheck size={14} />
-                      <span>Publish Live to All Devices</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setPreviewBg(null)}
-                    className="px-4 py-2 rounded-xl bg-black/40 text-slate-300 text-xs font-semibold cursor-pointer"
-                  >
-                    Close Preview
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* REPLACE VIDEO MODAL */}
-      <AnimatePresence>
-        {replaceTargetBg && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
-            onClick={() => setReplaceTargetBg(null)}
-          >
-            <div
-              className="bg-[#0C241B] border border-emerald-800/80 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <RotateCcw size={16} className="text-emerald-400" />
-                  Replace Video for "{replaceTargetBg.name_en}"
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setReplaceTargetBg(null)}
-                  className="text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <p className="text-xs text-emerald-200/70">
-                Preserves this background's ID ({replaceTargetBg.id}), Arabic title, and category while uploading fresh 720p/480p renditions.
-              </p>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setBgNameEn(replaceTargetBg.name_en);
-                  setBgCategory(replaceTargetBg.category);
-                  setReplaceTargetBg(null);
-                  fileInputRef.current?.click();
-                }}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all cursor-pointer"
-              >
-                Select New Video File
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* EDIT METADATA MODAL */}
-      <AnimatePresence>
-        {editingBg && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-            onClick={() => setEditingBg(null)}
-          >
-            <div
-              className="bg-[#0C241B] border border-emerald-900/80 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Video size={16} className="text-emerald-400" />
-                  Edit Ambient Background Metadata
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setEditingBg(null)}
-                  className="text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
-                  English Name
-                </label>
-                <input
-                  type="text"
-                  value={editingBg.name_en}
-                  onChange={(e) => setEditingBg({ ...editingBg, name_en: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
-                  Arabic Name
-                </label>
-                <input
-                  type="text"
-                  dir="rtl"
-                  value={editingBg.name_ar || ''}
-                  onChange={(e) => setEditingBg({ ...editingBg, name_ar: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={editingBg.category}
-                    onChange={(e) => setEditingBg({ ...editingBg, category: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="fireplace">Fireplace</option>
-                    <option value="rain">Rain</option>
-                    <option value="ocean">Ocean</option>
-                    <option value="forest">Forest</option>
-                    <option value="cosmos">Cosmos</option>
-                    <option value="night">Night</option>
-                    <option value="nature">Nature</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase text-emerald-300 mb-1">
-                    Sort Order
-                  </label>
-                  <input
-                    type="number"
-                    value={editingBg.sort_order}
-                    onChange={(e) =>
-                      setEditingBg({ ...editingBg, sort_order: parseInt(e.target.value, 10) || 0 })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-emerald-900/50 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4 pt-2">
-                <label className="flex items-center gap-2 text-xs text-emerald-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingBg.is_active}
-                    onChange={(e) => setEditingBg({ ...editingBg, is_active: e.target.checked })}
-                    className="rounded accent-emerald-500"
-                  />
-                  <span>Active & Broadcastable</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-xs text-emerald-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingBg.is_premium}
-                    onChange={(e) => setEditingBg({ ...editingBg, is_premium: e.target.checked })}
-                    className="rounded accent-emerald-500"
-                  />
-                  <span>Premium Only</span>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-emerald-900/40">
-                <button
-                  type="button"
-                  onClick={() => setEditingBg(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveEdit}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Save size={14} />
-                  <span>Save Changes</span>
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
     </div>
   );
 }
 
-function FolderCheckIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-      <path d="m9 13 2 2 4-4" />
-    </svg>
+function LicenceDetailsEditor({
+  bg,
+  onSave,
+}: {
+  bg: BackgroundRow;
+  onSave: (details: {
+    creator: string;
+    source_url: string;
+    license_name: string;
+    license_url: string;
+    date_checked: string;
+    attribution_required: boolean;
+  }) => void;
+}) {
+  const [creator, setCreator] = useState(bg.creator || '');
+  const [sourceUrl, setSourceUrl] = useState(bg.source_url || '');
+  const [licenseName, setLicenseName] = useState(bg.license_name || '');
+  const [licenseUrl, setLicenseUrl] = useState(bg.license_url || '');
+  const [dateChecked, setDateChecked] = useState(
+    bg.date_checked || new Date().toISOString().slice(0, 10)
   );
-}
+  const [attributionRequired, setAttributionRequired] = useState(
+    Boolean(bg.attribution_required)
+  );
 
-async function handleReorder(bg: BackgroundRow, direction: 'up' | 'down') {
-  const newOrder = direction === 'up' ? Math.max(0, bg.sort_order - 1) : bg.sort_order + 1;
-  try {
-    await appApi('/admin/supabase-backgrounds', {
-      method: 'POST',
-      body: {
-        action: 'update',
-        id: bg.id,
-        sort_order: newOrder,
-      },
-    });
-  } catch (err: any) {
-    console.warn('Reorder notice:', err);
-  }
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2.5 text-xs">
+      <div className="text-[11px] font-semibold text-emerald-300">
+        Optional Licence & Attribution Metadata (Auto-filled for Part A videos)
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input
+          type="text"
+          placeholder="Creator / Videographer"
+          value={creator}
+          onChange={(e) => setCreator(e.target.value)}
+          className="rounded bg-white/5 border border-white/10 px-2.5 py-1.5 text-white"
+        />
+        <input
+          type="text"
+          placeholder="Source Page URL"
+          value={sourceUrl}
+          onChange={(e) => setSourceUrl(e.target.value)}
+          className="rounded bg-white/5 border border-white/10 px-2.5 py-1.5 text-white"
+        />
+        <input
+          type="text"
+          placeholder="Licence Name (e.g. Pexels, CC0, CC BY 4.0)"
+          value={licenseName}
+          onChange={(e) => setLicenseName(e.target.value)}
+          className="rounded bg-white/5 border border-white/10 px-2.5 py-1.5 text-white"
+        />
+        <input
+          type="text"
+          placeholder="Licence URL"
+          value={licenseUrl}
+          onChange={(e) => setLicenseUrl(e.target.value)}
+          className="rounded bg-white/5 border border-white/10 px-2.5 py-1.5 text-white"
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <label className="inline-flex items-center gap-1.5 text-white/70 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={attributionRequired}
+            onChange={(e) => setAttributionRequired(e.target.checked)}
+          />
+          <span>Show attribution in app Credits screen</span>
+        </label>
+        <button
+          type="button"
+          onClick={() =>
+            onSave({
+              creator,
+              source_url: sourceUrl,
+              license_name: licenseName,
+              license_url: licenseUrl,
+              date_checked: dateChecked,
+              attribution_required: attributionRequired,
+            })
+          }
+          className="px-3 py-1 rounded bg-emerald-500 text-slate-950 font-semibold text-xs cursor-pointer"
+        >
+          Save Details
+        </button>
+      </div>
+    </div>
+  );
 }

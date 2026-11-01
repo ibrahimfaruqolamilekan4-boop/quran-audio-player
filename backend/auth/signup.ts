@@ -54,7 +54,7 @@ const handler: Handler = async (req, res) => {
 
     if (existing.rows[0]) return sendJson(res, 409, { error: 'An account with this email already exists. Please sign in instead.' });
 
-    let uid = crypto.randomUUID();
+    let uid: string = crypto.randomUUID();
     const role = email === adminEmail() ? 'admin' : 'user';
     const displayName = name || email.split('@')[0];
 

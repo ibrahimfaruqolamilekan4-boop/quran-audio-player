@@ -172,6 +172,80 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return saved || null;
   });
 
+  // Convert BackgroundRow[] into CustomVideo[] and reconcile active playing background
+  const reconcileActiveBackgroundRows = useCallback((rows: any[]) => {
+    const mapped: CustomVideo[] = rows
+      .filter((r) => r && r.is_active !== false && (r.video_url || r.videoUrl))
+      .map((r, idx) => ({
+        id: r.id,
+        name: r.name_en || r.name || 'Ambient Scene',
+        category: r.category || 'nature',
+        videoUrl: normalizePortableMediaUrl(r.video_url || r.videoUrl) || '',
+        videoUrl720p: normalizePortableMediaUrl(r.video_url_720p || r.videoUrl720p || r.video_url || r.videoUrl) || undefined,
+        videoUrl480p: normalizePortableMediaUrl(r.video_url_480p || r.videoUrl480p) || undefined,
+        posterUrl: r.poster_url || r.posterUrl || undefined,
+        poster_url: r.poster_url || r.posterUrl || undefined,
+        renditions: Array.isArray(r.renditions) ? r.renditions : undefined,
+        attribution: r.attribution || undefined,
+        sourceUrl: r.source_url || r.sourceUrl || undefined,
+        creator: r.creator || undefined,
+        licenseName: r.license_name || r.licenseName || undefined,
+        licenseUrl: r.license_url || r.licenseUrl || undefined,
+        dateChecked: r.date_checked || r.dateChecked || undefined,
+        attributionRequired: Boolean(r.attribution_required ?? r.attributionRequired),
+        sizeBytes: Number(r.size_bytes ?? r.sizeBytes ?? 0),
+        durationSeconds: Number(r.duration_seconds ?? r.durationSeconds ?? 0),
+        isActive: true,
+        isDefault: idx === 0,
+      }));
+
+    try {
+      localStorage.setItem('noor_cached_backgrounds_v1', JSON.stringify(mapped));
+    } catch {}
+
+    setCustomVideos(mapped);
+
+    // Reconcile activeBackgroundVideoId:
+    // - If no background is selected and at least 1 active exists, select the first one.
+    // - If the currently playing background was hidden or deleted, switch smoothly to another active one (or null if empty).
+    setActiveBackgroundVideoId((prev) => {
+      if (mapped.length === 0) {
+        localStorage.removeItem('activeBackgroundVideoId');
+        return null;
+      }
+
+      if (prev) {
+        const stillExists = mapped.some(
+          (v) =>
+            v.id === prev ||
+            v.videoUrl === prev ||
+            v.videoUrl720p === prev ||
+            v.videoUrl480p === prev
+        );
+        if (stillExists) return prev;
+      }
+
+      const nextTarget = mapped[0].id || mapped[0].videoUrl || null;
+      if (nextTarget) {
+        localStorage.setItem('activeBackgroundVideoId', nextTarget);
+      }
+      return nextTarget;
+    });
+  }, []);
+
+  // Hydrate cached backgrounds immediately on mount for instant paint on phones
+  useEffect(() => {
+    try {
+      const rawCache = localStorage.getItem('noor_cached_backgrounds_v1');
+      if (rawCache) {
+        const parsed = JSON.parse(rawCache);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCustomVideos(parsed);
+        }
+      }
+    } catch {}
+  }, []);
+
   const refreshGlobalCatalog = useCallback(async () => {
     try {
       const reciterData = await appApi<{ reciters: GlobalReciterRow[] }>('/reciters');
@@ -183,65 +257,38 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const data = await appApi<{
-        ambientSounds: Record<string, string>;
-        videos?: CustomVideo[];
-        activeDefaultVideoUrl?: string | null;
-      }>('/ambient');
+      const [bgRows, data] = await Promise.all([
+        fetchActiveBackgrounds(true).catch(() => null),
+        appApi<{
+          ambientSounds: Record<string, string>;
+          videos?: CustomVideo[];
+          activeDefaultVideoUrl?: string | null;
+        }>('/ambient').catch(() => null),
+      ]);
 
       if (data?.ambientSounds && Object.keys(data.ambientSounds).length > 0) {
-        setAmbientVideoMapping(prev => ({ ...prev, ...data.ambientSounds }));
+        setAmbientVideoMapping((prev) => ({ ...prev, ...data.ambientSounds }));
       }
-      if (Array.isArray(data?.videos) && data.videos.length > 0) {
-        setCustomVideos(prev => {
-          const byKey = new Map<string, CustomVideo>();
-          for (const item of prev) {
-            byKey.set(item.id, item);
-          }
-          for (const cloudVid of data.videos!) {
-            const existing = Array.from(byKey.values()).find(
-              v => v.id === cloudVid.id || (v.name && cloudVid.name && v.name.toLowerCase() === cloudVid.name.toLowerCase())
-            );
-            if (existing) {
-              byKey.set(existing.id, {
-                ...existing,
-                ...cloudVid,
-                id: existing.id,
-                videoUrl: cloudVid.videoUrl || existing.videoUrl,
-              });
-            } else {
-              byKey.set(cloudVid.id, cloudVid);
-            }
-          }
-          return Array.from(byKey.values());
-        });
-      }
-      if (data?.activeDefaultVideoUrl) {
-        const cleanDefault = normalizePortableMediaUrl(data.activeDefaultVideoUrl);
-        if (cleanDefault) {
-          setActiveBackgroundVideoId(prev => {
-            const prevIsCustom =
-              prev &&
 
-              !prev.startsWith('curated_');
-            if (prevIsCustom) {
-              return prev;
-            }
-            localStorage.setItem('activeBackgroundVideoId', cleanDefault);
-            return cleanDefault;
-          });
-        }
+      if (Array.isArray(bgRows) && bgRows.length > 0) {
+        reconcileActiveBackgroundRows(bgRows);
+      } else if (Array.isArray(data?.videos)) {
+        reconcileActiveBackgroundRows(data.videos);
       }
     } catch (err: any) {
       console.warn('Global ambient unavailable:', err?.message || String(err));
     }
-  }, []);
+  }, [reconcileActiveBackgroundRows]);
 
-  // Load ambient mapping from local storage and revalidate global catalog on mount, focus, online, visibility, and 60s interval
+  // Subscribe to Realtime backgrounds + list version counter on mount, focus, online, visibility, and 60s interval
   useEffect(() => {
     localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
       if (mapping) setAmbientVideoMapping(prev => ({ ...mapping, ...prev }));
     }).catch(() => {});
+
+    const unsubRealtime = subscribeToBackgrounds((updatedRows) => {
+      reconcileActiveBackgroundRows(updatedRows);
+    });
 
     const revalidate = () => {
       if (document.visibilityState === 'visible') {
@@ -256,12 +303,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const intervalId = window.setInterval(revalidate, 60000);
 
     return () => {
+      unsubRealtime();
       window.removeEventListener('focus', revalidate);
       window.removeEventListener('online', revalidate);
       document.removeEventListener('visibilitychange', revalidate);
       window.clearInterval(intervalId);
     };
-  }, [refreshGlobalCatalog]);
+  }, [refreshGlobalCatalog, reconcileActiveBackgroundRows]);
 
   // Update active background video when ambient track changes
   useEffect(() => {
@@ -467,36 +515,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return { syncedPhotos, syncedVideos };
   }, [refreshGlobalCatalog]);
 
-  // Initialize DB and Load Custom Assets
+  // Initialize DB and Load Custom Reciter Assets
   useEffect(() => {
     async function loadCustomAssets() {
       const localReciters = (await localforage.getItem<Reciter[]>('customReciters')) || [];
-      const videos = (await localforage.getItem<CustomVideo[]>('customVideos_list')) || [];
-
-      if (videos.length > 0) {
-        setCustomVideos(prev => {
-          const map = new Map<string, CustomVideo>();
-          videos.forEach(v => map.set(v.id, v));
-          prev.forEach(v => map.set(v.id, { ...map.get(v.id), ...v }));
-          return Array.from(map.values());
-        });
-
-        // Restore user's saved custom background video if activeBackgroundVideoId was reset to cosmos default
-        const userCustomVideos = videos.filter(
-          v => !v.id.startsWith('curated_')
-        );
-        if (userCustomVideos.length > 0) {
-          const preferredVid = userCustomVideos.find(v => v.isDefault) || userCustomVideos[0];
-          const preferredTarget = normalizePortableMediaUrl(preferredVid.videoUrl) || preferredVid.id;
-          setActiveBackgroundVideoId(prev => {
-            if (!prev) {
-              localStorage.setItem('activeBackgroundVideoId', preferredTarget);
-              return preferredTarget;
-            }
-            return prev;
-          });
-        }
-      }
 
       if (user) {
         try {

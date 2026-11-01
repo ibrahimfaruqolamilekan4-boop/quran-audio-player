@@ -14,8 +14,8 @@ import {
   calculateDistanceKm,
 } from './location';
 
+export type { UserLocation };
 export {
-  UserLocation,
   POPULAR_GLOBAL_CITIES,
   DEFAULT_LOCATION,
   getDefaultCalculationMethod,

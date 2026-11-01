@@ -71,15 +71,10 @@ function getCloudToken() {
 function defaultStoreShape() {
   return {
     global_reciters: [],
-    global_videos: [
-
-
-
-
-    ],
-    ambient_sounds: {
-
-    },
+    global_videos: [],
+    backgrounds: [],
+    backgrounds_version: 1,
+    ambient_sounds: {},
     global_media: {},
     global_media_chunks: {},
     user_preferences: {},
@@ -98,6 +93,8 @@ function loadStore() {
         if (!Array.isArray(data.users)) data.users = [];
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
+        if (!Array.isArray(data.backgrounds)) data.backgrounds = [];
+        if (typeof data.backgrounds_version !== 'number') data.backgrounds_version = 1;
         if (!data.ambient_sounds) data.ambient_sounds = {};
         return data;
       }
@@ -116,9 +113,6 @@ function mergeCloudIntoServerStore(remote) {
   // 1. Merge users (preserve all accounts by email/uid)
   if (Array.isArray(remote.users)) {
     const byEmail = new Map();
-    // No hardcoded user seeding
-    //
-    //
     for (const u of serverStore.users || []) {
       if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...byEmail.get(u.email.toLowerCase()), ...u });
     }
@@ -154,6 +148,20 @@ function mergeCloudIntoServerStore(remote) {
       if (v && v.id && !byId.has(v.id)) byId.set(v.id, v);
     }
     serverStore.global_videos = Array.from(byId.values());
+  }
+
+  // 3b. Merge backgrounds
+  if (Array.isArray(remote.backgrounds)) {
+    const remoteVer = Number(remote.backgrounds_version || 1);
+    const localVer = Number(serverStore.backgrounds_version || 1);
+    if (remoteVer >= localVer) {
+      const byId = new Map();
+      for (const b of remote.backgrounds) {
+        if (b && b.id) byId.set(b.id, b);
+      }
+      serverStore.backgrounds = Array.from(byId.values());
+      serverStore.backgrounds_version = remoteVer;
+    }
   }
 
   // 4. Merge ambient_sounds
@@ -209,6 +217,8 @@ async function persistStoreToCloud() {
       users: serverStore.users || [],
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
+      backgrounds: serverStore.backgrounds || [],
+      backgrounds_version: serverStore.backgrounds_version || 1,
       ambient_sounds: serverStore.ambient_sounds || {},
       user_preferences: serverStore.user_preferences || {},
       updated_at: new Date().toISOString(),
@@ -635,6 +645,229 @@ export async function q(text, params = []) {
       serverStore.global_videos = serverStore.global_videos.filter(v => v.id !== targetId);
       await saveStore();
       return { rowCount: 1, rows: [] };
+    }
+  }
+
+  // 3b. Backgrounds & Backgrounds Meta (Unified One-Step Upload & Phone Sync)
+  if (qStr.includes('backgrounds_meta')) {
+    if (!serverStore.backgrounds_version) serverStore.backgrounds_version = 1;
+    if (qStr.startsWith('SELECT')) {
+      return {
+        rows: [
+          {
+            id: 1,
+            version: Number(serverStore.backgrounds_version || 1),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      };
+    }
+    if (qStr.includes('UPDATE backgrounds_meta') || qStr.includes('INSERT INTO backgrounds_meta')) {
+      if (qStr.includes('version = backgrounds_meta.version + 1') || qStr.includes('version = version + 1')) {
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+      }
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: 1,
+            version: Number(serverStore.backgrounds_version || 1),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  }
+
+  if (
+    qStr.includes('FROM backgrounds') ||
+    qStr.includes('INTO backgrounds') ||
+    qStr.includes('UPDATE backgrounds') ||
+    qStr.includes('TABLE IF NOT EXISTS backgrounds') ||
+    qStr.includes('ALTER TABLE backgrounds') ||
+    qStr.includes('ON backgrounds')
+  ) {
+    if (!Array.isArray(serverStore.backgrounds)) serverStore.backgrounds = [];
+    if (qStr.startsWith('CREATE ') || qStr.startsWith('ALTER ')) {
+      return { rows: [] };
+    }
+    if (qStr.startsWith('SELECT')) {
+      if (qStr.includes('WHERE id = $1') && params[0]) {
+        const found = serverStore.backgrounds.filter(b => b.id === params[0]);
+        return { rows: found };
+      }
+      let list = [...serverStore.backgrounds];
+      if (qStr.includes('WHERE is_active = true')) {
+        list = list.filter(b => b.is_active === true);
+      }
+      list.sort((a, b) => {
+        const sa = Number(a.sort_order ?? 0);
+        const sb = Number(b.sort_order ?? 0);
+        if (sa !== sb) return sa - sb;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      });
+      return { rows: list };
+    }
+    if (qStr.startsWith('INSERT INTO backgrounds')) {
+      const [
+        id,
+        name_en,
+        name_ar,
+        category,
+        video_url,
+        video_url_720p,
+        video_url_480p,
+        poster_url,
+        size_bytes,
+        duration_seconds,
+        renditionsRaw,
+        storagePathsRaw,
+        attribution,
+        sort_order,
+        is_active,
+        is_draft,
+        is_premium,
+        source_url,
+        creator,
+        license_name,
+        license_url,
+        date_checked,
+        attribution_required,
+      ] = params;
+
+      let renditions = [];
+      let storage_paths = [];
+      try {
+        renditions = typeof renditionsRaw === 'string' ? JSON.parse(renditionsRaw) : (renditionsRaw || []);
+      } catch {}
+      try {
+        storage_paths = typeof storagePathsRaw === 'string' ? JSON.parse(storagePathsRaw) : (storagePathsRaw || []);
+      } catch {}
+
+      const existingIdx = serverStore.backgrounds.findIndex(b => b.id === id);
+      const prev = existingIdx >= 0 ? serverStore.backgrounds[existingIdx] : null;
+      const row = {
+        id,
+        name_en,
+        name_ar: name_ar ?? prev?.name_ar ?? null,
+        category: category || prev?.category || 'nature',
+        video_url: video_url || prev?.video_url || '',
+        video_url_720p: video_url_720p || video_url || prev?.video_url_720p || null,
+        video_url_480p: video_url_480p ?? prev?.video_url_480p ?? null,
+        poster_url: poster_url ?? prev?.poster_url ?? null,
+        size_bytes: Number(size_bytes ?? prev?.size_bytes ?? 0),
+        duration_seconds: Number(duration_seconds ?? prev?.duration_seconds ?? 0),
+        renditions: Array.isArray(renditions) ? renditions : (prev?.renditions || []),
+        storage_paths: Array.isArray(storage_paths) ? storage_paths : (prev?.storage_paths || []),
+        attribution: attribution ?? prev?.attribution ?? null,
+        source_url: source_url ?? prev?.source_url ?? null,
+        creator: creator ?? prev?.creator ?? null,
+        license_name: license_name ?? prev?.license_name ?? null,
+        license_url: license_url ?? prev?.license_url ?? null,
+        date_checked: date_checked ?? prev?.date_checked ?? null,
+        attribution_required: Boolean(attribution_required ?? prev?.attribution_required ?? false),
+        sort_order: Number(sort_order ?? prev?.sort_order ?? 0),
+        is_active: is_active !== undefined ? Boolean(is_active) : true,
+        is_draft: is_draft !== undefined ? Boolean(is_draft) : false,
+        is_premium: Boolean(is_premium ?? prev?.is_premium ?? false),
+        created_at: prev?.created_at || new Date().toISOString(),
+      };
+
+      if (existingIdx >= 0) {
+        serverStore.backgrounds[existingIdx] = row;
+      } else {
+        serverStore.backgrounds.unshift(row);
+      }
+      serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+      await saveStore();
+      return { rowCount: 1, rows: [row] };
+    }
+    if (qStr.startsWith('UPDATE backgrounds')) {
+      const id = params[0];
+      const idx = serverStore.backgrounds.findIndex(b => b.id === id);
+      if (idx >= 0) {
+        const cur = serverStore.backgrounds[idx];
+        const [
+          ,
+          name_en,
+          name_ar,
+          category,
+          video_url,
+          video_url_720p,
+          video_url_480p,
+          poster_url,
+          size_bytes,
+          duration_seconds,
+          renditionsRaw,
+          storagePathsRaw,
+          attribution,
+          sort_order,
+          is_active,
+          is_draft,
+          is_premium,
+          source_url,
+          creator,
+          license_name,
+          license_url,
+          date_checked,
+          attribution_required,
+        ] = params;
+
+        let renditions = cur.renditions;
+        let storage_paths = cur.storage_paths;
+        if (renditionsRaw !== null && renditionsRaw !== undefined) {
+          try {
+            renditions = typeof renditionsRaw === 'string' ? JSON.parse(renditionsRaw) : renditionsRaw;
+          } catch {}
+        }
+        if (storagePathsRaw !== null && storagePathsRaw !== undefined) {
+          try {
+            storage_paths = typeof storagePathsRaw === 'string' ? JSON.parse(storagePathsRaw) : storagePathsRaw;
+          } catch {}
+        }
+
+        serverStore.backgrounds[idx] = {
+          ...cur,
+          name_en: name_en ?? cur.name_en,
+          name_ar: name_ar !== undefined ? name_ar : cur.name_ar,
+          category: category ?? cur.category,
+          video_url: video_url ?? cur.video_url,
+          video_url_720p: video_url_720p ?? cur.video_url_720p,
+          video_url_480p: video_url_480p !== undefined ? video_url_480p : cur.video_url_480p,
+          poster_url: poster_url !== undefined ? poster_url : cur.poster_url,
+          size_bytes: size_bytes !== undefined && size_bytes !== null ? Number(size_bytes) : cur.size_bytes,
+          duration_seconds: duration_seconds !== undefined && duration_seconds !== null ? Number(duration_seconds) : cur.duration_seconds,
+          renditions,
+          storage_paths,
+          attribution: attribution !== undefined ? attribution : cur.attribution,
+          source_url: source_url !== undefined ? source_url : cur.source_url,
+          creator: creator !== undefined ? creator : cur.creator,
+          license_name: license_name !== undefined ? license_name : cur.license_name,
+          license_url: license_url !== undefined ? license_url : cur.license_url,
+          date_checked: date_checked !== undefined ? date_checked : cur.date_checked,
+          attribution_required: attribution_required !== undefined && attribution_required !== null ? Boolean(attribution_required) : cur.attribution_required,
+          sort_order: sort_order !== undefined && sort_order !== null ? Number(sort_order) : cur.sort_order,
+          is_active: is_active !== undefined && is_active !== null ? Boolean(is_active) : cur.is_active,
+          is_draft: is_draft !== undefined && is_draft !== null ? Boolean(is_draft) : cur.is_draft,
+          is_premium: is_premium !== undefined && is_premium !== null ? Boolean(is_premium) : cur.is_premium,
+        };
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+        return { rowCount: 1, rows: [serverStore.backgrounds[idx]] };
+      }
+      return { rowCount: 0, rows: [] };
+    }
+    if (qStr.startsWith('DELETE FROM backgrounds')) {
+      const id = params[0];
+      const before = serverStore.backgrounds.length;
+      serverStore.backgrounds = serverStore.backgrounds.filter(b => b.id !== id);
+      if (serverStore.backgrounds.length !== before) {
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+      }
+      return { rowCount: before - serverStore.backgrounds.length, rows: [] };
     }
   }
 
