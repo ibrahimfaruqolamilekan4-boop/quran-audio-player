@@ -7,15 +7,15 @@ import {
   HighLatitudeRule,
 } from 'adhan';
 import {
-  UserLocation,
+  type UserLocation,
   POPULAR_GLOBAL_CITIES,
   DEFAULT_LOCATION,
   getDefaultCalculationMethod,
   calculateDistanceKm,
 } from './location';
 
+export type { UserLocation };
 export {
-  UserLocation,
   POPULAR_GLOBAL_CITIES,
   DEFAULT_LOCATION,
   getDefaultCalculationMethod,

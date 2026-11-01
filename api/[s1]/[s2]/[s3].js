@@ -20201,1262 +20201,6 @@ var require_main3 = __commonJS({
 // backend/auth/signup.ts
 init_lib();
 import crypto3 from "node:crypto";
-var handler = async (req, res) => {
-  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
-  try {
-    const body = await readJson(req);
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body.password === "string" ? body.password : "";
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!validEmail(email)) return sendJson(res, 400, { error: "Please enter a valid email address." });
-    if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
-    const existing = await q("SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1", [email]);
-    if (existing.rows[0] && !existing.rows[0].password_hash) {
-      const row = existing.rows[0];
-      const displayName2 = name || row.display_name;
-      await q(
-        "UPDATE users SET password_hash = $1, display_name = $2, last_login_at = now() WHERE uid = $3",
-        [hashPassword(password), displayName2, row.uid]
-      );
-      const user2 = mapUser({ ...row, display_name: displayName2 });
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user2), isSecureRequest(req)));
-      return sendJson(res, 200, { user: user2 });
-    }
-    if (existing.rows[0]) return sendJson(res, 409, { error: "An account with this email already exists. Please sign in instead." });
-    const uid = crypto3.randomUUID();
-    const role = email === adminEmail() ? "admin" : "user";
-    const displayName = name || email.split("@")[0];
-    await q(
-      "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
-      [uid, email, hashPassword(password), displayName, role]
-    );
-    await q("INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING", [uid]);
-    const user = { uid, email, displayName, photoURL: null, role };
-    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), isSecureRequest(req)));
-    return sendJson(res, 201, { user });
-  } catch (err) {
-    console.error("signup failed:", err);
-    return sendJson(res, 500, { error: "Could not create your account. Please try again." });
-  }
-};
-var signup_default = handler;
-
-// backend/auth/login.ts
-init_lib();
-import crypto4 from "node:crypto";
-var handler2 = async (req, res) => {
-  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
-  try {
-    const body = await readJson(req);
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body.password === "string" ? body.password : "";
-    if (!validEmail(email)) return sendJson(res, 400, { error: "Please enter a valid email address." });
-    let row;
-    try {
-      const { rows } = await q(
-        "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1",
-        [email]
-      );
-      row = rows[0];
-    } catch (e) {
-      console.warn("DB query in login fallback notice:", e);
-    }
-    if (!row && email === adminEmail()) {
-      row = {
-        uid: "usr_admin_ibrahim",
-        email: adminEmail(),
-        password_hash: null,
-        display_name: "Ibrahim Faruq (Admin)",
-        photo_url: null,
-        role: "admin"
-      };
-    }
-    if (!row && isNeonFallbackActive() && password.length >= 4) {
-      const uid = `usr_${crypto4.randomUUID().slice(0, 8)}`;
-      const displayName = email.split("@")[0];
-      const role = email === adminEmail() ? "admin" : "user";
-      const passHash = hashPassword(password);
-      await q(
-        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
-        [uid, email, passHash, displayName, role]
-      );
-      const restoredUser = { uid, email, displayName, photoURL: null, role };
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(restoredUser), isSecureRequest(req)));
-      return sendJson(res, 200, { user: restoredUser });
-    }
-    if (!row) {
-      return sendJson(res, 401, { error: "Incorrect email or password." });
-    }
-    if (!row.password_hash) {
-      try {
-        await q("UPDATE users SET password_hash = $1, last_login_at = now() WHERE uid = $2", [hashPassword(password), row.uid]);
-      } catch (e) {
-        console.warn("Password save notice:", e);
-      }
-      const mapped2 = mapUser(row);
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped2), isSecureRequest(req)));
-      return sendJson(res, 200, { user: mapped2 });
-    }
-    if (!verifyPassword(password, row.password_hash)) {
-      return sendJson(res, 401, { error: "Incorrect email or password." });
-    }
-    try {
-      await q("UPDATE users SET last_login_at = now() WHERE uid = $1", [row.uid]);
-    } catch {
-    }
-    const mapped = mapUser(row);
-    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
-    return sendJson(res, 200, { user: mapped });
-  } catch (err) {
-    console.error("login failed:", err);
-    return sendJson(res, 500, { error: err?.message || "Could not sign you in. Please try again." });
-  }
-};
-var login_default = handler2;
-
-// backend/auth/logout.ts
-init_lib();
-var handler3 = async (req, res) => {
-  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
-  res.setHeader("Set-Cookie", clearedSessionCookie(isSecureRequest(req)));
-  sendJson(res, 200, { ok: true });
-};
-var logout_default = handler3;
-
-// backend/auth/me.ts
-init_lib();
-var handler4 = async (req, res) => {
-  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
-  try {
-    const user = await getAuthUser(req);
-    sendJson(res, 200, { user });
-  } catch (err) {
-    console.error("me failed:", err);
-    sendJson(res, 500, { error: "Could not load your session." });
-  }
-};
-var me_default = handler4;
-
-// backend/me/preferences.ts
-init_lib();
-var DEFAULT_PREFERENCES = {
-  theme: "midnight-scholar",
-  activeBackgroundVideoId: null,
-  ambientVideoMapping: {}
-};
-function parseMapping(raw) {
-  if (!raw) return {};
-  if (typeof raw === "object" && raw !== null) return raw;
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") return parsed;
-    } catch {
-    }
-  }
-  return {};
-}
-var handler5 = async (req, res) => {
-  try {
-    const user = await requireAuth(req, res);
-    if (!user) return;
-    if (req.method === "GET") {
-      let r;
-      try {
-        const { rows } = await q(
-          `INSERT INTO user_preferences (user_uid) VALUES ($1)
-           ON CONFLICT (user_uid) DO UPDATE SET user_uid = EXCLUDED.user_uid
-           RETURNING theme, active_background_video_id, ambient_video_mapping`,
-          [user.uid]
-        );
-        r = rows?.[0];
-      } catch (dbErr) {
-        console.warn("Could not query user_preferences with INSERT RETURNING, trying SELECT:", dbErr);
-        try {
-          const { rows } = await q(
-            "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
-            [user.uid]
-          );
-          r = rows?.[0];
-        } catch {
-        }
-      }
-      const theme = r?.theme || DEFAULT_PREFERENCES.theme;
-      const activeBackgroundVideoId = r?.active_background_video_id ?? DEFAULT_PREFERENCES.activeBackgroundVideoId;
-      const ambientVideoMapping = parseMapping(r?.ambient_video_mapping);
-      return sendJson(res, 200, {
-        preferences: {
-          theme,
-          activeBackgroundVideoId,
-          ambientVideoMapping
-        }
-      });
-    }
-    if (req.method === "PUT" || req.method === "POST") {
-      const body = await readJson(req) || {};
-      let base = {};
-      try {
-        const { rows: current } = await q(
-          "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
-          [user.uid]
-        );
-        base = current?.[0] || {};
-      } catch {
-      }
-      const theme = typeof body.theme === "string" ? body.theme : base.theme || DEFAULT_PREFERENCES.theme;
-      const activeVideoId = "activeBackgroundVideoId" in body ? typeof body.activeBackgroundVideoId === "string" ? body.activeBackgroundVideoId : null : base.active_background_video_id ?? null;
-      const mapping = "ambientVideoMapping" in body && typeof body.ambientVideoMapping === "object" && body.ambientVideoMapping ? body.ambientVideoMapping : parseMapping(base.ambient_video_mapping);
-      try {
-        await q(
-          `INSERT INTO user_preferences (user_uid, theme, active_background_video_id, ambient_video_mapping, updated_at)
-           VALUES ($1, $2, $3, $4, now())
-           ON CONFLICT (user_uid)
-           DO UPDATE SET theme = EXCLUDED.theme,
-                         active_background_video_id = EXCLUDED.active_background_video_id,
-                         ambient_video_mapping = EXCLUDED.ambient_video_mapping,
-                         updated_at = now()`,
-          [user.uid, theme, activeVideoId, JSON.stringify(mapping)]
-        );
-      } catch (saveErr) {
-        console.warn("Failed to persist preferences to db:", saveErr);
-      }
-      return sendJson(res, 200, {
-        preferences: {
-          theme,
-          activeBackgroundVideoId: activeVideoId,
-          ambientVideoMapping: mapping
-        }
-      });
-    }
-    return sendJson(res, 405, { error: "Method not allowed" });
-  } catch (err) {
-    console.error("preferences handler error:", err);
-    return sendJson(res, 200, { preferences: DEFAULT_PREFERENCES });
-  }
-};
-var preferences_default = handler5;
-
-// backend/me/premium-status.ts
-init_lib();
-var handler6 = async (req, res) => {
-  if (req.method !== "GET") {
-    return sendJson(res, 405, { error: "Method not allowed" });
-  }
-  try {
-    const user = await getAuthUser(req);
-    if (!user) {
-      return sendJson(res, 200, {
-        authenticated: false,
-        is_premium: false,
-        subscription_plan: "free",
-        premium_expires_at: null,
-        can_download: false
-      });
-    }
-    const isExpired = user.premium_expires_at ? new Date(user.premium_expires_at).getTime() < Date.now() : false;
-    const isPremium = Boolean((user.is_premium || user.role === "admin" || user.subscription_plan === "lifetime") && !isExpired);
-    return sendJson(res, 200, {
-      authenticated: true,
-      uid: user.uid,
-      is_premium: isPremium,
-      subscription_plan: user.subscription_plan || (user.role === "admin" ? "lifetime" : "free"),
-      premium_expires_at: user.premium_expires_at || null,
-      can_download: isPremium
-    });
-  } catch (err) {
-    console.error("premium-status check failed:", err);
-    return sendJson(res, 500, { error: "Failed to verify premium status." });
-  }
-};
-var premium_status_default = handler6;
-
-// backend/me/reciters.ts
-init_lib();
-
-// backend/media-lib.mjs
-init_lib();
-var MAX_INLINE_MEDIA_CHARS = 25e7;
-var MAX_INLINE_IMAGE_CHARS = 5e6;
-var DATA_IMAGE_RE = /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=\s]+$/;
-var DATA_VIDEO_RE = /^data:video\/(mp4|webm|quicktime|ogg);base64,[A-Za-z0-9+/=\s]+$/;
-function readJsonLarge(req, limit = MAX_INLINE_MEDIA_CHARS) {
-  const pre = req.body;
-  if (pre && typeof pre === "object" && Object.keys(pre).length > 0) return Promise.resolve(pre);
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (chunk) => {
-      data += chunk;
-      if (data.length > limit) {
-        reject(new Error("Body too large"));
-        req.destroy();
-      }
-    });
-    req.on("end", () => {
-      if (!data) return resolve({});
-      try {
-        resolve(JSON.parse(data));
-      } catch {
-        reject(new Error("Invalid JSON body"));
-      }
-    });
-    req.on("error", reject);
-  });
-}
-function parseInline(value, re, maxChars) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!url || url.length > maxChars) return null;
-  return re.test(url) ? url : null;
-}
-function cleanPortableImageUrl(value) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!url) return null;
-  const inline = parseInline(url, DATA_IMAGE_RE, MAX_INLINE_IMAGE_CHARS);
-  if (inline) return inline;
-  if (url.startsWith("/") && url.length <= 2048) return url;
-  if (url.length > 2048) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-function cleanPortableVideoUrl(value) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!url) return null;
-  const inline = parseInline(url, DATA_VIDEO_RE, MAX_INLINE_MEDIA_CHARS);
-  if (inline) return inline;
-  if (url.startsWith("/") && url.length <= 2048) return url;
-  if (url.length > 2048) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
-var tableReady = false;
-async function ensureMediaTable() {
-  if (tableReady) return;
-  try {
-    await q(`
-      CREATE TABLE IF NOT EXISTS global_media (
-        id         TEXT PRIMARY KEY,
-        kind       TEXT NOT NULL,
-        mime_type  TEXT NOT NULL,
-        data_url   TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
-    await q(`
-      CREATE TABLE IF NOT EXISTS global_media_chunks (
-        upload_id   TEXT NOT NULL,
-        chunk_index INT NOT NULL,
-        chunk_data  TEXT NOT NULL,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (upload_id, chunk_index)
-      )
-    `);
-    tableReady = true;
-  } catch (err) {
-    console.warn("Media table initialization note:", err?.message || err);
-  }
-}
-async function saveInlineMedia(dataUrl, kind, customId) {
-  const match = /^data:([^;,]+);base64,/.exec(dataUrl);
-  const mimeType = match ? match[1] : kind === "video" ? "video/mp4" : "image/jpeg";
-  const normalizedDataUrl = match ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
-  await ensureMediaTable();
-  const id = customId || `media_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  await q(
-    "INSERT INTO global_media (id, kind, mime_type, data_url, created_at) VALUES ($1, $2, $3, $4, now()) ON CONFLICT (id) DO UPDATE SET data_url = EXCLUDED.data_url, mime_type = EXCLUDED.mime_type",
-    [id, kind, mimeType, normalizedDataUrl]
-  );
-  return { id, mimeType };
-}
-async function saveMediaChunk(uploadId, chunkIndex, chunkData) {
-  await ensureMediaTable();
-  await q(
-    "INSERT INTO global_media_chunks (upload_id, chunk_index, chunk_data, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (upload_id, chunk_index) DO UPDATE SET chunk_data = EXCLUDED.chunk_data",
-    [uploadId, Number(chunkIndex), String(chunkData || "")]
-  );
-}
-async function assembleMediaChunks(uploadId, mimeType, kind, customId) {
-  await ensureMediaTable();
-  const { rows } = await q(
-    "SELECT chunk_index, chunk_data FROM global_media_chunks WHERE upload_id = $1 ORDER BY chunk_index ASC",
-    [uploadId]
-  );
-  if (!rows || rows.length === 0) {
-    throw new Error("No chunks found for upload " + uploadId);
-  }
-  const combinedBase64 = rows.map((r) => r.chunk_data).join("");
-  const cleanBase64 = combinedBase64.includes("base64,") ? combinedBase64.split("base64,")[1] : combinedBase64;
-  const fullDataUrl = `data:${mimeType};base64,${cleanBase64}`;
-  const saved = await saveInlineMedia(fullDataUrl, kind, customId);
-  await q("DELETE FROM global_media_chunks WHERE upload_id = $1", [uploadId]).catch(() => {
-  });
-  return { ...saved, size: Math.floor(cleanBase64.length * 3 / 4) };
-}
-async function getInlineMedia(id) {
-  if (!id) return null;
-  await ensureMediaTable();
-  const { rows } = await q("SELECT mime_type, data_url FROM global_media WHERE id = $1", [id]);
-  return rows[0] || null;
-}
-function streamBufferWithRange(req, res, buffer, mimeType) {
-  const total = buffer.length;
-  const range = req.headers?.range;
-  const commonHeaders = {
-    "Accept-Ranges": "bytes",
-    "Content-Type": mimeType || "application/octet-stream",
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "Access-Control-Allow-Origin": "*"
-  };
-  if (range) {
-    const parts = String(range).replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? Math.min(parseInt(parts[1], 10), total - 1) : total - 1;
-    if (isNaN(start) || isNaN(end) || start >= total || end >= total || start > end) {
-      res.writeHead(416, {
-        ...commonHeaders,
-        "Content-Range": `bytes */${total}`
-      });
-      res.end();
-      return;
-    }
-    const chunkLength = end - start + 1;
-    res.writeHead(206, {
-      ...commonHeaders,
-      "Content-Range": `bytes ${start}-${end}/${total}`,
-      "Content-Length": String(chunkLength)
-    });
-    if (req.method === "HEAD") {
-      res.end();
-      return;
-    }
-    res.end(buffer.subarray(start, end + 1));
-    return;
-  }
-  res.writeHead(200, {
-    ...commonHeaders,
-    "Content-Length": String(total)
-  });
-  if (req.method === "HEAD") {
-    res.end();
-    return;
-  }
-  res.end(buffer);
-}
-
-// backend/me/reciters.ts
-var mapRow = (r) => ({
-  id: r.id,
-  name: r.name,
-  style: r.style ?? "Custom",
-  serverUrl: r.server_url || "",
-  ...r.image_url ? { imageUrl: r.image_url } : {}
-});
-var handler7 = async (req, res) => {
-  try {
-    const user = await requireAuth(req, res);
-    if (!user) return;
-    if (req.method === "GET") {
-      const { rows } = await qWithFallback([
-        {
-          text: "SELECT id, name, style, server_url, image_url FROM custom_reciters WHERE user_uid = $1 ORDER BY created_at",
-          params: [user.uid]
-        },
-        {
-          // custom_reciters.image_url not migrated yet (run `node scripts/apply-schema.mjs`).
-          text: "SELECT id, name, style, server_url FROM custom_reciters WHERE user_uid = $1 ORDER BY created_at",
-          params: [user.uid]
-        }
-      ]);
-      return sendJson(res, 200, { reciters: rows.map(mapRow) });
-    }
-    if (req.method === "POST") {
-      const body = await readJsonLarge(req);
-      const name = typeof body.name === "string" ? body.name.trim() : "";
-      const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
-      const style = typeof body.style === "string" ? body.style : "Custom";
-      const imageUrl = cleanImageUrl(body.imageUrl);
-      const id = typeof body.id === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id) ? body.id : `custom_${Date.now()}`;
-      if (!name) return sendJson(res, 400, { error: "Reciter name is required." });
-      await qWithFallback([
-        {
-          text: `INSERT INTO custom_reciters (id, user_uid, name, style, server_url, image_url)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, style = EXCLUDED.style,
-                   server_url = EXCLUDED.server_url, image_url = EXCLUDED.image_url`,
-          params: [id, user.uid, name, style, serverUrl, imageUrl]
-        },
-        {
-          text: `INSERT INTO custom_reciters (id, user_uid, name, style, server_url)
-                 VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, style = EXCLUDED.style,
-                   server_url = EXCLUDED.server_url`,
-          params: [id, user.uid, name, style, serverUrl]
-        }
-      ]);
-      return sendJson(res, 201, { reciter: { id, name, style, serverUrl, ...imageUrl ? { imageUrl } : {} } });
-    }
-    return sendJson(res, 405, { error: "Method not allowed" });
-  } catch (err) {
-    console.error("custom reciters failed:", err);
-    return sendJson(res, 500, { error: "Could not save reciter." });
-  }
-};
-var reciters_default = handler7;
-
-// backend/me/reciters/[id].ts
-init_lib();
-var handler8 = async (req, res) => {
-  try {
-    const user = await requireAuth(req, res);
-    if (!user) return;
-    if (req.method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" });
-    const id = apiPath(req)[2];
-    if (!id) return sendJson(res, 400, { error: "Missing reciter id" });
-    await q("DELETE FROM custom_reciters WHERE id = $1 AND user_uid = $2", [id, user.uid]);
-    return sendJson(res, 200, { ok: true });
-  } catch (err) {
-    console.error("delete reciter failed:", err);
-    return sendJson(res, 500, { error: "Could not delete reciter." });
-  }
-};
-var id_default = handler8;
-
-// backend/admin/overview.ts
-init_lib();
-var handler9 = async (req, res) => {
-  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
-  try {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    const [users, reciters, ambient] = await Promise.all([
-      q('SELECT uid AS "userId", email, display_name AS "displayName", photo_url AS "photoURL", role, created_at AS "createdAt", last_login_at AS "lastLoginAt" FROM users ORDER BY created_at DESC'),
-      // Falls back to a query without image_url until `node scripts/apply-schema.mjs` runs.
-      qWithFallback([
-        { text: 'SELECT id, name, style, server_url AS "serverUrl", image_url AS "imageUrl" FROM global_reciters ORDER BY updated_at DESC' },
-        { text: 'SELECT id, name, style, server_url AS "serverUrl" FROM global_reciters ORDER BY updated_at DESC' }
-      ]),
-      q('SELECT id, video_url AS "videoUrl" FROM ambient_sounds')
-    ]);
-    const ambientSounds = {};
-    for (const row of ambient.rows) {
-      ambientSounds[row.id] = row.videoUrl ?? "";
-    }
-    sendJson(res, 200, { users: users.rows, globalReciters: reciters.rows, ambientSounds });
-  } catch (err) {
-    console.error("admin overview failed:", err);
-    sendJson(res, 500, { error: "Could not load admin data." });
-  }
-};
-var overview_default = handler9;
-
-// backend/admin/reciters.ts
-init_lib();
-var handler10 = async (req, res) => {
-  if (req.method !== "POST" && req.method !== "DELETE") {
-    return sendJson(res, 405, { error: "Method not allowed" });
-  }
-  try {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    const body = await readJsonLarge(req);
-    if (req.method === "DELETE" || body.action === "delete") {
-      const targetId = typeof body.id === "string" ? body.id.trim() : "";
-      if (!targetId) return sendJson(res, 400, { error: "Reciter ID is required." });
-      await q("DELETE FROM global_reciters WHERE id = $1", [targetId]);
-      return sendJson(res, 200, { ok: true, id: targetId });
-    }
-    const rawId = typeof body.id === "string" ? body.id.trim() : "";
-    const id = /^[a-zA-Z0-9_.-]{1,128}$/.test(rawId) ? rawId : `global_${Date.now()}`;
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    const nameArabic = typeof body.nameArabic === "string" ? body.nameArabic.trim() : "";
-    const category = typeof body.category === "string" ? body.category.trim() : "";
-    const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
-    const rawImage = cleanImageUrl(body.imageUrl);
-    const imageUrl = rawImage ? rawImage.replace(/^https?:\/\/localhost(:\d+)?/, "") : null;
-    const bio = typeof body.bio === "string" ? body.bio.trim() : "";
-    if (!name && !imageUrl && !serverUrl && !bio) {
-      return sendJson(res, 400, { error: "Reciter details (name, photo, bio, or server URL) are required." });
-    }
-    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT").catch(() => {
-    });
-    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT").catch(() => {
-    });
-    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT").catch(() => {
-    });
-    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT").catch(() => {
-    });
-    await qWithFallback([
-      {
-        text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, name_arabic, category, bio, updated_at)
-               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), now())
-               ON CONFLICT (id) DO UPDATE SET 
-                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
-                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
-                 image_url = CASE WHEN $4 IS NOT NULL THEN $4 ELSE global_reciters.image_url END,
-                 name_arabic = CASE WHEN $5 <> '' THEN $5 ELSE global_reciters.name_arabic END,
-                 category = CASE WHEN $6 <> '' THEN $6 ELSE global_reciters.category END,
-                 bio = CASE WHEN $7 <> '' THEN $7 ELSE global_reciters.bio END,
-                 updated_at = now()`,
-        params: [id, name, serverUrl, imageUrl, nameArabic, category, bio]
-      },
-      {
-        text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, updated_at)
-               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, now())
-               ON CONFLICT (id) DO UPDATE SET 
-                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
-                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
-                 image_url = CASE WHEN $4 IS NOT NULL THEN $4 ELSE global_reciters.image_url END,
-                 updated_at = now()`,
-        params: [id, name, serverUrl, imageUrl]
-      },
-      {
-        text: `INSERT INTO global_reciters (id, name, style, server_url, updated_at)
-               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, now())
-               ON CONFLICT (id) DO UPDATE SET 
-                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
-                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
-                 updated_at = now()`,
-        params: [id, name, serverUrl]
-      }
-    ]);
-    return sendJson(res, 201, {
-      reciter: {
-        id,
-        name: name || id,
-        ...nameArabic ? { nameArabic } : {},
-        style: "Custom Global",
-        ...category ? { category } : {},
-        serverUrl: serverUrl || null,
-        ...imageUrl ? { imageUrl } : {},
-        ...bio ? { bio } : {}
-      }
-    });
-  } catch (err) {
-    console.error("admin reciters failed:", err);
-    return sendJson(res, 500, { error: "Could not save global reciter." });
-  }
-};
-var reciters_default2 = handler10;
-
-// backend/admin/role.ts
-init_lib();
-import crypto5 from "node:crypto";
-var handler11 = async (req, res) => {
-  if (req.method !== "PUT" && req.method !== "POST") {
-    return sendJson(res, 405, { error: "Method not allowed" });
-  }
-  try {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    const body = await readJson(req);
-    if (req.method === "POST") {
-      const action = typeof body.action === "string" ? body.action : "add_user";
-      if (action === "delete_user") {
-        const userId2 = typeof body.userId === "string" ? body.userId : "";
-        if (!userId2) return sendJson(res, 400, { error: "userId is required" });
-        await q("DELETE FROM users WHERE uid = $1", [userId2]);
-        return sendJson(res, 200, { ok: true });
-      }
-      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-      const displayName = typeof body.displayName === "string" && body.displayName.trim() ? body.displayName.trim() : email.split("@")[0];
-      const role2 = body.role === "admin" || email === adminEmail() ? "admin" : "user";
-      if (!validEmail(email)) {
-        return sendJson(res, 400, { error: "Please enter a valid email address." });
-      }
-      const uid = `usr_${crypto5.randomUUID().slice(0, 8)}`;
-      await q(
-        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name, role = EXCLUDED.role",
-        [uid, email, null, displayName, role2]
-      );
-      const { rows } = await q(
-        'SELECT uid AS "userId", email, display_name AS "displayName", photo_url AS "photoURL", role, created_at AS "createdAt", last_login_at AS "lastLoginAt" FROM users ORDER BY created_at DESC LIMIT 200'
-      );
-      return sendJson(res, 200, { ok: true, users: rows });
-    }
-    const userId = typeof body.userId === "string" ? body.userId : "";
-    const role = body.role === "admin" ? "admin" : body.role === "user" ? "user" : null;
-    if (!userId || !role) return sendJson(res, 400, { error: "userId and a valid role are required." });
-    await q("UPDATE users SET role = $1 WHERE uid = $2", [role, userId]);
-    return sendJson(res, 200, { ok: true });
-  } catch (err) {
-    console.error("admin role update failed:", err);
-    return sendJson(res, 500, { error: "Could not update user." });
-  }
-};
-var role_default = handler11;
-
-// backend/admin/ambient.ts
-init_lib();
-async function ensureTable() {
-  await q(`
-    CREATE TABLE IF NOT EXISTS global_background_videos (
-      id          TEXT PRIMARY KEY,
-      name        TEXT NOT NULL,
-      video_url   TEXT NOT NULL,
-      description TEXT,
-      is_default  BOOLEAN DEFAULT false,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-}
-function sanitizeGlobalVideoUrl(raw) {
-  if (typeof raw !== "string") return null;
-  const trimmed = raw.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
-  if (!trimmed) return null;
-  if (trimmed.startsWith("blob:") || trimmed.startsWith("custom_vid_") || trimmed.startsWith("upload_")) {
-    return null;
-  }
-  return trimmed;
-}
-var handler12 = async (req, res) => {
-  if (req.method !== "PUT" && req.method !== "POST") {
-    return sendJson(res, 405, { error: "Method not allowed" });
-  }
-  try {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    const body = await readJsonLarge(req);
-    if (req.method === "PUT") {
-      const sounds = body.sounds && typeof body.sounds === "object" ? body.sounds : {};
-      for (const [id, url] of Object.entries(sounds)) {
-        if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) continue;
-        const videoUrl = sanitizeGlobalVideoUrl(url);
-        await q(
-          `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
-           VALUES ($1, $1, $2, now())
-           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
-          [id, videoUrl]
-        );
-      }
-      return sendJson(res, 200, { ok: true });
-    }
-    if (req.method === "POST") {
-      await ensureTable().catch(() => {
-      });
-      const action = body.action;
-      if (action === "add_video") {
-        const name = typeof body.name === "string" ? body.name.trim() : "";
-        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
-        const description = typeof body.description === "string" ? body.description.trim() : null;
-        const isDefault = Boolean(body.isDefault);
-        if (!name || !videoUrl) {
-          return sendJson(res, 400, { error: "Name and a portable video URL are required." });
-        }
-        const id = typeof body.id === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id) ? body.id : `bg_vid_${Date.now()}`;
-        if (isDefault) {
-          await q("UPDATE global_background_videos SET is_default = false");
-          await q(
-            `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
-             VALUES ('default', 'Default Video', $1, now())
-             ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
-            [videoUrl]
-          );
-        }
-        await q(
-          `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
-           VALUES ($1, $2, $3, $4, $5, now())
-           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
-          [id, name, videoUrl, description, isDefault]
-        );
-        return sendJson(res, 201, { video: { id, name, videoUrl, description, isDefault } });
-      }
-      if (action === "delete_video") {
-        const id = typeof body.id === "string" ? body.id : "";
-        if (!id) return sendJson(res, 400, { error: "Video ID required" });
-        await q("DELETE FROM global_background_videos WHERE id = $1", [id]);
-        return sendJson(res, 200, { ok: true });
-      }
-      if (action === "set_default") {
-        const id = typeof body.id === "string" ? body.id : "";
-        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
-        if (!id && !videoUrl) return sendJson(res, 400, { error: "Video ID or portable URL required" });
-        if (id) {
-          await q("UPDATE global_background_videos SET is_default = (id = $1)", [id]);
-        }
-        if (videoUrl) {
-          await q(
-            `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
-             VALUES ('default', 'Default Video', $1, now())
-             ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
-            [videoUrl]
-          );
-        }
-        return sendJson(res, 200, { ok: true });
-      }
-      return sendJson(res, 400, { error: "Unknown action" });
-    }
-  } catch (err) {
-    console.error("admin ambient failed:", err);
-    return sendJson(res, 500, { error: err?.message || "Could not save ambient settings." });
-  }
-};
-var ambient_default = handler12;
-
-// backend/admin/media.ts
-init_lib();
-var KINDS = /* @__PURE__ */ new Set(["image", "video"]);
-var handler13 = async (req, res) => {
-  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
-  try {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-    let body;
-    try {
-      body = await readJsonLarge(req);
-    } catch (err) {
-      return sendJson(res, 413, { error: err?.message || "Upload too large" });
-    }
-    const kind = KINDS.has(body.kind) ? body.kind : "image";
-    const dataUrl = kind === "image" ? cleanPortableImageUrl(body.dataUrl) : cleanPortableVideoUrl(body.dataUrl);
-    if (!dataUrl) return sendJson(res, 400, { error: "A valid image or video payload is required." });
-    if (!dataUrl.startsWith("data:")) return sendJson(res, 200, { ok: true, url: dataUrl });
-    const saved = await saveInlineMedia(dataUrl, kind);
-    return sendJson(res, 201, { ok: true, id: saved.id, url: `/api/media/${saved.id}` });
-  } catch (err) {
-    console.error("admin media upload failed:", err);
-    return sendJson(res, 500, { error: "Could not store that upload." });
-  }
-};
-var media_default = handler13;
-
-// backend/media/[id].ts
-init_lib();
-import fs2 from "node:fs";
-import path2 from "node:path";
-var UPLOADS_DIR = path2.resolve(process.cwd(), "public/videos/uploads");
-var PUBLIC_VIDEOS_DIR = path2.resolve(process.cwd(), "public/videos");
-var handler14 = async (req, res) => {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    return sendJson(res, 405, { error: "Method not allowed" });
-  }
-  const url = (req.url || "").split("?")[0];
-  const id = decodeURIComponent(url.replace(/^\/api\/media\//, ""));
-  if (!/^[A-Za-z0-9_.-]{1,128}$/.test(id)) {
-    return sendJson(res, 400, { error: "Invalid media id" });
-  }
-  try {
-    const row = await getInlineMedia(id);
-    if (row && row.data_url) {
-      const base64 = String(row.data_url).includes(",") ? String(row.data_url).split(",")[1] : String(row.data_url);
-      const buffer = Buffer.from(base64, "base64");
-      streamBufferWithRange(req, res, buffer, row.mime_type || "application/octet-stream");
-      return;
-    }
-    const safeName = path2.basename(id);
-    for (const dir of [UPLOADS_DIR, PUBLIC_VIDEOS_DIR]) {
-      const candidate = path2.join(dir, safeName);
-      if (fs2.existsSync(candidate)) {
-        const buffer = fs2.readFileSync(candidate);
-        const ext = path2.extname(safeName).toLowerCase();
-        const mimeType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".mov" ? "video/quicktime" : ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
-        streamBufferWithRange(req, res, buffer, mimeType);
-        return;
-      }
-    }
-    return sendJson(res, 404, { error: "Not found" });
-  } catch (err) {
-    console.error("media fetch failed:", err);
-    return sendJson(res, 500, { error: "Could not load that asset." });
-  }
-};
-var id_default2 = handler14;
-
-// backend/health.mjs
-async function handler15(_req, res) {
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/json");
-  const health = {
-    ok: true,
-    functionRuntime: "node",
-    databaseUrl: Boolean(process.env.DATABASE_URL),
-    authSecret: Boolean(process.env.AUTH_SECRET),
-    supabaseUrl: Boolean(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
-    supabaseAnonKey: Boolean(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY),
-    supabaseServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-    flwConfigured: Boolean(process.env.FLW_SECRET_KEY),
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  try {
-    const { getPool: getPool2, syncStoreFromCloud: syncStoreFromCloud2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
-    const pool2 = await getPool2();
-    await pool2.query("SELECT 1");
-    health.database = "reachable";
-  } catch (err) {
-    try {
-      const { syncStoreFromCloud: syncStoreFromCloud2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
-      await syncStoreFromCloud2(true);
-      health.ok = true;
-      health.database = "cloud-store-active";
-      health.neonNotice = err && err.message ? err.message.slice(0, 200) : "quota fallback active";
-    } catch (cloudErr) {
-      health.ok = false;
-      health.database = "error";
-      health.databaseError = err && err.message ? err.message.slice(0, 200) : "unknown error";
-    }
-  }
-  res.end(JSON.stringify(health));
-}
-
-// backend/reciters.ts
-init_lib();
-function sanitizePublicImageUrl(url) {
-  if (!url || typeof url !== "string") return void 0;
-  const trimmed = url.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
-  if (!trimmed) return void 0;
-  return trimmed;
-}
-var handler16 = async (_req, res) => {
-  try {
-    const { rows } = await qWithFallback([
-      { text: "SELECT id, name, name_arabic, style, category, bio, server_url, image_url FROM global_reciters" },
-      { text: "SELECT id, name, style, server_url, image_url FROM global_reciters" },
-      { text: "SELECT id, name, style, server_url FROM global_reciters" }
-    ]);
-    return sendJson(res, 200, {
-      reciters: rows.map((r) => {
-        const cleanImg = sanitizePublicImageUrl(r.image_url);
-        return {
-          id: r.id,
-          name: r.name,
-          ...r.name_arabic ? { nameArabic: r.name_arabic } : {},
-          style: r.style ?? null,
-          ...r.category ? { category: r.category } : {},
-          ...r.bio ? { bio: r.bio } : {},
-          serverUrl: r.server_url ?? null,
-          ...cleanImg ? { imageUrl: cleanImg } : {}
-        };
-      })
-    });
-  } catch (err) {
-    console.warn("public reciters unavailable, using fallback:", err?.message || String(err));
-    return sendJson(res, 200, { reciters: [] });
-  }
-};
-var reciters_default3 = handler16;
-
-// backend/ambient.ts
-init_lib();
-
-// backend/backgrounds.ts
-init_lib();
-async function ensureBackgroundsTable() {
-  await q(`
-    CREATE TABLE IF NOT EXISTS backgrounds (
-      id          TEXT PRIMARY KEY,
-      name_en     TEXT NOT NULL,
-      name_ar     TEXT,
-      category    TEXT NOT NULL,
-      video_url   TEXT NOT NULL,
-      poster_url  TEXT,
-      size_bytes  BIGINT DEFAULT 0,
-      sort_order  INT DEFAULT 0,
-      is_active   BOOLEAN DEFAULT true,
-      is_premium  BOOLEAN DEFAULT false,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-  await q(`
-    CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON backgrounds (is_active, sort_order ASC, created_at DESC)
-  `).catch(() => {
-  });
-}
-var handler17 = async (req, res) => {
-  if (req.method !== "GET") {
-    return sendJson(res, 405, { error: "Method not allowed" });
-  }
-  try {
-    await ensureBackgroundsTable().catch(() => {
-    });
-    const result = await q(`
-      SELECT id, name_en, name_ar, category, video_url, poster_url, size_bytes, sort_order, is_active, is_premium, created_at
-      FROM backgrounds
-      WHERE is_active = true
-      ORDER BY sort_order ASC, created_at DESC
-    `);
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
-    return sendJson(res, 200, {
-      backgrounds: result.rows || []
-    });
-  } catch (err) {
-    console.error("Failed to load backgrounds:", err);
-    return sendJson(res, 500, { error: "Failed to load backgrounds" });
-  }
-};
-var backgrounds_default = handler17;
-
-// backend/ambient.ts
-function normalizeStoredVideoUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== "string") return null;
-  const url = rawUrl.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
-  if (!url || url.startsWith("blob:")) return null;
-  return url;
-}
-var handler18 = async (req, res) => {
-  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
-  try {
-    await ensureBackgroundsTable().catch(() => {
-    });
-    const ambient = await q(
-      "SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL"
-    );
-    const ambientSounds = {};
-    let activeDefaultVideoUrl = null;
-    for (const row of ambient.rows) {
-      const validUrl = normalizeStoredVideoUrl(row.video_url);
-      if (validUrl) {
-        ambientSounds[row.id] = validUrl;
-        if (row.id === "default" || row.id === "active" || row.id === "global") {
-          activeDefaultVideoUrl = validUrl;
-        }
-      }
-    }
-    const videos = [];
-    try {
-      const bgRes = await q(
-        "SELECT id, name_en, video_url, poster_url, sort_order, is_active FROM backgrounds WHERE is_active = true ORDER BY sort_order ASC, created_at DESC"
-      );
-      for (const r of bgRes.rows) {
-        const validUrl = normalizeStoredVideoUrl(r.video_url);
-        if (validUrl) {
-          videos.push({
-            id: r.id,
-            name: r.name_en,
-            videoUrl: validUrl,
-            posterUrl: r.poster_url || void 0,
-            isDefault: videos.length === 0
-          });
-        }
-      }
-    } catch (e) {
-      console.warn("backgrounds table query note:", e);
-    }
-    try {
-      const vidRes = await q(
-        "SELECT id, name, video_url, description, is_default FROM global_background_videos ORDER BY is_default DESC, created_at DESC"
-      );
-      for (const r of vidRes.rows) {
-        const validUrl = normalizeStoredVideoUrl(r.video_url);
-        if (validUrl && !videos.some((v) => v.videoUrl === validUrl)) {
-          videos.push({
-            id: r.id,
-            name: r.name,
-            videoUrl: validUrl,
-            description: r.description || void 0,
-            isDefault: Boolean(r.is_default)
-          });
-        }
-      }
-    } catch {
-    }
-    const defVid = videos.find((v) => v.isDefault) || videos[0];
-    if (defVid && !activeDefaultVideoUrl) {
-      activeDefaultVideoUrl = defVid.videoUrl;
-    }
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
-    return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
-  } catch (err) {
-    return sendJson(res, 200, {
-      ambientSounds: {},
-      videos: [],
-      activeDefaultVideoUrl: null
-    });
-  }
-};
-var ambient_default2 = handler18;
-
-// backend/media.ts
-init_lib();
-import fs3 from "node:fs";
-import path3 from "node:path";
-import crypto6 from "node:crypto";
-var UPLOADS_DIR2 = path3.resolve(process.cwd(), "public/videos/uploads");
-function ensureUploadsDir() {
-  try {
-    if (!fs3.existsSync(UPLOADS_DIR2)) {
-      fs3.mkdirSync(UPLOADS_DIR2, { recursive: true });
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function recordVideoInAmbientDb(id, name, publicUrl, isDefault) {
-  try {
-    await q(`
-      CREATE TABLE IF NOT EXISTS global_background_videos (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        video_url   TEXT NOT NULL,
-        description TEXT,
-        is_default  BOOLEAN DEFAULT false,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
-    if (isDefault) {
-      await q("UPDATE global_background_videos SET is_default = false");
-      await q(
-        `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
-         VALUES ('default', 'Default Video', $1, now())
-         ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
-        [publicUrl]
-      );
-    }
-    await q(
-      `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
-       VALUES ($1, $2, $3, $4, $5, now())
-       ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
-      [id, name, publicUrl, "Uploaded by admin", isDefault]
-    );
-  } catch (dbErr) {
-    console.warn("DB recording for video skipped:", dbErr);
-  }
-}
-async function mediaHandler(req, res) {
-  const urlObj = new URL(req.url || "/", "http://localhost");
-  const pathname = urlObj.pathname;
-  if (req.method === "POST") {
-    try {
-      const body = await readJsonLarge(req);
-      const action = typeof body.action === "string" ? body.action : "upload";
-      const filename = typeof body.filename === "string" ? body.filename.trim() : `media_${Date.now()}`;
-      const name = typeof body.name === "string" ? body.name.trim() : filename;
-      const isDefault = Boolean(body.isDefault);
-      const mediaType = typeof body.type === "string" && body.type ? body.type : filename.endsWith(".mp4") ? "video/mp4" : filename.endsWith(".webm") ? "video/webm" : "image/jpeg";
-      const kind = mediaType.startsWith("video") || filename.endsWith(".mp4") || filename.endsWith(".webm") ? "video" : "image";
-      if (action === "chunk") {
-        const uploadId = typeof body.uploadId === "string" ? body.uploadId.trim() : "";
-        const chunkIndex = Number(body.chunkIndex ?? 0);
-        const totalChunks = Number(body.totalChunks ?? 1);
-        const chunkData = typeof body.chunkData === "string" ? body.chunkData : "";
-        if (!uploadId || !chunkData) {
-          return sendJson(res, 400, { error: "Missing uploadId or chunkData." });
-        }
-        await saveMediaChunk(uploadId, chunkIndex, chunkData);
-        const isLastChunk = Boolean(body.finalize) || chunkIndex + 1 >= totalChunks;
-        if (!isLastChunk) {
-          return sendJson(res, 200, {
-            ok: true,
-            chunkIndex,
-            totalChunks,
-            complete: false
-          });
-        }
-        const assembled = await assembleMediaChunks(uploadId, mediaType, kind);
-        const publicUrl2 = `/api/media/${assembled.id}`;
-        if (kind === "video") {
-          await recordVideoInAmbientDb(`bg_vid_${assembled.id}`, name, publicUrl2, isDefault);
-        }
-        return sendJson(res, 201, {
-          ok: true,
-          complete: true,
-          id: assembled.id,
-          url: publicUrl2,
-          name,
-          size: assembled.size,
-          isDefault
-        });
-      }
-      const dataStr = typeof body.data === "string" ? body.data.trim() : "";
-      if (!dataStr) {
-        return sendJson(res, 400, { error: "No media data provided." });
-      }
-      if (dataStr.startsWith("http://") || dataStr.startsWith("https://") || dataStr.startsWith("/api/media/")) {
-        const cleanUrl = dataStr.replace(/^https?:\/\/localhost(:\d+)?/, "");
-        return sendJson(res, 200, {
-          ok: true,
-          id: path3.basename(cleanUrl),
-          url: cleanUrl,
-          name,
-          size: 0,
-          isDefault
-        });
-      }
-      const base64Data = dataStr.includes("base64,") ? dataStr.split("base64,")[1] : dataStr;
-      const buffer = Buffer.from(base64Data, "base64");
-      let ext = path3.extname(filename).toLowerCase();
-      if (!ext) {
-        if (mediaType.includes("mp4")) ext = ".mp4";
-        else if (mediaType.includes("webm")) ext = ".webm";
-        else if (mediaType.includes("png")) ext = ".png";
-        else ext = ".jpg";
-      }
-      const safeId = `media_${kind}_${Date.now()}_${crypto6.randomBytes(4).toString("hex")}`;
-      const safeFilename = `${safeId}${ext}`;
-      const saved = await saveInlineMedia(
-        `data:${mediaType};base64,${base64Data}`,
-        kind,
-        safeId
-      );
-      const publicUrl = `/api/media/${saved.id}`;
-      if (ensureUploadsDir()) {
-        try {
-          fs3.writeFileSync(path3.join(UPLOADS_DIR2, safeFilename), buffer);
-        } catch {
-        }
-      }
-      if (kind === "video") {
-        await recordVideoInAmbientDb(`bg_vid_${saved.id}`, name, publicUrl, isDefault);
-      }
-      return sendJson(res, 201, {
-        ok: true,
-        id: saved.id,
-        url: publicUrl,
-        name,
-        size: buffer.length,
-        isDefault
-      });
-    } catch (err) {
-      console.error("Media upload error:", err);
-      return sendJson(res, 500, { error: err.message || "Failed to upload media." });
-    }
-  }
-  if (req.method === "GET" || req.method === "HEAD") {
-    const fileParam = urlObj.searchParams.get("file") || pathname.replace(/^\/api\/media\/?/, "");
-    if (!fileParam) {
-      return sendJson(res, 400, { error: "Missing file parameter" });
-    }
-    const cleanId = decodeURIComponent(fileParam).replace(/\.[^/.]+$/, "");
-    try {
-      const row = await getInlineMedia(fileParam) || await getInlineMedia(cleanId);
-      if (row && row.data_url) {
-        const base64 = String(row.data_url).includes(",") ? String(row.data_url).split(",")[1] : String(row.data_url);
-        const buffer2 = Buffer.from(base64, "base64");
-        streamBufferWithRange(req, res, buffer2, row.mime_type || "application/octet-stream");
-        return;
-      }
-    } catch (err) {
-      console.warn("DB media lookup fallback:", err);
-    }
-    const safeFilename = path3.basename(fileParam);
-    let filePath = path3.join(UPLOADS_DIR2, safeFilename);
-    if (!fs3.existsSync(filePath)) {
-      const publicVideosPath = path3.resolve(process.cwd(), "public/videos", safeFilename);
-      if (fs3.existsSync(publicVideosPath)) {
-        filePath = publicVideosPath;
-      } else {
-        return sendJson(res, 404, { error: "File not found" });
-      }
-    }
-    const buffer = fs3.readFileSync(filePath);
-    const ext = path3.extname(safeFilename).toLowerCase();
-    const contentType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".png" ? "image/png" : "image/jpeg";
-    streamBufferWithRange(req, res, buffer, contentType);
-    return;
-  }
-  sendJson(res, 405, { error: "Method not allowed" });
-}
-
-// backend/payments/verify.ts
-init_lib();
 
 // node_modules/@supabase/supabase-js/dist/index.mjs
 var dist_exports = {};
@@ -30189,7 +28933,1341 @@ async function listPaymentsAdmin(options) {
   };
 }
 
+// backend/auth/signup.ts
+var handler = async (req, res) => {
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const body = await readJson(req);
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!validEmail(email)) return sendJson(res, 400, { error: "Please enter a valid email address." });
+    if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
+    const existing = await q("SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1", [email]);
+    if (existing.rows[0] && !existing.rows[0].password_hash) {
+      const row = existing.rows[0];
+      const displayName2 = name || row.display_name;
+      await q(
+        "UPDATE users SET password_hash = $1, display_name = $2, last_login_at = now() WHERE uid = $3",
+        [hashPassword(password), displayName2, row.uid]
+      );
+      const sb2 = getSupabaseAdmin();
+      if (sb2) {
+        try {
+          await sb2.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: { full_name: displayName2, name: displayName2 },
+            app_metadata: { role: row.role }
+          });
+        } catch {
+        }
+      }
+      const user2 = mapUser({ ...row, display_name: displayName2 });
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user2), isSecureRequest(req)));
+      return sendJson(res, 200, { user: user2 });
+    }
+    if (existing.rows[0]) return sendJson(res, 409, { error: "An account with this email already exists. Please sign in instead." });
+    let uid = crypto3.randomUUID();
+    const role = email === adminEmail() ? "admin" : "user";
+    const displayName = name || email.split("@")[0];
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data: sbUser, error: sbErr } = await sb.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: displayName, name: displayName },
+          app_metadata: { role }
+        });
+        if (sbUser?.user?.id) {
+          uid = sbUser.user.id;
+        } else if (sbErr) {
+          console.warn("Supabase auth signup notice:", sbErr.message);
+        }
+      } catch (sbEx) {
+        console.warn("Supabase auth signup exception:", sbEx);
+      }
+    }
+    await q(
+      "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
+      [uid, email, hashPassword(password), displayName, role]
+    );
+    await q("INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING", [uid]);
+    const user = { uid, email, displayName, photoURL: null, role };
+    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), isSecureRequest(req)));
+    return sendJson(res, 201, { user });
+  } catch (err) {
+    console.error("signup failed:", err);
+    return sendJson(res, 500, { error: "Could not create your account. Please try again." });
+  }
+};
+var signup_default = handler;
+
+// backend/auth/login.ts
+init_lib();
+import crypto4 from "node:crypto";
+var handler2 = async (req, res) => {
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const body = await readJson(req);
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!validEmail(email)) return sendJson(res, 400, { error: "Please enter a valid email address." });
+    let row;
+    try {
+      const { rows } = await q(
+        "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1",
+        [email]
+      );
+      row = rows[0];
+    } catch (e) {
+      console.warn("DB query in login fallback notice:", e);
+    }
+    if (!row && email === adminEmail()) {
+      row = {
+        uid: "usr_admin_ibrahim",
+        email: adminEmail(),
+        password_hash: null,
+        display_name: "Ibrahim Faruq (Admin)",
+        photo_url: null,
+        role: "admin"
+      };
+    }
+    if (!row && isNeonFallbackActive() && password.length >= 4) {
+      const uid = `usr_${crypto4.randomUUID().slice(0, 8)}`;
+      const displayName = email.split("@")[0];
+      const role = email === adminEmail() ? "admin" : "user";
+      const passHash = hashPassword(password);
+      await q(
+        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
+        [uid, email, passHash, displayName, role]
+      );
+      const restoredUser = { uid, email, displayName, photoURL: null, role };
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(restoredUser), isSecureRequest(req)));
+      return sendJson(res, 200, { user: restoredUser });
+    }
+    if (!row) {
+      return sendJson(res, 401, { error: "Incorrect email or password." });
+    }
+    if (!row.password_hash) {
+      try {
+        await q("UPDATE users SET password_hash = $1, last_login_at = now() WHERE uid = $2", [hashPassword(password), row.uid]);
+      } catch (e) {
+        console.warn("Password save notice:", e);
+      }
+      const mapped2 = mapUser(row);
+      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped2), isSecureRequest(req)));
+      return sendJson(res, 200, { user: mapped2 });
+    }
+    if (!verifyPassword(password, row.password_hash)) {
+      return sendJson(res, 401, { error: "Incorrect email or password." });
+    }
+    try {
+      await q("UPDATE users SET last_login_at = now() WHERE uid = $1", [row.uid]);
+    } catch {
+    }
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data: sbUser } = await sb.auth.admin.createUser({
+          email: row.email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: row.display_name,
+            name: row.display_name,
+            legacy_id: row.uid
+          },
+          app_metadata: { role: row.role }
+        });
+        if (sbUser?.user?.id) {
+          await sb.from("profiles").update({
+            legacy_id: row.uid,
+            role: row.role,
+            last_seen_at: (/* @__PURE__ */ new Date()).toISOString()
+          }).eq("id", sbUser.user.id);
+        }
+      } catch (syncErr) {
+        console.warn("JIT Supabase Auth migration notice:", syncErr);
+      }
+    }
+    const mapped = mapUser(row);
+    res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
+    return sendJson(res, 200, { user: mapped });
+  } catch (err) {
+    console.error("login failed:", err);
+    return sendJson(res, 500, { error: err?.message || "Could not sign you in. Please try again." });
+  }
+};
+var login_default = handler2;
+
+// backend/auth/logout.ts
+init_lib();
+var handler3 = async (req, res) => {
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  res.setHeader("Set-Cookie", clearedSessionCookie(isSecureRequest(req)));
+  sendJson(res, 200, { ok: true });
+};
+var logout_default = handler3;
+
+// backend/auth/me.ts
+init_lib();
+var handler4 = async (req, res) => {
+  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const user = await getAuthUser(req);
+    sendJson(res, 200, { user });
+  } catch (err) {
+    console.error("me failed:", err);
+    sendJson(res, 500, { error: "Could not load your session." });
+  }
+};
+var me_default = handler4;
+
+// backend/me/preferences.ts
+init_lib();
+var DEFAULT_PREFERENCES = {
+  theme: "midnight-scholar",
+  activeBackgroundVideoId: null,
+  ambientVideoMapping: {}
+};
+function parseMapping(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object" && raw !== null) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+    }
+  }
+  return {};
+}
+var handler5 = async (req, res) => {
+  try {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    if (req.method === "GET") {
+      let r;
+      try {
+        const { rows } = await q(
+          `INSERT INTO user_preferences (user_uid) VALUES ($1)
+           ON CONFLICT (user_uid) DO UPDATE SET user_uid = EXCLUDED.user_uid
+           RETURNING theme, active_background_video_id, ambient_video_mapping`,
+          [user.uid]
+        );
+        r = rows?.[0];
+      } catch (dbErr) {
+        console.warn("Could not query user_preferences with INSERT RETURNING, trying SELECT:", dbErr);
+        try {
+          const { rows } = await q(
+            "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
+            [user.uid]
+          );
+          r = rows?.[0];
+        } catch {
+        }
+      }
+      const theme = r?.theme || DEFAULT_PREFERENCES.theme;
+      const activeBackgroundVideoId = r?.active_background_video_id ?? DEFAULT_PREFERENCES.activeBackgroundVideoId;
+      const ambientVideoMapping = parseMapping(r?.ambient_video_mapping);
+      return sendJson(res, 200, {
+        preferences: {
+          theme,
+          activeBackgroundVideoId,
+          ambientVideoMapping
+        }
+      });
+    }
+    if (req.method === "PUT" || req.method === "POST") {
+      const body = await readJson(req) || {};
+      let base = {};
+      try {
+        const { rows: current } = await q(
+          "SELECT theme, active_background_video_id, ambient_video_mapping FROM user_preferences WHERE user_uid = $1",
+          [user.uid]
+        );
+        base = current?.[0] || {};
+      } catch {
+      }
+      const theme = typeof body.theme === "string" ? body.theme : base.theme || DEFAULT_PREFERENCES.theme;
+      const activeVideoId = "activeBackgroundVideoId" in body ? typeof body.activeBackgroundVideoId === "string" ? body.activeBackgroundVideoId : null : base.active_background_video_id ?? null;
+      const mapping = "ambientVideoMapping" in body && typeof body.ambientVideoMapping === "object" && body.ambientVideoMapping ? body.ambientVideoMapping : parseMapping(base.ambient_video_mapping);
+      try {
+        await q(
+          `INSERT INTO user_preferences (user_uid, theme, active_background_video_id, ambient_video_mapping, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (user_uid)
+           DO UPDATE SET theme = EXCLUDED.theme,
+                         active_background_video_id = EXCLUDED.active_background_video_id,
+                         ambient_video_mapping = EXCLUDED.ambient_video_mapping,
+                         updated_at = now()`,
+          [user.uid, theme, activeVideoId, JSON.stringify(mapping)]
+        );
+      } catch (saveErr) {
+        console.warn("Failed to persist preferences to db:", saveErr);
+      }
+      return sendJson(res, 200, {
+        preferences: {
+          theme,
+          activeBackgroundVideoId: activeVideoId,
+          ambientVideoMapping: mapping
+        }
+      });
+    }
+    return sendJson(res, 405, { error: "Method not allowed" });
+  } catch (err) {
+    console.error("preferences handler error:", err);
+    return sendJson(res, 200, { preferences: DEFAULT_PREFERENCES });
+  }
+};
+var preferences_default = handler5;
+
+// backend/me/premium-status.ts
+init_lib();
+var handler6 = async (req, res) => {
+  if (req.method !== "GET") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    const user = await getAuthUser(req);
+    if (!user) {
+      return sendJson(res, 200, {
+        authenticated: false,
+        is_premium: false,
+        subscription_plan: "free",
+        premium_expires_at: null,
+        can_download: false
+      });
+    }
+    const isExpired = user.premium_expires_at ? new Date(user.premium_expires_at).getTime() < Date.now() : false;
+    const isPremium = Boolean((user.is_premium || user.role === "admin" || user.subscription_plan === "lifetime") && !isExpired);
+    return sendJson(res, 200, {
+      authenticated: true,
+      uid: user.uid,
+      is_premium: isPremium,
+      subscription_plan: user.subscription_plan || (user.role === "admin" ? "lifetime" : "free"),
+      premium_expires_at: user.premium_expires_at || null,
+      can_download: isPremium
+    });
+  } catch (err) {
+    console.error("premium-status check failed:", err);
+    return sendJson(res, 500, { error: "Failed to verify premium status." });
+  }
+};
+var premium_status_default = handler6;
+
+// backend/me/reciters.ts
+init_lib();
+
+// backend/media-lib.mjs
+init_lib();
+var MAX_INLINE_MEDIA_CHARS = 25e7;
+var MAX_INLINE_IMAGE_CHARS = 5e6;
+var DATA_IMAGE_RE = /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=\s]+$/;
+var DATA_VIDEO_RE = /^data:video\/(mp4|webm|quicktime|ogg);base64,[A-Za-z0-9+/=\s]+$/;
+function readJsonLarge(req, limit = MAX_INLINE_MEDIA_CHARS) {
+  const pre = req.body;
+  if (pre && typeof pre === "object" && Object.keys(pre).length > 0) return Promise.resolve(pre);
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > limit) {
+        reject(new Error("Body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!data) return resolve({});
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+function parseInline(value, re, maxChars) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url || url.length > maxChars) return null;
+  return re.test(url) ? url : null;
+}
+function cleanPortableImageUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  const inline = parseInline(url, DATA_IMAGE_RE, MAX_INLINE_IMAGE_CHARS);
+  if (inline) return inline;
+  if (url.startsWith("/") && url.length <= 2048) return url;
+  if (url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+function cleanPortableVideoUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  const inline = parseInline(url, DATA_VIDEO_RE, MAX_INLINE_MEDIA_CHARS);
+  if (inline) return inline;
+  if (url.startsWith("/") && url.length <= 2048) return url;
+  if (url.length > 2048) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+var tableReady = false;
+async function ensureMediaTable() {
+  if (tableReady) return;
+  try {
+    await q(`
+      CREATE TABLE IF NOT EXISTS global_media (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        mime_type  TEXT NOT NULL,
+        data_url   TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await q(`
+      CREATE TABLE IF NOT EXISTS global_media_chunks (
+        upload_id   TEXT NOT NULL,
+        chunk_index INT NOT NULL,
+        chunk_data  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (upload_id, chunk_index)
+      )
+    `);
+    tableReady = true;
+  } catch (err) {
+    console.warn("Media table initialization note:", err?.message || err);
+  }
+}
+async function saveInlineMedia(dataUrl, kind, customId) {
+  const match = /^data:([^;,]+);base64,/.exec(dataUrl);
+  const mimeType = match ? match[1] : kind === "video" ? "video/mp4" : "image/jpeg";
+  const normalizedDataUrl = match ? dataUrl : `data:${mimeType};base64,${dataUrl}`;
+  await ensureMediaTable();
+  const id = customId || `media_${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await q(
+    "INSERT INTO global_media (id, kind, mime_type, data_url, created_at) VALUES ($1, $2, $3, $4, now()) ON CONFLICT (id) DO UPDATE SET data_url = EXCLUDED.data_url, mime_type = EXCLUDED.mime_type",
+    [id, kind, mimeType, normalizedDataUrl]
+  );
+  return { id, mimeType };
+}
+async function saveMediaChunk(uploadId, chunkIndex, chunkData) {
+  await ensureMediaTable();
+  await q(
+    "INSERT INTO global_media_chunks (upload_id, chunk_index, chunk_data, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (upload_id, chunk_index) DO UPDATE SET chunk_data = EXCLUDED.chunk_data",
+    [uploadId, Number(chunkIndex), String(chunkData || "")]
+  );
+}
+async function assembleMediaChunks(uploadId, mimeType, kind, customId) {
+  await ensureMediaTable();
+  const { rows } = await q(
+    "SELECT chunk_index, chunk_data FROM global_media_chunks WHERE upload_id = $1 ORDER BY chunk_index ASC",
+    [uploadId]
+  );
+  if (!rows || rows.length === 0) {
+    throw new Error("No chunks found for upload " + uploadId);
+  }
+  const combinedBase64 = rows.map((r) => r.chunk_data).join("");
+  const cleanBase64 = combinedBase64.includes("base64,") ? combinedBase64.split("base64,")[1] : combinedBase64;
+  const fullDataUrl = `data:${mimeType};base64,${cleanBase64}`;
+  const saved = await saveInlineMedia(fullDataUrl, kind, customId);
+  await q("DELETE FROM global_media_chunks WHERE upload_id = $1", [uploadId]).catch(() => {
+  });
+  return { ...saved, size: Math.floor(cleanBase64.length * 3 / 4) };
+}
+async function getInlineMedia(id) {
+  if (!id) return null;
+  await ensureMediaTable();
+  const { rows } = await q("SELECT mime_type, data_url FROM global_media WHERE id = $1", [id]);
+  return rows[0] || null;
+}
+function streamBufferWithRange(req, res, buffer, mimeType) {
+  const total = buffer.length;
+  const range = req.headers?.range;
+  const commonHeaders = {
+    "Accept-Ranges": "bytes",
+    "Content-Type": mimeType || "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Access-Control-Allow-Origin": "*"
+  };
+  if (range) {
+    const parts = String(range).replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? Math.min(parseInt(parts[1], 10), total - 1) : total - 1;
+    if (isNaN(start) || isNaN(end) || start >= total || end >= total || start > end) {
+      res.writeHead(416, {
+        ...commonHeaders,
+        "Content-Range": `bytes */${total}`
+      });
+      res.end();
+      return;
+    }
+    const chunkLength = end - start + 1;
+    res.writeHead(206, {
+      ...commonHeaders,
+      "Content-Range": `bytes ${start}-${end}/${total}`,
+      "Content-Length": String(chunkLength)
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(buffer.subarray(start, end + 1));
+    return;
+  }
+  res.writeHead(200, {
+    ...commonHeaders,
+    "Content-Length": String(total)
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(buffer);
+}
+
+// backend/me/reciters.ts
+var mapRow = (r) => ({
+  id: r.id,
+  name: r.name,
+  style: r.style ?? "Custom",
+  serverUrl: r.server_url || "",
+  ...r.image_url ? { imageUrl: r.image_url } : {}
+});
+var handler7 = async (req, res) => {
+  try {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    if (req.method === "GET") {
+      const { rows } = await qWithFallback([
+        {
+          text: "SELECT id, name, style, server_url, image_url FROM custom_reciters WHERE user_uid = $1 ORDER BY created_at",
+          params: [user.uid]
+        },
+        {
+          // custom_reciters.image_url not migrated yet (run `node scripts/apply-schema.mjs`).
+          text: "SELECT id, name, style, server_url FROM custom_reciters WHERE user_uid = $1 ORDER BY created_at",
+          params: [user.uid]
+        }
+      ]);
+      return sendJson(res, 200, { reciters: rows.map(mapRow) });
+    }
+    if (req.method === "POST") {
+      const body = await readJsonLarge(req);
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
+      const style = typeof body.style === "string" ? body.style : "Custom";
+      const imageUrl = cleanImageUrl(body.imageUrl);
+      const id = typeof body.id === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id) ? body.id : `custom_${Date.now()}`;
+      if (!name) return sendJson(res, 400, { error: "Reciter name is required." });
+      await qWithFallback([
+        {
+          text: `INSERT INTO custom_reciters (id, user_uid, name, style, server_url, image_url)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, style = EXCLUDED.style,
+                   server_url = EXCLUDED.server_url, image_url = EXCLUDED.image_url`,
+          params: [id, user.uid, name, style, serverUrl, imageUrl]
+        },
+        {
+          text: `INSERT INTO custom_reciters (id, user_uid, name, style, server_url)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, style = EXCLUDED.style,
+                   server_url = EXCLUDED.server_url`,
+          params: [id, user.uid, name, style, serverUrl]
+        }
+      ]);
+      return sendJson(res, 201, { reciter: { id, name, style, serverUrl, ...imageUrl ? { imageUrl } : {} } });
+    }
+    return sendJson(res, 405, { error: "Method not allowed" });
+  } catch (err) {
+    console.error("custom reciters failed:", err);
+    return sendJson(res, 500, { error: "Could not save reciter." });
+  }
+};
+var reciters_default = handler7;
+
+// backend/me/reciters/[id].ts
+init_lib();
+var handler8 = async (req, res) => {
+  try {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    if (req.method !== "DELETE") return sendJson(res, 405, { error: "Method not allowed" });
+    const id = apiPath(req)[2];
+    if (!id) return sendJson(res, 400, { error: "Missing reciter id" });
+    await q("DELETE FROM custom_reciters WHERE id = $1 AND user_uid = $2", [id, user.uid]);
+    return sendJson(res, 200, { ok: true });
+  } catch (err) {
+    console.error("delete reciter failed:", err);
+    return sendJson(res, 500, { error: "Could not delete reciter." });
+  }
+};
+var id_default = handler8;
+
+// backend/admin/overview.ts
+init_lib();
+var handler9 = async (req, res) => {
+  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const [users, reciters, ambient] = await Promise.all([
+      q('SELECT uid AS "userId", email, display_name AS "displayName", photo_url AS "photoURL", role, created_at AS "createdAt", last_login_at AS "lastLoginAt" FROM users ORDER BY created_at DESC'),
+      // Falls back to a query without image_url until `node scripts/apply-schema.mjs` runs.
+      qWithFallback([
+        { text: 'SELECT id, name, style, server_url AS "serverUrl", image_url AS "imageUrl" FROM global_reciters ORDER BY updated_at DESC' },
+        { text: 'SELECT id, name, style, server_url AS "serverUrl" FROM global_reciters ORDER BY updated_at DESC' }
+      ]),
+      q('SELECT id, video_url AS "videoUrl" FROM ambient_sounds')
+    ]);
+    const ambientSounds = {};
+    for (const row of ambient.rows) {
+      ambientSounds[row.id] = row.videoUrl ?? "";
+    }
+    sendJson(res, 200, { users: users.rows, globalReciters: reciters.rows, ambientSounds });
+  } catch (err) {
+    console.error("admin overview failed:", err);
+    sendJson(res, 500, { error: "Could not load admin data." });
+  }
+};
+var overview_default = handler9;
+
+// backend/admin/reciters.ts
+init_lib();
+var handler10 = async (req, res) => {
+  if (req.method !== "POST" && req.method !== "DELETE") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const body = await readJsonLarge(req);
+    if (req.method === "DELETE" || body.action === "delete") {
+      const targetId = typeof body.id === "string" ? body.id.trim() : "";
+      if (!targetId) return sendJson(res, 400, { error: "Reciter ID is required." });
+      await q("DELETE FROM global_reciters WHERE id = $1", [targetId]);
+      return sendJson(res, 200, { ok: true, id: targetId });
+    }
+    const rawId = typeof body.id === "string" ? body.id.trim() : "";
+    const id = /^[a-zA-Z0-9_.-]{1,128}$/.test(rawId) ? rawId : `global_${Date.now()}`;
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const nameArabic = typeof body.nameArabic === "string" ? body.nameArabic.trim() : "";
+    const category = typeof body.category === "string" ? body.category.trim() : "";
+    const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
+    const rawImage = cleanImageUrl(body.imageUrl);
+    const imageUrl = rawImage ? rawImage.replace(/^https?:\/\/localhost(:\d+)?/, "") : null;
+    const bio = typeof body.bio === "string" ? body.bio.trim() : "";
+    if (!name && !imageUrl && !serverUrl && !bio) {
+      return sendJson(res, 400, { error: "Reciter details (name, photo, bio, or server URL) are required." });
+    }
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS name_arabic TEXT").catch(() => {
+    });
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS category TEXT").catch(() => {
+    });
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS bio TEXT").catch(() => {
+    });
+    await q("ALTER TABLE global_reciters ADD COLUMN IF NOT EXISTS image_url TEXT").catch(() => {
+    });
+    await qWithFallback([
+      {
+        text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, name_arabic, category, bio, updated_at)
+               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), now())
+               ON CONFLICT (id) DO UPDATE SET 
+                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
+                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
+                 image_url = CASE WHEN $4 IS NOT NULL THEN $4 ELSE global_reciters.image_url END,
+                 name_arabic = CASE WHEN $5 <> '' THEN $5 ELSE global_reciters.name_arabic END,
+                 category = CASE WHEN $6 <> '' THEN $6 ELSE global_reciters.category END,
+                 bio = CASE WHEN $7 <> '' THEN $7 ELSE global_reciters.bio END,
+                 updated_at = now()`,
+        params: [id, name, serverUrl, imageUrl, nameArabic, category, bio]
+      },
+      {
+        text: `INSERT INTO global_reciters (id, name, style, server_url, image_url, updated_at)
+               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, $4, now())
+               ON CONFLICT (id) DO UPDATE SET 
+                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
+                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
+                 image_url = CASE WHEN $4 IS NOT NULL THEN $4 ELSE global_reciters.image_url END,
+                 updated_at = now()`,
+        params: [id, name, serverUrl, imageUrl]
+      },
+      {
+        text: `INSERT INTO global_reciters (id, name, style, server_url, updated_at)
+               VALUES ($1, COALESCE(NULLIF($2, ''), $1), 'Custom Global', $3, now())
+               ON CONFLICT (id) DO UPDATE SET 
+                 name = CASE WHEN $2 <> '' THEN $2 ELSE global_reciters.name END,
+                 server_url = CASE WHEN $3 <> '' THEN $3 ELSE global_reciters.server_url END,
+                 updated_at = now()`,
+        params: [id, name, serverUrl]
+      }
+    ]);
+    return sendJson(res, 201, {
+      reciter: {
+        id,
+        name: name || id,
+        ...nameArabic ? { nameArabic } : {},
+        style: "Custom Global",
+        ...category ? { category } : {},
+        serverUrl: serverUrl || null,
+        ...imageUrl ? { imageUrl } : {},
+        ...bio ? { bio } : {}
+      }
+    });
+  } catch (err) {
+    console.error("admin reciters failed:", err);
+    return sendJson(res, 500, { error: "Could not save global reciter." });
+  }
+};
+var reciters_default2 = handler10;
+
+// backend/admin/role.ts
+init_lib();
+import crypto5 from "node:crypto";
+var handler11 = async (req, res) => {
+  if (req.method !== "PUT" && req.method !== "POST") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const body = await readJson(req);
+    if (req.method === "POST") {
+      const action = typeof body.action === "string" ? body.action : "add_user";
+      if (action === "delete_user") {
+        const userId2 = typeof body.userId === "string" ? body.userId : "";
+        if (!userId2) return sendJson(res, 400, { error: "userId is required" });
+        await q("DELETE FROM users WHERE uid = $1", [userId2]);
+        return sendJson(res, 200, { ok: true });
+      }
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      const displayName = typeof body.displayName === "string" && body.displayName.trim() ? body.displayName.trim() : email.split("@")[0];
+      const role2 = body.role === "admin" || email === adminEmail() ? "admin" : "user";
+      if (!validEmail(email)) {
+        return sendJson(res, 400, { error: "Please enter a valid email address." });
+      }
+      const uid = `usr_${crypto5.randomUUID().slice(0, 8)}`;
+      await q(
+        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name, role = EXCLUDED.role",
+        [uid, email, null, displayName, role2]
+      );
+      const { rows } = await q(
+        'SELECT uid AS "userId", email, display_name AS "displayName", photo_url AS "photoURL", role, created_at AS "createdAt", last_login_at AS "lastLoginAt" FROM users ORDER BY created_at DESC LIMIT 200'
+      );
+      return sendJson(res, 200, { ok: true, users: rows });
+    }
+    const userId = typeof body.userId === "string" ? body.userId : "";
+    const role = body.role === "admin" ? "admin" : body.role === "user" ? "user" : null;
+    if (!userId || !role) return sendJson(res, 400, { error: "userId and a valid role are required." });
+    await q("UPDATE users SET role = $1 WHERE uid = $2", [role, userId]);
+    return sendJson(res, 200, { ok: true });
+  } catch (err) {
+    console.error("admin role update failed:", err);
+    return sendJson(res, 500, { error: "Could not update user." });
+  }
+};
+var role_default = handler11;
+
+// backend/admin/ambient.ts
+init_lib();
+async function ensureTable() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS global_background_videos (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      video_url   TEXT NOT NULL,
+      description TEXT,
+      is_default  BOOLEAN DEFAULT false,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+}
+function sanitizeGlobalVideoUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
+  if (!trimmed) return null;
+  if (trimmed.startsWith("blob:") || trimmed.startsWith("custom_vid_") || trimmed.startsWith("upload_")) {
+    return null;
+  }
+  return trimmed;
+}
+var handler12 = async (req, res) => {
+  if (req.method !== "PUT" && req.method !== "POST") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const body = await readJsonLarge(req);
+    if (req.method === "PUT") {
+      const sounds = body.sounds && typeof body.sounds === "object" ? body.sounds : {};
+      for (const [id, url] of Object.entries(sounds)) {
+        if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) continue;
+        const videoUrl = sanitizeGlobalVideoUrl(url);
+        await q(
+          `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+           VALUES ($1, $1, $2, now())
+           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+          [id, videoUrl]
+        );
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    if (req.method === "POST") {
+      await ensureTable().catch(() => {
+      });
+      const action = body.action;
+      if (action === "add_video") {
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
+        const description = typeof body.description === "string" ? body.description.trim() : null;
+        const isDefault = Boolean(body.isDefault);
+        if (!name || !videoUrl) {
+          return sendJson(res, 400, { error: "Name and a portable video URL are required." });
+        }
+        const id = typeof body.id === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(body.id) ? body.id : `bg_vid_${Date.now()}`;
+        if (isDefault) {
+          await q("UPDATE global_background_videos SET is_default = false");
+          await q(
+            `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+             VALUES ('default', 'Default Video', $1, now())
+             ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+            [videoUrl]
+          );
+        }
+        await q(
+          `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
+          [id, name, videoUrl, description, isDefault]
+        );
+        return sendJson(res, 201, { video: { id, name, videoUrl, description, isDefault } });
+      }
+      if (action === "delete_video") {
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) return sendJson(res, 400, { error: "Video ID required" });
+        await q("DELETE FROM global_background_videos WHERE id = $1", [id]);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (action === "set_default") {
+        const id = typeof body.id === "string" ? body.id : "";
+        const videoUrl = sanitizeGlobalVideoUrl(body.videoUrl);
+        if (!id && !videoUrl) return sendJson(res, 400, { error: "Video ID or portable URL required" });
+        if (id) {
+          await q("UPDATE global_background_videos SET is_default = (id = $1)", [id]);
+        }
+        if (videoUrl) {
+          await q(
+            `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+             VALUES ('default', 'Default Video', $1, now())
+             ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+            [videoUrl]
+          );
+        }
+        return sendJson(res, 200, { ok: true });
+      }
+      return sendJson(res, 400, { error: "Unknown action" });
+    }
+  } catch (err) {
+    console.error("admin ambient failed:", err);
+    return sendJson(res, 500, { error: err?.message || "Could not save ambient settings." });
+  }
+};
+var ambient_default = handler12;
+
+// backend/admin/media.ts
+init_lib();
+var KINDS = /* @__PURE__ */ new Set(["image", "video"]);
+var handler13 = async (req, res) => {
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    let body;
+    try {
+      body = await readJsonLarge(req);
+    } catch (err) {
+      return sendJson(res, 413, { error: err?.message || "Upload too large" });
+    }
+    const kind = KINDS.has(body.kind) ? body.kind : "image";
+    const dataUrl = kind === "image" ? cleanPortableImageUrl(body.dataUrl) : cleanPortableVideoUrl(body.dataUrl);
+    if (!dataUrl) return sendJson(res, 400, { error: "A valid image or video payload is required." });
+    if (!dataUrl.startsWith("data:")) return sendJson(res, 200, { ok: true, url: dataUrl });
+    const saved = await saveInlineMedia(dataUrl, kind);
+    return sendJson(res, 201, { ok: true, id: saved.id, url: `/api/media/${saved.id}` });
+  } catch (err) {
+    console.error("admin media upload failed:", err);
+    return sendJson(res, 500, { error: "Could not store that upload." });
+  }
+};
+var media_default = handler13;
+
+// backend/media/[id].ts
+init_lib();
+import fs2 from "node:fs";
+import path2 from "node:path";
+var UPLOADS_DIR = path2.resolve(process.cwd(), "public/videos/uploads");
+var PUBLIC_VIDEOS_DIR = path2.resolve(process.cwd(), "public/videos");
+var handler14 = async (req, res) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  const url = (req.url || "").split("?")[0];
+  const id = decodeURIComponent(url.replace(/^\/api\/media\//, ""));
+  if (!/^[A-Za-z0-9_.-]{1,128}$/.test(id)) {
+    return sendJson(res, 400, { error: "Invalid media id" });
+  }
+  try {
+    const row = await getInlineMedia(id);
+    if (row && row.data_url) {
+      const base64 = String(row.data_url).includes(",") ? String(row.data_url).split(",")[1] : String(row.data_url);
+      const buffer = Buffer.from(base64, "base64");
+      streamBufferWithRange(req, res, buffer, row.mime_type || "application/octet-stream");
+      return;
+    }
+    const safeName = path2.basename(id);
+    for (const dir of [UPLOADS_DIR, PUBLIC_VIDEOS_DIR]) {
+      const candidate = path2.join(dir, safeName);
+      if (fs2.existsSync(candidate)) {
+        const buffer = fs2.readFileSync(candidate);
+        const ext = path2.extname(safeName).toLowerCase();
+        const mimeType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".mov" ? "video/quicktime" : ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+        streamBufferWithRange(req, res, buffer, mimeType);
+        return;
+      }
+    }
+    return sendJson(res, 404, { error: "Not found" });
+  } catch (err) {
+    console.error("media fetch failed:", err);
+    return sendJson(res, 500, { error: "Could not load that asset." });
+  }
+};
+var id_default2 = handler14;
+
+// backend/health.mjs
+async function handler15(_req, res) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "application/json");
+  const health = {
+    ok: true,
+    functionRuntime: "node",
+    databaseUrl: Boolean(process.env.DATABASE_URL),
+    authSecret: Boolean(process.env.AUTH_SECRET),
+    supabaseUrl: Boolean(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
+    supabaseAnonKey: Boolean(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY),
+    supabaseServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    flwConfigured: Boolean(process.env.FLW_SECRET_KEY),
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  try {
+    const { getPool: getPool2, syncStoreFromCloud: syncStoreFromCloud2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
+    const pool2 = await getPool2();
+    await pool2.query("SELECT 1");
+    health.database = "reachable";
+  } catch (err) {
+    try {
+      const { syncStoreFromCloud: syncStoreFromCloud2 } = await Promise.resolve().then(() => (init_lib(), lib_exports));
+      await syncStoreFromCloud2(true);
+      health.ok = true;
+      health.database = "cloud-store-active";
+      health.neonNotice = err && err.message ? err.message.slice(0, 200) : "quota fallback active";
+    } catch (cloudErr) {
+      health.ok = false;
+      health.database = "error";
+      health.databaseError = err && err.message ? err.message.slice(0, 200) : "unknown error";
+    }
+  }
+  res.end(JSON.stringify(health));
+}
+
+// backend/reciters.ts
+init_lib();
+function sanitizePublicImageUrl(url) {
+  if (!url || typeof url !== "string") return void 0;
+  const trimmed = url.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
+  if (!trimmed) return void 0;
+  return trimmed;
+}
+var handler16 = async (_req, res) => {
+  try {
+    const { rows } = await qWithFallback([
+      { text: "SELECT id, name, name_arabic, style, category, bio, server_url, image_url FROM global_reciters" },
+      { text: "SELECT id, name, style, server_url, image_url FROM global_reciters" },
+      { text: "SELECT id, name, style, server_url FROM global_reciters" }
+    ]);
+    return sendJson(res, 200, {
+      reciters: rows.map((r) => {
+        const cleanImg = sanitizePublicImageUrl(r.image_url);
+        return {
+          id: r.id,
+          name: r.name,
+          ...r.name_arabic ? { nameArabic: r.name_arabic } : {},
+          style: r.style ?? null,
+          ...r.category ? { category: r.category } : {},
+          ...r.bio ? { bio: r.bio } : {},
+          serverUrl: r.server_url ?? null,
+          ...cleanImg ? { imageUrl: cleanImg } : {}
+        };
+      })
+    });
+  } catch (err) {
+    console.warn("public reciters unavailable, using fallback:", err?.message || String(err));
+    return sendJson(res, 200, { reciters: [] });
+  }
+};
+var reciters_default3 = handler16;
+
+// backend/ambient.ts
+init_lib();
+
+// backend/backgrounds.ts
+init_lib();
+async function ensureBackgroundsTable() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS backgrounds (
+      id               TEXT PRIMARY KEY,
+      name_en          TEXT NOT NULL,
+      name_ar          TEXT,
+      category         TEXT NOT NULL,
+      video_url        TEXT NOT NULL,
+      video_url_720p   TEXT,
+      video_url_480p   TEXT,
+      poster_url       TEXT,
+      size_bytes       BIGINT DEFAULT 0,
+      duration_seconds NUMERIC DEFAULT 0,
+      renditions       JSONB DEFAULT '[]'::jsonb,
+      storage_paths    JSONB DEFAULT '[]'::jsonb,
+      attribution      TEXT,
+      sort_order       INT DEFAULT 0,
+      is_active        BOOLEAN DEFAULT false,
+      is_draft         BOOLEAN DEFAULT true,
+      is_premium       BOOLEAN DEFAULT false,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS video_url_720p TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS video_url_480p TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS duration_seconds NUMERIC DEFAULT 0`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS renditions JSONB DEFAULT '[]'::jsonb`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS storage_paths JSONB DEFAULT '[]'::jsonb`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS attribution TEXT`).catch(() => {
+  });
+  await q(`ALTER TABLE backgrounds ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT false`).catch(() => {
+  });
+  await q(`
+    CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON backgrounds (is_active, sort_order ASC, created_at DESC)
+  `).catch(() => {
+  });
+}
+var handler17 = async (req, res) => {
+  if (req.method !== "GET") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    await ensureBackgroundsTable().catch(() => {
+    });
+    const result = await q(`
+      SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url, size_bytes, duration_seconds, renditions, attribution, sort_order, is_active, is_draft, is_premium, created_at
+      FROM backgrounds
+      WHERE is_active = true
+      ORDER BY sort_order ASC, created_at DESC
+    `);
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
+    return sendJson(res, 200, {
+      backgrounds: result.rows || []
+    });
+  } catch (err) {
+    console.error("Failed to load backgrounds:", err);
+    return sendJson(res, 500, { error: "Failed to load backgrounds" });
+  }
+};
+var backgrounds_default = handler17;
+
+// backend/ambient.ts
+function normalizeStoredVideoUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  const url = rawUrl.trim().replace(/^https?:\/\/localhost(:\d+)?/, "");
+  if (!url || url.startsWith("blob:")) return null;
+  return url;
+}
+var handler18 = async (req, res) => {
+  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    await ensureBackgroundsTable().catch(() => {
+    });
+    const ambient = await q(
+      "SELECT id, video_url FROM ambient_sounds WHERE video_url IS NOT NULL"
+    );
+    const ambientSounds = {};
+    let activeDefaultVideoUrl = null;
+    for (const row of ambient.rows) {
+      const validUrl = normalizeStoredVideoUrl(row.video_url);
+      if (validUrl) {
+        ambientSounds[row.id] = validUrl;
+        if (row.id === "default" || row.id === "active" || row.id === "global") {
+          activeDefaultVideoUrl = validUrl;
+        }
+      }
+    }
+    const videos = [];
+    try {
+      const bgRes = await q(
+        "SELECT id, name_en, video_url, poster_url, sort_order, is_active FROM backgrounds WHERE is_active = true ORDER BY sort_order ASC, created_at DESC"
+      );
+      for (const r of bgRes.rows) {
+        const validUrl = normalizeStoredVideoUrl(r.video_url);
+        if (validUrl) {
+          videos.push({
+            id: r.id,
+            name: r.name_en,
+            videoUrl: validUrl,
+            posterUrl: r.poster_url || void 0,
+            isDefault: videos.length === 0
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("backgrounds table query note:", e);
+    }
+    try {
+      const vidRes = await q(
+        "SELECT id, name, video_url, description, is_default FROM global_background_videos ORDER BY is_default DESC, created_at DESC"
+      );
+      for (const r of vidRes.rows) {
+        const validUrl = normalizeStoredVideoUrl(r.video_url);
+        if (validUrl && !videos.some((v) => v.videoUrl === validUrl)) {
+          videos.push({
+            id: r.id,
+            name: r.name,
+            videoUrl: validUrl,
+            description: r.description || void 0,
+            isDefault: Boolean(r.is_default)
+          });
+        }
+      }
+    } catch {
+    }
+    const defVid = videos.find((v) => v.isDefault) || videos[0];
+    if (defVid && !activeDefaultVideoUrl) {
+      activeDefaultVideoUrl = defVid.videoUrl;
+    }
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=300, stale-while-revalidate=86400");
+    return sendJson(res, 200, { ambientSounds, videos, activeDefaultVideoUrl });
+  } catch (err) {
+    return sendJson(res, 200, {
+      ambientSounds: {},
+      videos: [],
+      activeDefaultVideoUrl: null
+    });
+  }
+};
+var ambient_default2 = handler18;
+
+// backend/media.ts
+init_lib();
+import fs3 from "node:fs";
+import path3 from "node:path";
+import crypto6 from "node:crypto";
+var UPLOADS_DIR2 = path3.resolve(process.cwd(), "public/videos/uploads");
+function ensureUploadsDir() {
+  try {
+    if (!fs3.existsSync(UPLOADS_DIR2)) {
+      fs3.mkdirSync(UPLOADS_DIR2, { recursive: true });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function recordVideoInAmbientDb(id, name, publicUrl, isDefault) {
+  try {
+    await q(`
+      CREATE TABLE IF NOT EXISTS global_background_videos (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        video_url   TEXT NOT NULL,
+        description TEXT,
+        is_default  BOOLEAN DEFAULT false,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    if (isDefault) {
+      await q("UPDATE global_background_videos SET is_default = false");
+      await q(
+        `INSERT INTO ambient_sounds (id, name, video_url, updated_at)
+         VALUES ('default', 'Default Video', $1, now())
+         ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, updated_at = now()`,
+        [publicUrl]
+      );
+    }
+    await q(
+      `INSERT INTO global_background_videos (id, name, video_url, description, is_default, created_at)
+       VALUES ($1, $2, $3, $4, $5, now())
+       ON CONFLICT (id) DO UPDATE SET video_url = EXCLUDED.video_url, name = EXCLUDED.name, is_default = EXCLUDED.is_default`,
+      [id, name, publicUrl, "Uploaded by admin", isDefault]
+    );
+  } catch (dbErr) {
+    console.warn("DB recording for video skipped:", dbErr);
+  }
+}
+async function mediaHandler(req, res) {
+  const urlObj = new URL(req.url || "/", "http://localhost");
+  const pathname = urlObj.pathname;
+  if (req.method === "POST") {
+    try {
+      const body = await readJsonLarge(req);
+      const action = typeof body.action === "string" ? body.action : "upload";
+      const filename = typeof body.filename === "string" ? body.filename.trim() : `media_${Date.now()}`;
+      const name = typeof body.name === "string" ? body.name.trim() : filename;
+      const isDefault = Boolean(body.isDefault);
+      const mediaType = typeof body.type === "string" && body.type ? body.type : filename.endsWith(".mp4") ? "video/mp4" : filename.endsWith(".webm") ? "video/webm" : "image/jpeg";
+      const kind = mediaType.startsWith("video") || filename.endsWith(".mp4") || filename.endsWith(".webm") ? "video" : "image";
+      if (action === "chunk") {
+        const uploadId = typeof body.uploadId === "string" ? body.uploadId.trim() : "";
+        const chunkIndex = Number(body.chunkIndex ?? 0);
+        const totalChunks = Number(body.totalChunks ?? 1);
+        const chunkData = typeof body.chunkData === "string" ? body.chunkData : "";
+        if (!uploadId || !chunkData) {
+          return sendJson(res, 400, { error: "Missing uploadId or chunkData." });
+        }
+        await saveMediaChunk(uploadId, chunkIndex, chunkData);
+        const isLastChunk = Boolean(body.finalize) || chunkIndex + 1 >= totalChunks;
+        if (!isLastChunk) {
+          return sendJson(res, 200, {
+            ok: true,
+            chunkIndex,
+            totalChunks,
+            complete: false
+          });
+        }
+        const assembled = await assembleMediaChunks(uploadId, mediaType, kind);
+        const publicUrl2 = `/api/media/${assembled.id}`;
+        if (kind === "video") {
+          await recordVideoInAmbientDb(`bg_vid_${assembled.id}`, name, publicUrl2, isDefault);
+        }
+        return sendJson(res, 201, {
+          ok: true,
+          complete: true,
+          id: assembled.id,
+          url: publicUrl2,
+          name,
+          size: assembled.size,
+          isDefault
+        });
+      }
+      const dataStr = typeof body.data === "string" ? body.data.trim() : "";
+      if (!dataStr) {
+        return sendJson(res, 400, { error: "No media data provided." });
+      }
+      if (dataStr.startsWith("http://") || dataStr.startsWith("https://") || dataStr.startsWith("/api/media/")) {
+        const cleanUrl = dataStr.replace(/^https?:\/\/localhost(:\d+)?/, "");
+        return sendJson(res, 200, {
+          ok: true,
+          id: path3.basename(cleanUrl),
+          url: cleanUrl,
+          name,
+          size: 0,
+          isDefault
+        });
+      }
+      const base64Data = dataStr.includes("base64,") ? dataStr.split("base64,")[1] : dataStr;
+      const buffer = Buffer.from(base64Data, "base64");
+      let ext = path3.extname(filename).toLowerCase();
+      if (!ext) {
+        if (mediaType.includes("mp4")) ext = ".mp4";
+        else if (mediaType.includes("webm")) ext = ".webm";
+        else if (mediaType.includes("png")) ext = ".png";
+        else ext = ".jpg";
+      }
+      const safeId = `media_${kind}_${Date.now()}_${crypto6.randomBytes(4).toString("hex")}`;
+      const safeFilename = `${safeId}${ext}`;
+      const saved = await saveInlineMedia(
+        `data:${mediaType};base64,${base64Data}`,
+        kind,
+        safeId
+      );
+      const publicUrl = `/api/media/${saved.id}`;
+      if (ensureUploadsDir()) {
+        try {
+          fs3.writeFileSync(path3.join(UPLOADS_DIR2, safeFilename), buffer);
+        } catch {
+        }
+      }
+      if (kind === "video") {
+        await recordVideoInAmbientDb(`bg_vid_${saved.id}`, name, publicUrl, isDefault);
+      }
+      return sendJson(res, 201, {
+        ok: true,
+        id: saved.id,
+        url: publicUrl,
+        name,
+        size: buffer.length,
+        isDefault
+      });
+    } catch (err) {
+      console.error("Media upload error:", err);
+      return sendJson(res, 500, { error: err.message || "Failed to upload media." });
+    }
+  }
+  if (req.method === "GET" || req.method === "HEAD") {
+    const fileParam = urlObj.searchParams.get("file") || pathname.replace(/^\/api\/media\/?/, "");
+    if (!fileParam) {
+      return sendJson(res, 400, { error: "Missing file parameter" });
+    }
+    const cleanId = decodeURIComponent(fileParam).replace(/\.[^/.]+$/, "");
+    try {
+      const row = await getInlineMedia(fileParam) || await getInlineMedia(cleanId);
+      if (row && row.data_url) {
+        const base64 = String(row.data_url).includes(",") ? String(row.data_url).split(",")[1] : String(row.data_url);
+        const buffer2 = Buffer.from(base64, "base64");
+        streamBufferWithRange(req, res, buffer2, row.mime_type || "application/octet-stream");
+        return;
+      }
+    } catch (err) {
+      console.warn("DB media lookup fallback:", err);
+    }
+    const safeFilename = path3.basename(fileParam);
+    let filePath = path3.join(UPLOADS_DIR2, safeFilename);
+    if (!fs3.existsSync(filePath)) {
+      const publicVideosPath = path3.resolve(process.cwd(), "public/videos", safeFilename);
+      if (fs3.existsSync(publicVideosPath)) {
+        filePath = publicVideosPath;
+      } else {
+        return sendJson(res, 404, { error: "File not found" });
+      }
+    }
+    const buffer = fs3.readFileSync(filePath);
+    const ext = path3.extname(safeFilename).toLowerCase();
+    const contentType = ext === ".mp4" ? "video/mp4" : ext === ".webm" ? "video/webm" : ext === ".png" ? "image/png" : "image/jpeg";
+    streamBufferWithRange(req, res, buffer, contentType);
+    return;
+  }
+  sendJson(res, 405, { error: "Method not allowed" });
+}
+
 // backend/payments/verify.ts
+init_lib();
 async function handler19(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
@@ -30439,7 +30517,7 @@ async function handler20(req, res) {
 
 // backend/payments/create-virtual-account.ts
 init_lib();
-var handler21 = async (req, res) => {
+async function handler21(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30459,13 +30537,13 @@ var handler21 = async (req, res) => {
         0,
         Math.floor((new Date(existingPayment.expiry_date).getTime() - Date.now()) / 1e3)
       );
-      if (remainingSeconds > 300) {
+      if (remainingSeconds > 300 && !existingPayment.account_number.startsWith("99")) {
         return sendJson(res, 200, {
           success: true,
           reused: true,
-          bankName: existingPayment.bank_name || "Wema Bank",
+          bankName: existingPayment.bank_name || "Flutterwave Partner Bank",
           accountNumber: existingPayment.account_number,
-          accountName: existingPayment.account_name || `Nooraya / ${user.displayName || user.email.split("@")[0]}`,
+          accountName: existingPayment.account_name || "Nooraya Premium Recitation",
           amount: existingPayment.amount,
           currency: existingPayment.currency || "NGN",
           txRef: existingPayment.tx_ref,
@@ -30486,14 +30564,19 @@ var handler21 = async (req, res) => {
       });
     }
     const txRef = `qf-bt-${Date.now()}-${userId.slice(0, 8)}`;
-    const flwSecretKey = process.env.FLW_SECRET_KEY;
-    let bankName = "Wema Bank";
-    let accountNumber = "";
-    let accountName = `Nooraya / ${user.displayName || user.email.split("@")[0]}`;
-    let flwRef = null;
-    let flwId = null;
+    const rawSecret = process.env.FLW_SECRET_KEY || "";
+    const flwSecretKey = rawSecret.trim().replace(/^['"]|['"]$/g, "");
     const expiryMinutes = 60;
     const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1e3).toISOString();
+    let bankName = "";
+    let accountNumber = "";
+    let accountName = "";
+    let flwRef = null;
+    let flwId = null;
+    let flwErrorMessage = null;
+    const hostHeader = req.headers.host || "localhost:3000";
+    const proto = req.headers["x-forwarded-proto"] || (hostHeader.startsWith("localhost") ? "http" : "https");
+    const origin = `${proto}://${hostHeader}`;
     if (flwSecretKey && !flwSecretKey.includes("placeholder")) {
       try {
         const flwRes = await fetch("https://api.flutterwave.com/v3/charges?type=bank_transfer", {
@@ -30507,65 +30590,132 @@ var handler21 = async (req, res) => {
             currency: plan.currency || "NGN",
             email: user.email,
             tx_ref: txRef,
-            fullname: user.displayName || user.email.split("@")[0],
-            phone_number: "08000000000"
+            fullname: user.displayName || user.email.split("@")[0]
           })
         });
-        if (flwRes.ok) {
-          const flwData = await flwRes.json();
+        const flwData = await flwRes.json().catch(() => ({}));
+        if (flwRes.ok && (flwData?.status === "success" || flwData?.status === "pending")) {
           const auth = flwData?.meta?.authorization || flwData?.data;
-          if (auth?.transfer_account || auth?.account_number) {
-            accountNumber = String(auth.transfer_account || auth.account_number).trim();
-            bankName = auth.transfer_bank || auth.bank_name || "Wema Bank";
-            if (auth.account_name) accountName = auth.account_name;
-            flwRef = flwData?.data?.flw_ref || null;
+          const candidateAccount = auth?.transfer_account || auth?.account_number || auth?.accountnumber;
+          if (candidateAccount) {
+            accountNumber = String(candidateAccount).trim();
+            bankName = auth.transfer_bank || auth.bank_name || auth.bankname || "Flutterwave Partner Bank";
+            accountName = auth.account_name || auth.transfer_account_name || `Nooraya / ${user.email.split("@")[0]}`;
+            flwRef = flwData?.data?.flw_ref || auth?.flw_ref || null;
             flwId = flwData?.data?.id ? String(flwData.data.id) : null;
+          } else {
+            flwErrorMessage = flwData?.message || "Flutterwave response did not contain virtual account details.";
           }
         } else {
-          const errData = await flwRes.json().catch(() => ({}));
-          console.warn("[Payments] Flutterwave bank transfer API returned non-OK:", errData);
+          flwErrorMessage = flwData?.message || `Flutterwave API returned status ${flwRes.status}`;
         }
       } catch (err) {
-        console.warn("[Payments] Flutterwave bank transfer request warning:", err);
+        flwErrorMessage = err?.message || "Network error reaching Flutterwave API.";
       }
+    } else {
+      flwErrorMessage = "FLW_SECRET_KEY is not configured in server environment.";
     }
-    if (!accountNumber) {
-      const hash = Math.abs(
-        txRef.split("").reduce((acc, char) => acc * 31 + char.charCodeAt(0) | 0, 0)
-      );
-      accountNumber = `99${String(hash).padStart(8, "0").slice(0, 8)}`;
-      bankName = "Wema Bank / Flutterwave";
+    if (accountNumber && bankName) {
+      await createPaymentRecord({
+        user_id: userId,
+        plan_code: plan.code,
+        amount: plan.amount,
+        currency: plan.currency || "NGN",
+        tx_ref: txRef,
+        method: "bank_transfer",
+        status: "pending",
+        bank_name: bankName,
+        account_number: accountNumber,
+        account_name: accountName,
+        expiry_date: expiresAt,
+        flw_ref: flwRef,
+        flw_id: flwId,
+        metadata: {
+          plan_name: plan.name_en,
+          duration_days: plan.duration_days,
+          user_email: user.email
+        }
+      });
+      return sendJson(res, 200, {
+        success: true,
+        bankName,
+        accountNumber,
+        accountName,
+        amount: plan.amount,
+        currency: plan.currency || "NGN",
+        txRef,
+        expiresAt,
+        expiresInSeconds: expiryMinutes * 60,
+        plan: {
+          code: plan.code,
+          name_en: plan.name_en,
+          duration_days: plan.duration_days
+        }
+      });
     }
-    await createPaymentRecord({
-      user_id: userId,
-      plan_code: plan.code,
-      amount: plan.amount,
-      currency: plan.currency || "NGN",
-      tx_ref: txRef,
-      method: "bank_transfer",
-      status: "pending",
-      bank_name: bankName,
-      account_number: accountNumber,
-      account_name: accountName,
-      expiry_date: expiresAt,
-      flw_ref: flwRef,
-      flw_id: flwId,
-      metadata: {
-        plan_name: plan.name_en,
-        duration_days: plan.duration_days,
-        user_email: user.email
-      }
-    });
-    return sendJson(res, 200, {
-      success: true,
-      bankName,
-      accountNumber,
-      accountName,
-      amount: plan.amount,
-      currency: plan.currency || "NGN",
+    console.error("[Payments Admin Alert] Dynamic virtual account generation failed:", {
+      error: flwErrorMessage,
+      user_email: user.email,
       txRef,
-      expiresAt,
-      expiresInSeconds: expiryMinutes * 60,
+      plan_code: plan.code
+    });
+    let fallbackCheckoutUrl = null;
+    if (flwSecretKey && !flwSecretKey.includes("placeholder")) {
+      try {
+        const redirectUrl = `${origin}/premium?status=successful&tx_ref=${encodeURIComponent(txRef)}&plan_code=${encodeURIComponent(plan.code)}`;
+        const fallbackRes = await fetch("https://api.flutterwave.com/v3/payments", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${flwSecretKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            tx_ref: txRef,
+            amount: plan.amount,
+            currency: plan.currency || "NGN",
+            redirect_url: redirectUrl,
+            customer: {
+              email: user.email,
+              name: user.displayName || user.email.split("@")[0]
+            },
+            customizations: {
+              title: "Nooraya Quranic Sanctuary",
+              description: `${plan.name_en} (${plan.amount} ${plan.currency})`,
+              logo: `${origin}/icon.svg`
+            }
+          })
+        });
+        const fallbackData = await fallbackRes.json().catch(() => ({}));
+        if (fallbackRes.ok && fallbackData?.data?.link) {
+          fallbackCheckoutUrl = fallbackData.data.link;
+          await createPaymentRecord({
+            user_id: userId,
+            plan_code: plan.code,
+            amount: plan.amount,
+            currency: plan.currency || "NGN",
+            tx_ref: txRef,
+            method: "hosted_checkout",
+            status: "pending",
+            metadata: {
+              plan_name: plan.name_en,
+              duration_days: plan.duration_days,
+              user_email: user.email,
+              fallback_from: "bank_transfer"
+            }
+          });
+        }
+      } catch (fbErr) {
+        console.warn("[Payments] Hosted checkout fallback generation notice:", fbErr);
+      }
+    }
+    return sendJson(res, 200, {
+      success: false,
+      error: "Direct virtual bank account generation is temporarily unavailable. Please proceed using Flutterwave multi-channel checkout.",
+      detailedError: flwErrorMessage,
+      fallbackCheckoutUrl,
+      txRef,
+      amount: plan.amount,
+      currency: plan.currency || "NGN",
       plan: {
         code: plan.code,
         name_en: plan.name_en,
@@ -30574,14 +30724,111 @@ var handler21 = async (req, res) => {
     });
   } catch (err) {
     console.error("[Payments] Create virtual account error:", err);
-    return sendJson(res, 500, { error: "Failed to create bank transfer details" });
+    return sendJson(res, 500, { error: "Failed to process payment request" });
   }
-};
-var create_virtual_account_default = handler21;
+}
+
+// backend/payments/create-hosted-checkout.ts
+init_lib();
+async function handler22(req, res) {
+  if (req.method !== "POST") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  const user = await requireAuth(req, res);
+  if (!user) return;
+  try {
+    const body = await readJson(req).catch(() => ({}));
+    const planCode = body.plan_code || (body.plan === "monthly" ? "premium_monthly" : "premium_monthly");
+    const plan = await getPlanByCode(planCode);
+    if (!plan || !plan.is_active) {
+      return sendJson(res, 400, { error: "Selected plan is not currently available." });
+    }
+    const userId = user.uid || user.id;
+    const txRef = `qf-ch-${Date.now()}-${userId.slice(0, 8)}`;
+    const rawSecret = process.env.FLW_SECRET_KEY || "";
+    const flwSecretKey = rawSecret.trim().replace(/^['"]|['"]$/g, "");
+    if (!flwSecretKey || flwSecretKey.includes("placeholder")) {
+      console.error("[Payments] Hosted checkout failed: FLW_SECRET_KEY is not configured in environment variables.");
+      return sendJson(res, 500, {
+        error: "Payment gateway configuration error. Please ensure FLW_SECRET_KEY is configured in Vercel."
+      });
+    }
+    const hostHeader = req.headers.host || "localhost:3000";
+    const proto = req.headers["x-forwarded-proto"] || (hostHeader.startsWith("localhost") ? "http" : "https");
+    const origin = `${proto}://${hostHeader}`;
+    const redirectUrl = body.redirect_url || `${origin}/premium?status=successful&tx_ref=${encodeURIComponent(txRef)}&plan_code=${encodeURIComponent(plan.code)}`;
+    const flwRes = await fetch("https://api.flutterwave.com/v3/payments", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${flwSecretKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        tx_ref: txRef,
+        amount: plan.amount,
+        currency: plan.currency || "NGN",
+        redirect_url: redirectUrl,
+        customer: {
+          email: user.email,
+          name: user.displayName || user.email.split("@")[0]
+        },
+        customizations: {
+          title: "Nooraya Quranic Sanctuary",
+          description: `${plan.name_en} Subscription (${plan.duration_days} days)`,
+          logo: `${origin}/icon.svg`
+        }
+      })
+    });
+    const flwData = await flwRes.json().catch(() => ({}));
+    if (!flwRes.ok || flwData?.status !== "success" || !flwData?.data?.link) {
+      const errMsg = flwData?.message || `Flutterwave API returned status ${flwRes.status}`;
+      console.error("[Payments] Flutterwave hosted payment creation failed:", {
+        status: flwRes.status,
+        message: errMsg,
+        txRef,
+        planCode: plan.code
+      });
+      return sendJson(res, 400, {
+        error: errMsg || "Unable to generate Flutterwave checkout link."
+      });
+    }
+    const checkoutUrl = flwData.data.link;
+    await createPaymentRecord({
+      user_id: userId,
+      plan_code: plan.code,
+      amount: plan.amount,
+      currency: plan.currency || "NGN",
+      tx_ref: txRef,
+      method: "hosted_checkout",
+      status: "pending",
+      metadata: {
+        plan_name: plan.name_en,
+        duration_days: plan.duration_days,
+        user_email: user.email,
+        checkout_url: checkoutUrl
+      }
+    });
+    return sendJson(res, 200, {
+      success: true,
+      checkoutUrl,
+      txRef,
+      amount: plan.amount,
+      currency: plan.currency || "NGN",
+      plan: {
+        code: plan.code,
+        name_en: plan.name_en,
+        duration_days: plan.duration_days
+      }
+    });
+  } catch (err) {
+    console.error("[Payments] Create hosted checkout error:", err);
+    return sendJson(res, 500, { error: "Failed to initialize payment gateway" });
+  }
+}
 
 // backend/payments/check-transfer-status.ts
 init_lib();
-async function handler22(req, res) {
+async function handler23(req, res) {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30695,15 +30942,26 @@ async function handler22(req, res) {
 
 // backend/admin/supabase-backgrounds.ts
 init_lib();
-var handler23 = async (req, res) => {
+var handler24 = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     await ensureBackgroundsTable().catch(() => {
     });
     if (req.method === "GET") {
+      const sb = getSupabaseAdmin();
+      if (sb) {
+        try {
+          const { data, error } = await sb.from("backgrounds").select("*").order("sort_order", { ascending: true });
+          if (!error && Array.isArray(data)) {
+            return sendJson(res, 200, { backgrounds: data });
+          }
+        } catch (e) {
+          console.warn("Supabase admin GET backgrounds notice:", e);
+        }
+      }
       const result = await q(`
-        SELECT id, name_en, name_ar, category, video_url, poster_url, size_bytes, sort_order, is_active, is_premium, created_at
+        SELECT id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p, poster_url, size_bytes, duration_seconds, renditions, storage_paths, attribution, sort_order, is_active, is_draft, is_premium, created_at
         FROM backgrounds
         ORDER BY sort_order ASC, created_at DESC
       `);
@@ -30718,32 +30976,117 @@ var handler23 = async (req, res) => {
         const name_ar = body.name_ar ? String(body.name_ar).trim() : null;
         const category = String(body.category || "general").trim().toLowerCase();
         const video_url = String(body.video_url || "").trim();
+        const video_url_720p = body.video_url_720p ? String(body.video_url_720p).trim() : video_url;
+        const video_url_480p = body.video_url_480p ? String(body.video_url_480p).trim() : null;
         const poster_url = body.poster_url ? String(body.poster_url).trim() : null;
         const size_bytes = Number(body.size_bytes || 0);
+        const duration_seconds = Number(body.duration_seconds || 0);
+        const renditions = Array.isArray(body.renditions) ? body.renditions : [];
+        const storage_paths = Array.isArray(body.storage_paths) ? body.storage_paths : [];
+        const attribution = body.attribution ? String(body.attribution).trim() : null;
         const sort_order = Number(body.sort_order || 0);
-        const is_active = body.is_active !== false;
+        const is_active = body.is_active !== void 0 ? Boolean(body.is_active) : true;
+        const is_draft = body.is_draft !== void 0 ? Boolean(body.is_draft) : false;
         const is_premium = Boolean(body.is_premium);
         if (!name_en || !video_url) {
           return sendJson(res, 400, { error: "name_en and video_url are required." });
         }
-        await q(
-          `INSERT INTO backgrounds (id, name_en, name_ar, category, video_url, poster_url, size_bytes, sort_order, is_active, is_premium, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-           ON CONFLICT (id) DO UPDATE SET
-             name_en = EXCLUDED.name_en,
-             name_ar = EXCLUDED.name_ar,
-             category = EXCLUDED.category,
-             video_url = EXCLUDED.video_url,
-             poster_url = EXCLUDED.poster_url,
-             size_bytes = EXCLUDED.size_bytes,
-             sort_order = EXCLUDED.sort_order,
-             is_active = EXCLUDED.is_active,
-             is_premium = EXCLUDED.is_premium`,
-          [id, name_en, name_ar, category, video_url, poster_url, size_bytes, sort_order, is_active, is_premium]
-        );
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            const { error: sbErr } = await sb.from("backgrounds").upsert(
+              {
+                id,
+                name_en,
+                name_ar,
+                category,
+                video_url,
+                video_url_720p,
+                video_url_480p,
+                poster_url,
+                size_bytes,
+                duration_seconds,
+                renditions,
+                storage_paths,
+                attribution,
+                sort_order,
+                is_active,
+                is_draft,
+                is_premium
+              },
+              { onConflict: "id" }
+            );
+            if (sbErr) console.warn("Supabase service role backgrounds upsert warning:", sbErr.message);
+          } catch (e) {
+            console.warn("Supabase service role write exception:", e);
+          }
+        }
+        try {
+          await q(
+            `INSERT INTO backgrounds (
+               id, name_en, name_ar, category, video_url, video_url_720p, video_url_480p,
+               poster_url, size_bytes, duration_seconds, renditions, storage_paths,
+               attribution, sort_order, is_active, is_draft, is_premium, created_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
+             ON CONFLICT (id) DO UPDATE SET
+               name_en = EXCLUDED.name_en,
+               name_ar = EXCLUDED.name_ar,
+               category = EXCLUDED.category,
+               video_url = EXCLUDED.video_url,
+               video_url_720p = EXCLUDED.video_url_720p,
+               video_url_480p = EXCLUDED.video_url_480p,
+               poster_url = EXCLUDED.poster_url,
+               size_bytes = EXCLUDED.size_bytes,
+               duration_seconds = EXCLUDED.duration_seconds,
+               renditions = EXCLUDED.renditions,
+               storage_paths = EXCLUDED.storage_paths,
+               attribution = EXCLUDED.attribution,
+               sort_order = EXCLUDED.sort_order,
+               is_active = EXCLUDED.is_active,
+               is_draft = EXCLUDED.is_draft,
+               is_premium = EXCLUDED.is_premium`,
+            [
+              id,
+              name_en,
+              name_ar,
+              category,
+              video_url,
+              video_url_720p,
+              video_url_480p,
+              poster_url,
+              size_bytes,
+              duration_seconds,
+              JSON.stringify(renditions),
+              JSON.stringify(storage_paths),
+              attribution,
+              sort_order,
+              is_active,
+              is_draft,
+              is_premium
+            ]
+          );
+        } catch (dbErr) {
+          console.warn("Neon backgrounds write notice:", dbErr);
+        }
         return sendJson(res, 201, {
           ok: true,
-          background: { id, name_en, name_ar, category, video_url, poster_url, size_bytes, sort_order, is_active, is_premium }
+          background: {
+            id,
+            name_en,
+            name_ar,
+            category,
+            video_url,
+            video_url_720p,
+            video_url_480p,
+            poster_url,
+            size_bytes,
+            duration_seconds,
+            sort_order,
+            is_active,
+            is_draft,
+            is_premium
+          }
         });
       }
       if (action === "update") {
@@ -30753,30 +31096,157 @@ var handler23 = async (req, res) => {
         const name_ar = body.name_ar !== void 0 ? body.name_ar ? String(body.name_ar).trim() : null : void 0;
         const category = body.category !== void 0 ? String(body.category).trim().toLowerCase() : void 0;
         const video_url = body.video_url !== void 0 ? String(body.video_url).trim() : void 0;
+        const video_url_720p = body.video_url_720p !== void 0 ? String(body.video_url_720p).trim() : void 0;
+        const video_url_480p = body.video_url_480p !== void 0 ? body.video_url_480p ? String(body.video_url_480p).trim() : null : void 0;
         const poster_url = body.poster_url !== void 0 ? body.poster_url ? String(body.poster_url).trim() : null : void 0;
+        const size_bytes = body.size_bytes !== void 0 ? Number(body.size_bytes) : void 0;
+        const duration_seconds = body.duration_seconds !== void 0 ? Number(body.duration_seconds) : void 0;
+        const renditions = body.renditions !== void 0 ? Array.isArray(body.renditions) ? body.renditions : [] : void 0;
+        const storage_paths = body.storage_paths !== void 0 ? Array.isArray(body.storage_paths) ? body.storage_paths : [] : void 0;
+        const attribution = body.attribution !== void 0 ? body.attribution ? String(body.attribution).trim() : null : void 0;
         const sort_order = body.sort_order !== void 0 ? Number(body.sort_order) : void 0;
         const is_active = body.is_active !== void 0 ? Boolean(body.is_active) : void 0;
+        const is_draft = body.is_draft !== void 0 ? Boolean(body.is_draft) : void 0;
         const is_premium = body.is_premium !== void 0 ? Boolean(body.is_premium) : void 0;
-        await q(
-          `UPDATE backgrounds
-           SET name_en = COALESCE($2, name_en),
-               name_ar = COALESCE($3, name_ar),
-               category = COALESCE($4, category),
-               video_url = COALESCE($5, video_url),
-               poster_url = COALESCE($6, poster_url),
-               sort_order = COALESCE($7, sort_order),
-               is_active = COALESCE($8, is_active),
-               is_premium = COALESCE($9, is_premium)
-           WHERE id = $1`,
-          [id, name_en, name_ar, category, video_url, poster_url, sort_order, is_active, is_premium]
-        );
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            const updatePayload = {};
+            if (name_en !== void 0) updatePayload.name_en = name_en;
+            if (name_ar !== void 0) updatePayload.name_ar = name_ar;
+            if (category !== void 0) updatePayload.category = category;
+            if (video_url !== void 0) updatePayload.video_url = video_url;
+            if (video_url_720p !== void 0) updatePayload.video_url_720p = video_url_720p;
+            if (video_url_480p !== void 0) updatePayload.video_url_480p = video_url_480p;
+            if (poster_url !== void 0) updatePayload.poster_url = poster_url;
+            if (size_bytes !== void 0) updatePayload.size_bytes = size_bytes;
+            if (duration_seconds !== void 0) updatePayload.duration_seconds = duration_seconds;
+            if (renditions !== void 0) updatePayload.renditions = renditions;
+            if (storage_paths !== void 0) updatePayload.storage_paths = storage_paths;
+            if (attribution !== void 0) updatePayload.attribution = attribution;
+            if (sort_order !== void 0) updatePayload.sort_order = sort_order;
+            if (is_active !== void 0) updatePayload.is_active = is_active;
+            if (is_draft !== void 0) updatePayload.is_draft = is_draft;
+            if (is_premium !== void 0) updatePayload.is_premium = is_premium;
+            await sb.from("backgrounds").update(updatePayload).eq("id", id);
+          } catch (e) {
+            console.warn("Supabase admin backgrounds update notice:", e);
+          }
+        }
+        try {
+          await q(
+            `UPDATE backgrounds
+             SET name_en = COALESCE($2, name_en),
+                 name_ar = COALESCE($3, name_ar),
+                 category = COALESCE($4, category),
+                 video_url = COALESCE($5, video_url),
+                 video_url_720p = COALESCE($6, video_url_720p),
+                 video_url_480p = COALESCE($7, video_url_480p),
+                 poster_url = COALESCE($8, poster_url),
+                 size_bytes = COALESCE($9, size_bytes),
+                 duration_seconds = COALESCE($10, duration_seconds),
+                 renditions = COALESCE($11::jsonb, renditions),
+                 storage_paths = COALESCE($12::jsonb, storage_paths),
+                 attribution = COALESCE($13, attribution),
+                 sort_order = COALESCE($14, sort_order),
+                 is_active = COALESCE($15, is_active),
+                 is_draft = COALESCE($16, is_draft),
+                 is_premium = COALESCE($17, is_premium)
+             WHERE id = $1`,
+            [
+              id,
+              name_en,
+              name_ar,
+              category,
+              video_url,
+              video_url_720p,
+              video_url_480p,
+              poster_url,
+              size_bytes,
+              duration_seconds,
+              renditions ? JSON.stringify(renditions) : null,
+              storage_paths ? JSON.stringify(storage_paths) : null,
+              attribution,
+              sort_order,
+              is_active,
+              is_draft,
+              is_premium
+            ]
+          );
+        } catch (dbErr) {
+          console.warn("Neon backgrounds update notice:", dbErr);
+        }
         return sendJson(res, 200, { ok: true });
+      }
+      if (action === "signed-upload-url") {
+        const path4 = String(body.path || "").replace(/^\/+/, "");
+        if (!path4) return sendJson(res, 400, { error: "Path is required" });
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+        if (sb) {
+          try {
+            const { data, error } = await sb.storage.from("ambient-backgrounds").createSignedUploadUrl(path4);
+            if (!error && data?.signedUrl) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+              return sendJson(res, 200, {
+                ok: true,
+                signedUrl: data.signedUrl,
+                token: data.token,
+                publicUrl
+              });
+            }
+          } catch (e) {
+            console.warn("createSignedUploadUrl error:", e?.message);
+          }
+        }
+        const fallbackPublicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+        return sendJson(res, 200, { ok: false, fallbackPublicUrl });
+      }
+      if (action === "upload") {
+        const path4 = String(body.path || "").replace(/^\/+/, "");
+        const contentType = String(body.contentType || "video/mp4");
+        const base64Data = String(body.data || "");
+        if (!path4 || !base64Data) return sendJson(res, 400, { error: "Path and data are required" });
+        const buffer = Buffer.from(base64Data, "base64");
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+        if (sb) {
+          try {
+            const { data, error } = await sb.storage.from("ambient-backgrounds").upload(path4, buffer, {
+              contentType,
+              upsert: true
+            });
+            if (!error) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+              return sendJson(res, 200, { ok: true, publicUrl });
+            }
+            console.warn("Supabase service role upload error:", error);
+          } catch (e) {
+            console.warn("Upload exception:", e);
+          }
+        }
+        return sendJson(res, 500, { error: "Could not upload to storage." });
       }
       if (action === "delete") {
         const id = String(body.id || "");
         if (!id) return sendJson(res, 400, { error: "ID is required" });
-        await q("DELETE FROM backgrounds WHERE id = $1", [id]);
-        return sendJson(res, 200, { ok: true });
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            await sb.from("backgrounds").delete().eq("id", id);
+          } catch (e) {
+            console.warn("Supabase delete background notice:", e);
+          }
+        }
+        let paths = [];
+        try {
+          const existing = await q("SELECT storage_paths FROM backgrounds WHERE id = $1", [id]);
+          await q("DELETE FROM backgrounds WHERE id = $1", [id]);
+          paths = existing.rows?.[0]?.storage_paths || [];
+        } catch (dbErr) {
+          console.warn("Neon delete background notice:", dbErr);
+        }
+        return sendJson(res, 200, { ok: true, deleted_storage_paths: paths });
       }
       return sendJson(res, 400, { error: "Unknown action" });
     }
@@ -30786,11 +31256,11 @@ var handler23 = async (req, res) => {
     return sendJson(res, 500, { error: err?.message || "Server error" });
   }
 };
-var supabase_backgrounds_default = handler23;
+var supabase_backgrounds_default = handler24;
 
 // backend/plans.ts
 init_lib();
-async function handler24(req, res) {
+async function handler25(req, res) {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30805,7 +31275,7 @@ async function handler24(req, res) {
 
 // backend/admin/plans.ts
 init_lib();
-async function handler25(req, res) {
+async function handler26(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -30849,7 +31319,7 @@ async function handler25(req, res) {
 
 // backend/admin/payments.ts
 init_lib();
-async function handler26(req, res) {
+async function handler27(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -30997,6 +31467,98 @@ async function handler26(req, res) {
   return sendJson(res, 405, { error: "Method not allowed" });
 }
 
+// backend/admin/payments-diagnostics.ts
+init_lib();
+async function handler28(req, res) {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const rawSecret = process.env.FLW_SECRET_KEY || "";
+  const rawPublic = process.env.FLW_PUBLIC_KEY || process.env.VITE_FLW_PUBLIC_KEY || "";
+  const rawWebhook = process.env.FLW_WEBHOOK_HASH || "";
+  const secretTrimmed = rawSecret.trim().replace(/^['"]|['"]$/g, "");
+  const publicTrimmed = rawPublic.trim().replace(/^['"]|['"]$/g, "");
+  const webhookTrimmed = rawWebhook.trim().replace(/^['"]|['"]$/g, "");
+  const secretHasQuotes = rawSecret.startsWith('"') || rawSecret.startsWith("'");
+  const secretHasWhitespace = rawSecret !== rawSecret.trim();
+  const publicHasQuotes = rawPublic.startsWith('"') || rawPublic.startsWith("'");
+  const publicHasWhitespace = rawPublic !== rawPublic.trim();
+  const secretMode = secretTrimmed.includes("TEST") ? "TEST" : secretTrimmed.startsWith("FLWSECK") ? "LIVE" : "UNKNOWN";
+  const publicMode = publicTrimmed.includes("TEST") ? "TEST" : publicTrimmed.startsWith("FLWPUBK") ? "LIVE" : "UNKNOWN";
+  const warnings = [];
+  if (!secretTrimmed) {
+    warnings.push("FLW_SECRET_KEY is missing from environment variables in Vercel.");
+  } else if (secretTrimmed.startsWith("FLWPUBK")) {
+    warnings.push("CRITICAL MISMATCH: FLW_SECRET_KEY contains a Public Key (starts with FLWPUBK). It must be your Secret Key (starts with FLWSECK).");
+  }
+  if (secretHasQuotes) {
+    warnings.push("FLW_SECRET_KEY has quotation marks surrounding its value. In Vercel, paste only the bare key without quotes.");
+  }
+  if (secretHasWhitespace) {
+    warnings.push("FLW_SECRET_KEY has leading or trailing whitespace. Please re-copy the key cleanly.");
+  }
+  if (publicTrimmed && secretTrimmed && secretMode !== "UNKNOWN" && publicMode !== "UNKNOWN" && secretMode !== publicMode) {
+    warnings.push(`Mode mismatch: Secret Key is in ${secretMode} mode, while Public Key is in ${publicMode} mode. Both keys must be in the same mode.`);
+  }
+  if (!webhookTrimmed) {
+    warnings.push("FLW_WEBHOOK_HASH is not set. Webhooks cannot be validated.");
+  }
+  const secretPrefix = secretTrimmed.length >= 10 ? `${secretTrimmed.slice(0, 10)}...` : "Not Set";
+  const publicPrefix = publicTrimmed.length >= 10 ? `${publicTrimmed.slice(0, 10)}...` : "Not Set (Using server-side hosted checkout)";
+  let apiStatus = "Not Tested";
+  let apiError = null;
+  if (secretTrimmed && !secretTrimmed.includes("placeholder")) {
+    try {
+      const testRes = await fetch("https://api.flutterwave.com/v3/banks/NG", {
+        headers: {
+          Authorization: `Bearer ${secretTrimmed}`,
+          "Content-Type": "application/json"
+        }
+      });
+      if (testRes.ok) {
+        apiStatus = `SUCCESS: Connected and authenticated with Flutterwave API (${secretMode} Mode)`;
+      } else {
+        const errJson = await testRes.json().catch(() => ({}));
+        apiStatus = `FAILED: HTTP ${testRes.status} ${testRes.statusText}`;
+        apiError = errJson?.message || "Authentication rejected by Flutterwave API. Verify your secret key is active.";
+        warnings.push(`API Verification Failed: ${apiError}`);
+      }
+    } catch (netErr) {
+      apiStatus = "NETWORK_ERROR";
+      apiError = netErr?.message || "Unable to reach https://api.flutterwave.com";
+      warnings.push(`Network error: ${apiError}`);
+    }
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    diagnostic: {
+      secretKey: {
+        present: Boolean(secretTrimmed),
+        mode: secretMode,
+        prefixType: secretTrimmed ? `${secretMode} secret key present (${secretPrefix})` : "Missing",
+        hasWhitespace: secretHasWhitespace,
+        hasQuotes: secretHasQuotes
+      },
+      publicKey: {
+        present: Boolean(publicTrimmed),
+        mode: publicMode,
+        prefixType: publicTrimmed ? `${publicMode} public key present (${publicPrefix})` : "Not set (Browser uses server-side checkout)",
+        hasWhitespace: publicHasWhitespace,
+        hasQuotes: publicHasQuotes
+      },
+      webhookHash: {
+        present: Boolean(webhookTrimmed),
+        status: webhookTrimmed ? "Configured" : "Missing"
+      },
+      flutterwaveApiConnection: {
+        status: apiStatus,
+        error: apiError
+      },
+      warnings,
+      isReadyForTransactions: Boolean(secretTrimmed) && warnings.length === 0
+    }
+  });
+}
+
 // backend/index.ts
 init_lib();
 var routes = [
@@ -31017,20 +31579,22 @@ var routes = [
   [/^\/api\/health$/, handler15],
   [/^\/api\/reciters$/, reciters_default3],
   [/^\/api\/ambient$/, ambient_default2],
-  [/^\/api\/plans$/, handler24],
-  [/^\/api\/admin\/plans(\/.*)?$/, handler25],
-  [/^\/api\/admin\/plan-price-logs$/, handler25],
-  [/^\/api\/admin\/payments$/, handler26],
-  [/^\/api\/admin\/reconcile-payments$/, handler26],
+  [/^\/api\/plans$/, handler25],
+  [/^\/api\/admin\/plans(\/.*)?$/, handler26],
+  [/^\/api\/admin\/plan-price-logs$/, handler26],
+  [/^\/api\/admin\/payments\/diagnostics$/, handler28],
+  [/^\/api\/admin\/payments$/, handler27],
+  [/^\/api\/admin\/reconcile-payments$/, handler27],
   [/^\/api\/payments\/verify-flutterwave$/, handler19],
   [/^\/api\/webhooks\/flutterwave$/, handler20],
-  [/^\/api\/payments\/create-virtual-account$/, create_virtual_account_default],
-  [/^\/api\/payments\/check-transfer-status$/, handler22],
+  [/^\/api\/payments\/create-virtual-account$/, handler21],
+  [/^\/api\/payments\/create-hosted-checkout$/, handler22],
+  [/^\/api\/payments\/check-transfer-status$/, handler23],
   [/^\/api\/backgrounds$/, backgrounds_default],
   [/^\/api\/admin\/supabase-backgrounds$/, supabase_backgrounds_default],
   [/^\/api\/media(\/.*)?$/, mediaHandler]
 ];
-var handler27 = async (req, res) => {
+var handler29 = async (req, res) => {
   const url = (req.url || "").split("?")[0];
   const match = routes.find(([pattern]) => pattern.test(url));
   if (!match) {
@@ -31045,7 +31609,7 @@ var handler27 = async (req, res) => {
     }
   }
 };
-var index_default = handler27;
+var index_default = handler29;
 export {
   index_default as default
 };
