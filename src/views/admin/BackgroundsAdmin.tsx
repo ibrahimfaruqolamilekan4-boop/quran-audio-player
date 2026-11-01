@@ -913,7 +913,7 @@ export function BackgroundsAdmin() {
         </div>
       </div>
 
-      {/* PART A APPROVED SOURCES: NASA (1-Click API Processed), PEXELS & PIXABAY (1-Click Download + Pre-Bound Upload) */}
+      {/* PART A APPROVED SOURCES: NASA, PEXELS & PIXABAY (12 Pre-Processed + 1-Click Upload) */}
       <div className="rounded-2xl border border-emerald-500/25 bg-[#081511] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -921,14 +921,14 @@ export function BackgroundsAdmin() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm font-semibold text-white">
-                  Approved Part A Sources: NASA Image & Video Library, Pexels & Pixabay
+                  Approved Part A Sources: Pixabay, Pexels & NASA Image and Video Library
                 </h3>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  6 NASA 720p/480p Loops Pre-Processed • Auto Licence Attachment
+                  12 Approved 720p/480p Loops Pre-Processed • Auto Licence Attachment
                 </span>
               </div>
               <p className="text-xs text-white/60">
-                NASA videos were fetched via the official NASA API, transcoded into 9:16 720p & 480p H.264 MP4s (muted, faststart, seamless loop), and published. For Pexels & Pixabay, click <strong>1. Download MP4</strong> then <strong>2. Upload with Licence</strong> (or drag the downloaded MP4 onto the box above).
+                12 approved Pixabay, Pexels, and NASA scenes are pre-processed into 9:16 720p & 480p H.264 MP4s (muted, faststart, seamless loop) and live on phones. For additional candidates, click <strong>1. Download MP4</strong> then <strong>2. Upload File</strong>.
               </p>
             </div>
           </div>
@@ -945,7 +945,7 @@ export function BackgroundsAdmin() {
               ) : (
                 <Sparkles className="w-3.5 h-3.5" />
               )}
-              Publish / Restore All 6 NASA Scenes
+              Publish / Restore All 12 Approved Scenes
             </button>
             <button
               type="button"
@@ -968,12 +968,12 @@ export function BackgroundsAdmin() {
               {(
                 [
                   { key: 'all', label: `All Approved (${AMBIENT_VIDEO_CANDIDATES.length})` },
+                  { key: 'Pixabay', label: 'Pixabay (Approved & Live)' },
+                  { key: 'Pexels', label: 'Pexels (Approved & Live)' },
                   {
                     key: 'NASA Image and Video Library',
-                    label: 'NASA Official API (6 Pre-Processed)',
+                    label: 'NASA Official API (Approved & Live)',
                   },
-                  { key: 'Pexels', label: 'Pexels (Approved)' },
-                  { key: 'Pixabay', label: 'Pixabay (Approved)' },
                 ] as const
               ).map((tab) => (
                 <button
