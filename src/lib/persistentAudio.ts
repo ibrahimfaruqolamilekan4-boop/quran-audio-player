@@ -39,6 +39,49 @@ export function getAmbientAudio(): HTMLAudioElement {
   return ambientAudioInstance;
 }
 
+let isAudioUnlocked = false;
+
+/**
+ * Unlocks HTMLAudioElement playback on mobile Safari, iOS, and Android Chrome
+ * by playing and immediately pausing a silent snippet within a user interaction.
+ */
+export function unlockAudio() {
+  if (isAudioUnlocked) return;
+  isAudioUnlocked = true;
+  const quranAudio = getQuranAudio();
+  const ambientAudio = getAmbientAudio();
+
+  if (quranAudio.paused && !quranAudio.src) {
+    quranAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+    quranAudio.play().then(() => {
+      quranAudio.pause();
+      quranAudio.currentTime = 0;
+      quranAudio.src = '';
+    }).catch(() => {});
+  }
+  if (ambientAudio.paused && !ambientAudio.src) {
+    ambientAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+    ambientAudio.play().then(() => {
+      ambientAudio.pause();
+      ambientAudio.currentTime = 0;
+      ambientAudio.src = '';
+    }).catch(() => {});
+  }
+}
+
+// Auto-bind unlock on the first user interaction
+if (typeof window !== 'undefined') {
+  const handleInteraction = () => {
+    unlockAudio();
+    ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach(evt => {
+      window.removeEventListener(evt, handleInteraction, { capture: true });
+    });
+  };
+  ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach(evt => {
+    window.addEventListener(evt, handleInteraction, { capture: true, passive: true });
+  });
+}
+
 /**
  * Updates the Media Session API with high-resolution artwork (96, 256, 512),
  * track details, lock-screen scrubber position, and playback state.

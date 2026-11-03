@@ -27,11 +27,13 @@ import {
   Sparkles,
   Sliders,
   Maximize2,
-  Download
+  Download,
+  AlertCircle
 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
 import { isSurahDownloaded, downloadSurah } from '../lib/offlineManager';
+import { isSurahAvailable } from '../lib/audio';
 import { SubscriptionModal } from './SubscriptionModal';
 import { MediaCreditsModal } from './MediaCreditsModal';
 import { AMBIENT_TRACKS } from '../lib/constants';
@@ -86,6 +88,8 @@ export function NowPlayingOverlay() {
     setActiveBackgroundVideoId,
     customVideos,
     ambientVideoMapping,
+    allReciters,
+    switchReciterAndPlay,
   } = usePlayer();
 
   const reduceMotion = useReducedMotion();
@@ -303,6 +307,40 @@ export function NowPlayingOverlay() {
               LOWER CONTROL CONSOLE (Identical to EasyQuranify in the video)
              ========================================================================= */}
           <div className="relative z-20 shrink-0 px-6 sm:px-10 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4">
+            {/* Playback Error or Gesture Requirement Alert */}
+            {playbackError && (
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-amber-950/85 border border-amber-500/40 text-amber-200 text-xs backdrop-blur-md shadow-lg animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                  <span className="truncate">{playbackError}</span>
+                </div>
+                {playbackError.includes('browser needs a gesture') ? (
+                  <button
+                    onClick={togglePlayPause}
+                    className="px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold text-xs shrink-0 cursor-pointer transition-colors shadow-sm"
+                  >
+                    Tap to Play
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const altReciter = allReciters.find(
+                        r => currentChapter && isSurahAvailable(r, currentChapter.id) && r.id !== currentReciter?.id
+                      );
+                      if (altReciter) {
+                        switchReciterAndPlay(altReciter);
+                      } else {
+                        setNowPlayingOpen(false);
+                      }
+                    }}
+                    className="px-3 py-1 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-xs shrink-0 cursor-pointer transition-colors shadow-sm"
+                  >
+                    Try Another Sheikh
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Track & Reciter Info Header */}
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3.5 min-w-0">

@@ -4,7 +4,7 @@ import { getQuranAudio, getAmbientAudio } from '../lib/persistentAudio';
 import { fetchActiveBackgrounds, subscribeToBackgrounds } from '../lib/supabase';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS } from '../lib/constants';
-import { candidateUrls, extensionOf, isObjectUrl, rememberFormat } from '../lib/audio';
+import { candidateUrls, extensionOf, isObjectUrl, rememberFormat, isSurahAvailable } from '../lib/audio';
 import { resolveReciters, type GlobalReciterRow } from '../lib/reciters';
 import localforage from 'localforage';
 import { useAuth } from './AuthContext';
@@ -38,6 +38,8 @@ interface PlayerContextType {
   playChapter: (chapter: Chapter, reciter?: Reciter) => void;
   togglePlayPause: () => void;
   setReciter: (reciter: Reciter) => void;
+  switchReciterAndPlay: (reciter: Reciter) => void;
+  isSurahAvailableForCurrentReciter: (chapterId: number) => boolean;
   setAmbientTrack: (track: AmbientTrack | null) => void;
   playNextChapter: () => void;
   playPreviousChapter: () => void;
@@ -591,12 +593,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const attempt = attemptRef.current;
     if (!audio || !attempt || audio.src !== failedUrl) return;
     console.warn(`Could not play ${failedUrl}:`, reason);
-    attemptPlaybackRef.current(attempt.index + 1);
+
+    const nextIndex = attempt.index + 1;
+    if (nextIndex < attempt.urls.length) {
+      attemptPlaybackRef.current(nextIndex);
+    } else {
+      setIsLoading(false);
+      setIsPlaying(false);
+      setPlaybackError('Audio is not available, choose another sheik.');
+    }
   }, []);
 
   /**
-   * Point the audio element at `urls[index]` and start it. A 404 or an undecodable body moves on
-   * to the next candidate, which is how a mirror without MP4 still plays from MP3.
+   * Point the audio element at `urls[index]` and start it.
+   * If a URL fails or 404s, it advances to the next candidate mirror.
    */
   const attemptPlayback = useCallback((index: number) => {
     const audio = quranAudioRef.current;
@@ -607,14 +617,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!url) {
       setIsLoading(false);
       setIsPlaying(false);
-      setPlaybackError('No audio could be loaded for this reciter. Check your connection or pick another sheikh.');
+      setPlaybackError('Audio is not available, choose another sheik.');
       return;
     }
 
     attempt.index = index;
     attempt.pendingFormat = isObjectUrl(url) ? null : extensionOf(url);
-    // Recorded up front: the 'playing' event can beat play()'s promise resolution, and it is the
-    // event handler that remembers the format and caches the surah.
     attempt.playedUrl = url;
 
     if (objectUrlRef.current && objectUrlRef.current !== url) {
@@ -639,12 +647,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       .catch(error => {
         const name = error?.name || '';
         if (name === 'NotAllowedError') {
-          // The browser blocks autoplay until the page gets a real tap. The source is fine, so
-          // falling through to the next candidate would wrongly call every mirror dead.
           console.warn('Autoplay blocked by the browser:', error?.message || error);
           setIsLoading(false);
           setIsPlaying(false);
-          setPlaybackError('Tap play to begin â€” the browser needs a touch before audio can start.');
+          setPlaybackError('Tap play again - the browser needs a gesture before audio can start.');
           return;
         }
         failAndAdvance(url, error);
@@ -671,7 +677,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const handleEnded = () => nextChapterRef.current();
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => { if (document.visibilityState === 'hidden') return; setIsPlaying(false); };
-    // 'playing' means real decoded audio is flowing: this is the only place a format is trusted.
+    
+    // Buffering and loading indicators
+    const handleWaiting = () => setIsLoading(true);
+    const handleLoadStart = () => setIsLoading(true);
+    const handleCanPlay = () => setIsLoading(false);
+    const handleSeeking = () => setIsLoading(true);
+    const handleSeeked = () => setIsLoading(false);
+
+    // 'playing' means real decoded audio is flowing: format is trusted, loading finished
     const handlePlaying = () => {
       const attempt = attemptRef.current;
       setIsLoading(false);
@@ -680,6 +694,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       rememberFormat(attempt.reciterId, attempt.pendingFormat || 'mp3');
       cacheInBackground(attempt.playedUrl, attempt.cacheKey);
     };
+
     // A 404 or a body that cannot be decoded surfaces here as well as in play()'s rejection;
     // failAndAdvance ignores whichever arrives second for the same URL.
     const handleError = () => {
@@ -696,6 +711,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     quranAudio.addEventListener('play', handlePlay);
     quranAudio.addEventListener('pause', handlePause);
     quranAudio.addEventListener('playing', handlePlaying);
+    quranAudio.addEventListener('waiting', handleWaiting);
+    quranAudio.addEventListener('loadstart', handleLoadStart);
+    quranAudio.addEventListener('canplay', handleCanPlay);
+    quranAudio.addEventListener('seeking', handleSeeking);
+    quranAudio.addEventListener('seeked', handleSeeked);
     quranAudio.addEventListener('error', handleError);
 
     quranAudio.preload = "auto";
@@ -707,6 +727,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       quranAudio.removeEventListener('play', handlePlay);
       quranAudio.removeEventListener('pause', handlePause);
       quranAudio.removeEventListener('playing', handlePlaying);
+      quranAudio.removeEventListener('waiting', handleWaiting);
+      quranAudio.removeEventListener('loadstart', handleLoadStart);
+      quranAudio.removeEventListener('canplay', handleCanPlay);
+      quranAudio.removeEventListener('seeking', handleSeeking);
+      quranAudio.removeEventListener('seeked', handleSeeked);
       quranAudio.removeEventListener('error', handleError);
 
       quranAudio.pause();
@@ -814,6 +839,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const useAyahStream = ayahNumber !== null;
     setCurrentAyah(ayahNumber !== null ? { surah: chapter.id, ayah: ayahNumber } : null);
 
+    // Guard against unavailable surahs for this reciter
+    if (!useAyahStream && !isSurahAvailable(reciter, chapter.id)) {
+      setIsLoading(false);
+      setIsPlaying(false);
+      setCurrentChapter(chapter);
+      setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
+      return;
+    }
+
     setIsLoading(true);
     setPlaybackError(null);
     setCurrentChapter(chapter);
@@ -877,24 +911,44 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const playChapter = async (chapter: Chapter, overrideReciter?: Reciter) => {
-    // Callers that select a reciter and play in the same action pass it explicitly:
-    // `currentReciter` state has not committed yet, so reading it here would
-    // stream from the previously active reciter.
+  /**
+   * Synchronously starts playback on user click/tap.
+   * Runs in the same callstack as the click event to prevent autoplay/gesture errors.
+   */
+  const playChapter = (chapter: Chapter, overrideReciter?: Reciter) => {
     const reciter = overrideReciter ?? currentReciter ?? allReciters[0];
     if (!chapter) return;
     if (!reciter) {
       setPlaybackError('No reciter is available yet. Please wait for the list to load.');
       return;
     }
-    // Any view-level play opens the full-screen player; auto-advance and prev/next
-    // navigate through startChapter directly and leave the surface as it is.
+
+    if (!isSurahAvailable(reciter, chapter.id)) {
+      setCurrentChapter(chapter);
+      setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
+      setNowPlayingOpen(true);
+      return;
+    }
+
     if (typeof window !== 'undefined') {
       try { window.dispatchEvent(new CustomEvent('quran-play-gesture')); } catch {}
     }
     setNowPlayingOpen(true);
-    await startChapter(chapter, reciter);
+    startChapter(chapter, reciter, { autoplay: true });
   };
+
+  const switchReciterAndPlay = useCallback((newReciter: Reciter) => {
+    setCurrentReciter(newReciter);
+    const chapter = currentChapterRef.current || chaptersRef.current[0] || ALL_SURAHS[0];
+    if (chapter) {
+      playChapter(chapter, newReciter);
+    }
+  }, [playChapter]);
+
+  const isSurahAvailableForCurrentReciter = useCallback((chapterId: number) => {
+    const reciter = currentReciterRef.current || allReciters[0];
+    return isSurahAvailable(reciter, chapterId);
+  }, [allReciters]);
 
   const togglePlayPause = () => {
     const audio = quranAudioRef.current;
@@ -910,12 +964,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const reciter = currentReciter ?? allReciters[0];
+    if (reciter && !isSurahAvailable(reciter, currentChapter.id)) {
+      setPlaybackError(`Surah ${currentChapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
+      return;
+    }
+
     const attempt = attemptRef.current;
     // Nothing loaded any more (every candidate failed, or the element was reset): retry.
     if (!audio.src || (attempt && attempt.index >= attempt.urls.length)) {
-      const reciter = currentReciter ?? allReciters[0];
       if (!reciter) return;
-      void startChapter(currentChapter, reciter);
+      startChapter(currentChapter, reciter, { autoplay: true });
       return;
     }
 
@@ -933,7 +992,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(e => {
         console.error("Play blocked", e?.message || String(e));
-        setPlaybackError('Tap play again â€” the browser needs a gesture before audio can start.');
+        if (e?.name === 'NotAllowedError') {
+          setPlaybackError('Tap play again - the browser needs a gesture before audio can start.');
+        } else {
+          setPlaybackError('Audio is not available, choose another sheik.');
+        }
       });
   };
   
@@ -1202,6 +1265,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playChapter,
       togglePlayPause,
       setReciter: setCurrentReciter,
+      switchReciterAndPlay,
+      isSurahAvailableForCurrentReciter,
       setAmbientTrack: setCurrentAmbient,
       playNextChapter,
       playPreviousChapter,
