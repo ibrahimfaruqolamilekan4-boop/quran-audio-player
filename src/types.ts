@@ -30,6 +30,12 @@ export interface Reciter {
   bio?: string;
   /** Whether this reciter is featured on the home screen. */
   featured?: boolean;
+  /** Available surahs for this reciter (1-114). If omitted, reciter has all 114 surahs. */
+  availableSurahs?: number[];
+  /** Fallback servers to try in order if serverUrl fails */
+  fallbackServerUrls?: string[];
+  /** Moshaf recitation style/narration name */
+  moshafName?: string;
 }
 
 export interface AmbientTrack {

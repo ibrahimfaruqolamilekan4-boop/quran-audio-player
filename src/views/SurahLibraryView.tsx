@@ -3,6 +3,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
 import { Search, Play, Pause, AlignLeft, CheckCircle2, Sparkles, WifiOff } from 'lucide-react';
 import { isSurahDownloaded } from '../lib/offlineManager';
+import { isSurahAvailable } from '../lib/audio';
 import { SurahDownloadButton } from '../components/SurahDownloadButton';
 import { SubscriptionModal } from '../components/SubscriptionModal';
 import type { Chapter } from '../types';
@@ -59,6 +60,13 @@ export function SurahLibraryView() {
   }, [chapters, activeReciter]);
 
   const handleRowClick = (chapter: Chapter) => {
+    // Availability guard: if this reciter did not record this surah
+    if (activeReciter && !isSurahAvailable(activeReciter, chapter.id)) {
+      setOfflineNotice(`Surah ${chapter.name_simple} was not recorded by ${activeReciter.name}. Please select another reciter.`);
+      setTimeout(() => setOfflineNotice(null), 4000);
+      return;
+    }
+
     const isDownloaded = Boolean(downloadedMap[chapter.id]);
 
     // Offline guard: if offline and not downloaded, show clear message
@@ -138,8 +146,10 @@ export function SurahLibraryView() {
       <div className="bg-[#0D1017] rounded-3xl border border-white/5 overflow-hidden shadow-2xl">
         {filteredChapters.map((chapter, index) => {
           const isCurrent = currentChapter?.id === chapter.id;
+          const isRecorded = isSurahAvailable(activeReciter, chapter.id);
           const isDownloaded = Boolean(downloadedMap[chapter.id]);
           const isUnavailableOffline = !isOnline && !isDownloaded;
+          const isDisabled = !isRecorded || isUnavailableOffline;
 
           return (
             <div
@@ -148,7 +158,9 @@ export function SurahLibraryView() {
               className={`flex items-center gap-4 sm:gap-6 p-4 sm:p-5 transition-all group ${
                 index !== filteredChapters.length - 1 ? 'border-b border-white/5' : ''
               } ${
-                isUnavailableOffline
+                !isRecorded
+                  ? 'opacity-35 cursor-not-allowed bg-transparent'
+                  : isUnavailableOffline
                   ? 'opacity-40 cursor-not-allowed bg-transparent'
                   : isCurrent
                   ? 'bg-teal-500/10 cursor-pointer'
@@ -160,6 +172,8 @@ export function SurahLibraryView() {
                 className={`w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl transition-all shadow-inner shrink-0 ${
                   isCurrent
                     ? 'bg-teal-500 text-[#0A0C10] shadow-[0_0_20px_rgba(20,184,166,0.3)]'
+                    : isDisabled
+                    ? 'bg-[#0F172A]/50 text-slate-600'
                     : 'bg-[#0F172A] text-slate-400 group-hover:bg-[#1E293B]'
                 }`}
               >
@@ -178,22 +192,33 @@ export function SurahLibraryView() {
                   <div className="flex items-center gap-2">
                     <h4
                       className={`text-base sm:text-lg font-serif tracking-wide truncate ${
-                        isCurrent ? 'text-teal-300' : 'text-slate-200 group-hover:text-white'
+                        !isRecorded
+                          ? 'text-slate-500'
+                          : isCurrent
+                          ? 'text-teal-300'
+                          : 'text-slate-200 group-hover:text-white'
                       }`}
                     >
                       {chapter.name_simple}
                     </h4>
 
                     {/* Downloaded Badge */}
-                    {isDownloaded && (
+                    {isRecorded && isDownloaded && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-medium shrink-0">
                         <CheckCircle2 size={11} />
                         <span className="hidden sm:inline">Downloaded</span>
                       </span>
                     )}
 
+                    {/* Not Recorded Badge */}
+                    {!isRecorded && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 text-slate-400 text-[10px] font-medium shrink-0">
+                        <span>Not recorded</span>
+                      </span>
+                    )}
+
                     {/* Offline Unavailable Badge */}
-                    {isUnavailableOffline && (
+                    {isRecorded && isUnavailableOffline && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-400 text-[10px] font-medium shrink-0">
                         <WifiOff size={10} />
                         <span>Not downloaded</span>
@@ -212,12 +237,12 @@ export function SurahLibraryView() {
 
                 {/* Arabic Name & Action */}
                 <div className="flex items-center gap-4 shrink-0 pl-2">
-                  <span className={`text-2xl sm:text-3xl font-arabic leading-relaxed ${isCurrent ? 'text-teal-400' : 'text-teal-500/80'}`}>
+                  <span className={`text-2xl sm:text-3xl font-arabic leading-relaxed ${!isRecorded ? 'text-slate-600' : isCurrent ? 'text-teal-400' : 'text-teal-500/80'}`}>
                     {chapter.name_arabic}
                   </span>
 
                   {/* Download Action Button */}
-                  {activeReciter && (
+                  {activeReciter && isRecorded && (
                     <div onClick={(e) => e.stopPropagation()}>
                       <SurahDownloadButton chapter={chapter} reciter={activeReciter} />
                     </div>
