@@ -16,6 +16,7 @@ import {
 } from '../lib/prayer';
 import { useLocationService } from '../lib/useLocationService';
 import { LocationPermissionModal } from '../components/LocationPermissionModal';
+import type { CityPreset } from '../lib/location';
 
 export function QiblaView() {
   const {
@@ -23,15 +24,32 @@ export function QiblaView() {
     isRequestingGps,
     gpsError,
     showPrePrompt,
+    isSearchingCities,
     requestLocation,
     confirmPrePrompt,
     dismissPrePrompt,
     selectCityPreset,
     searchCities,
+    searchCitiesGlobal,
   } = useLocationService();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showCityPicker, setShowCityPicker] = useState<boolean>(false);
+  const [filteredCities, setFilteredCities] = useState<CityPreset[]>(() => searchCities(''));
+
+  useEffect(() => {
+    let cancelled = false;
+    setFilteredCities(searchCities(searchQuery));
+    if (searchQuery.trim().length < 2) return;
+    const timer = setTimeout(async () => {
+      const results = await searchCitiesGlobal(searchQuery);
+      if (!cancelled) setFilteredCities(results);
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, searchCities, searchCitiesGlobal]);
 
   // Compass angles (in degrees 0-360)
   const [deviceHeading, setDeviceHeading] = useState<number>(0);
@@ -115,8 +133,6 @@ export function QiblaView() {
       }
     }
   };
-
-  const filteredCities = searchCities(searchQuery);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">

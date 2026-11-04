@@ -38,7 +38,12 @@ import {
 } from '../lib/prayer';
 import { useLocationService } from '../lib/useLocationService';
 import { LocationPermissionModal } from '../components/LocationPermissionModal';
-import { LOCATION_PRIVACY_NOTICE } from '../lib/location';
+import {
+  LOCATION_PRIVACY_NOTICE,
+  PRIVACY_POLICY_SECTIONS,
+  getTimezoneOffsetInfo,
+  type CityPreset,
+} from '../lib/location';
 
 const PRAYER_NAMES = [
   { key: 'fajr', english: 'Fajr', arabic: 'الفجر', description: 'Dawn to Sunrise', icon: Sunrise },
@@ -55,11 +60,13 @@ export function PrayerTimesView() {
     isRequestingGps,
     gpsError,
     showPrePrompt,
+    isSearchingCities,
     requestLocation,
     confirmPrePrompt,
     dismissPrePrompt,
     selectCityPreset,
     searchCities,
+    searchCitiesGlobal,
   } = useLocationService();
 
   // Load and persist settings
@@ -78,12 +85,40 @@ export function PrayerTimesView() {
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [searchCityQuery, setSearchCityQuery] = useState('');
+  const [filteredCities, setFilteredCities] = useState<CityPreset[]>(() => searchCities(''));
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // Auto-adapt calculation method when user country changes if user hasn't explicitly locked one
   const recommendedMethod = useMemo(() => {
     return getDefaultCalculationMethod(location.countryCode, location.country);
   }, [location.countryCode, location.country]);
+
+  const tzInfo = useMemo(() => {
+    return getTimezoneOffsetInfo(location.timezone, currentTime);
+  }, [location.timezone, currentTime]);
+
+  // Debounced global geocoding city search with instant local preset matching
+  useEffect(() => {
+    let cancelled = false;
+    const local = searchCities(searchCityQuery);
+    setFilteredCities(local);
+
+    if (searchCityQuery.trim().length < 2) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const results = await searchCitiesGlobal(searchCityQuery);
+      if (!cancelled) {
+        setFilteredCities(results);
+      }
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchCityQuery, searchCities, searchCitiesGlobal]);
 
   // Keep settings synced to localStorage
   useEffect(() => {
@@ -112,6 +147,20 @@ export function PrayerTimesView() {
     return () => clearInterval(timer);
   }, []);
 
+  // Calendar day key in the target timezone so date rollover at midnight triggers immediate recompute
+  const targetCalendarDateKey = useMemo(() => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: location.timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(currentTime);
+    } catch {
+      return currentTime.toDateString();
+    }
+  }, [currentTime, location.timezone]);
+
   // Today's Computed Prayers
   const todayPrayers = useMemo(() => {
     return calculatePrayerTimes(
@@ -121,12 +170,14 @@ export function PrayerTimesView() {
       settings.method || recommendedMethod,
       settings.madhab,
       settings.highLatitudeRule,
-      settings.adjustments
+      settings.adjustments,
+      location.timezone
     );
   }, [
     location.latitude,
     location.longitude,
-    currentTime,
+    location.timezone,
+    targetCalendarDateKey,
     settings.method,
     recommendedMethod,
     settings.madhab,
@@ -136,8 +187,7 @@ export function PrayerTimesView() {
 
   // Tomorrow's Computed Prayers
   const tomorrowPrayers = useMemo(() => {
-    const tomorrow = new Date(currentTime);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrow = new Date(currentTime.getTime() + 24 * 60 * 60 * 1000);
     return calculatePrayerTimes(
       location.latitude,
       location.longitude,
@@ -145,12 +195,14 @@ export function PrayerTimesView() {
       settings.method || recommendedMethod,
       settings.madhab,
       settings.highLatitudeRule,
-      settings.adjustments
+      settings.adjustments,
+      location.timezone
     );
   }, [
     location.latitude,
     location.longitude,
-    currentTime,
+    location.timezone,
+    targetCalendarDateKey,
     settings.method,
     recommendedMethod,
     settings.madhab,
@@ -219,8 +271,7 @@ export function PrayerTimesView() {
   const weekPrayerTimes = useMemo(() => {
     const days = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(currentTime);
-      d.setDate(d.getDate() + i);
+      const d = new Date(currentTime.getTime() + i * 24 * 60 * 60 * 1000);
       const pt = calculatePrayerTimes(
         location.latitude,
         location.longitude,
@@ -228,12 +279,13 @@ export function PrayerTimesView() {
         settings.method || recommendedMethod,
         settings.madhab,
         settings.highLatitudeRule,
-        settings.adjustments
+        settings.adjustments,
+        location.timezone
       );
       days.push({
         date: d,
-        dayName: d.toLocaleDateString([], { weekday: 'short' }),
-        dateFormatted: d.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        dayName: d.toLocaleDateString([], { weekday: 'short', timeZone: location.timezone }),
+        dateFormatted: d.toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: location.timezone }),
         prayers: pt,
       });
     }
@@ -241,7 +293,8 @@ export function PrayerTimesView() {
   }, [
     location.latitude,
     location.longitude,
-    currentTime,
+    location.timezone,
+    targetCalendarDateKey,
     settings.method,
     recommendedMethod,
     settings.madhab,
@@ -253,8 +306,7 @@ export function PrayerTimesView() {
   const monthPrayerTimes = useMemo(() => {
     const days = [];
     for (let i = 0; i < 30; i++) {
-      const d = new Date(currentTime);
-      d.setDate(d.getDate() + i);
+      const d = new Date(currentTime.getTime() + i * 24 * 60 * 60 * 1000);
       const pt = calculatePrayerTimes(
         location.latitude,
         location.longitude,
@@ -262,12 +314,13 @@ export function PrayerTimesView() {
         settings.method || recommendedMethod,
         settings.madhab,
         settings.highLatitudeRule,
-        settings.adjustments
+        settings.adjustments,
+        location.timezone
       );
       days.push({
         date: d,
-        dayName: d.toLocaleDateString([], { weekday: 'short' }),
-        dateFormatted: d.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        dayName: d.toLocaleDateString([], { weekday: 'short', timeZone: location.timezone }),
+        dateFormatted: d.toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: location.timezone }),
         prayers: pt,
       });
     }
@@ -275,7 +328,8 @@ export function PrayerTimesView() {
   }, [
     location.latitude,
     location.longitude,
-    currentTime,
+    location.timezone,
+    targetCalendarDateKey,
     settings.method,
     recommendedMethod,
     settings.madhab,
@@ -283,9 +337,10 @@ export function PrayerTimesView() {
     settings.adjustments,
   ]);
 
-  const hijri = useMemo(() => getHijriDate(currentTime), [currentTime]);
-
-  const filteredCities = searchCities(searchCityQuery);
+  const hijri = useMemo(
+    () => getHijriDate(currentTime, location.timezone),
+    [targetCalendarDateKey, location.timezone]
+  );
 
   // Per-prayer minute adjustments handler
   const handleAdjustmentChange = (prayerKey: keyof typeof settings.adjustments, delta: number) => {
@@ -325,6 +380,23 @@ export function PrayerTimesView() {
         </div>
       )}
 
+      {/* GPS Denied / Unavailable Graceful Fallback Banner */}
+      {gpsError && (
+        <div className="p-3.5 rounded-2xl bg-amber-950/70 border border-amber-500/40 text-amber-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-2">
+            <Info size={15} className="text-amber-400 shrink-0" />
+            <span>{gpsError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCityPicker(true)}
+            className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-semibold text-xs cursor-pointer transition-colors"
+          >
+            Choose City Manually
+          </button>
+        </div>
+      )}
+
       {/* Header Info Banner — Medina Emerald styling */}
       <div className="relative overflow-hidden bg-gradient-to-r from-[#061811] via-[#082218] to-[#04120D] border border-emerald-500/20 p-6 md:p-7 rounded-3xl shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
         <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -343,6 +415,7 @@ export function PrayerTimesView() {
                   month: 'long',
                   day: 'numeric',
                   year: 'numeric',
+                  timeZone: location.timezone,
                 })}
               </span>
 
@@ -355,6 +428,10 @@ export function PrayerTimesView() {
                   Manual City
                 </span>
               )}
+
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">
+                {location.timezone} ({tzInfo.offsetLabel}{tzInfo.isDst ? ' • DST' : ''})
+              </span>
             </div>
 
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-baseline gap-3">
@@ -437,7 +514,12 @@ export function PrayerTimesView() {
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-emerald-900/60">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <Globe size={16} className="text-emerald-400" />
-              Select City from Global Catalog
+              <span>Search Any City Worldwide (Geocoding + Timezone Lookup)</span>
+              {isSearchingCities && (
+                <span className="text-[11px] font-normal text-emerald-400 animate-pulse ml-2">
+                  Searching global coordinates...
+                </span>
+              )}
             </h3>
             <button
               onClick={() => setShowCityPicker(false)}
@@ -451,7 +533,7 @@ export function PrayerTimesView() {
             <Search className="absolute left-3.5 top-3 text-emerald-500/70" size={16} />
             <input
               type="text"
-              placeholder="Search major cities (e.g., Cairo, London, Lagos, New York, Makkah)..."
+              placeholder="Type any city or town worldwide (e.g., Cairo, London, Kano, Dearborn, Jakarta, Makkah)..."
               value={searchCityQuery}
               onChange={(e) => setSearchCityQuery(e.target.value)}
               className="w-full bg-[#020B07] border border-emerald-900/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-emerald-700 focus:outline-none focus:border-emerald-400"
@@ -459,9 +541,9 @@ export function PrayerTimesView() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-64 overflow-y-auto pr-1">
-            {filteredCities.map((c) => (
+            {filteredCities.map((c, idx) => (
               <button
-                key={c.name + c.country}
+                key={`${c.name}-${c.country}-${c.latitude}-${idx}`}
                 type="button"
                 onClick={() => {
                   selectCityPreset(c);
@@ -485,6 +567,7 @@ export function PrayerTimesView() {
               >
                 <div className="font-semibold text-white truncate">{c.name}</div>
                 <div className="text-[11px] text-emerald-400/70 truncate">{c.country}</div>
+                <div className="text-[10px] font-mono text-emerald-500/60 truncate mt-0.5">{c.timezone}</div>
               </button>
             ))}
           </div>
@@ -695,7 +778,7 @@ export function PrayerTimesView() {
             <p className="text-xs sm:text-sm text-emerald-200/70 mt-2 flex items-center gap-2">
               <span>Scheduled at</span>
               <span className="text-white font-bold font-mono px-2 py-0.5 rounded-lg bg-emerald-950/80 border border-emerald-800/80">
-                {formatPrayerTime(nextPrayerTime, settings.is24Hour)}
+                {formatPrayerTime(nextPrayerTime, settings.is24Hour, location.timezone)}
               </span>
               <span>•</span>
               <span className="text-emerald-300/80">{nextPrayerMeta?.description}</span>
@@ -773,7 +856,7 @@ export function PrayerTimesView() {
 
               <div>
                 <div className="text-2xl font-bold font-mono text-white tracking-tight mb-2.5">
-                  {formatPrayerTime(prayerTime, settings.is24Hour)}
+                  {formatPrayerTime(prayerTime, settings.is24Hour, location.timezone)}
                 </div>
 
                 {isCurrent ? (
@@ -810,7 +893,7 @@ export function PrayerTimesView() {
           </div>
           <div className="text-right">
             <div className="text-lg font-bold font-mono text-white">
-              {formatPrayerTime(todayPrayers.duha, settings.is24Hour)}
+              {formatPrayerTime(todayPrayers.duha, settings.is24Hour, location.timezone)}
             </div>
             <span className="text-[10px] text-emerald-400/60">Begins</span>
           </div>
@@ -827,7 +910,7 @@ export function PrayerTimesView() {
           </div>
           <div className="text-right">
             <div className="text-lg font-bold font-mono text-white">
-              {formatPrayerTime(todayPrayers.midnight, settings.is24Hour)}
+              {formatPrayerTime(todayPrayers.midnight, settings.is24Hour, location.timezone)}
             </div>
             <span className="text-[10px] text-emerald-400/60">Isha end benchmark</span>
           </div>
@@ -844,7 +927,7 @@ export function PrayerTimesView() {
           </div>
           <div className="text-right">
             <div className="text-lg font-bold font-mono text-white">
-              {formatPrayerTime(todayPrayers.tahajjud, settings.is24Hour)}
+              {formatPrayerTime(todayPrayers.tahajjud, settings.is24Hour, location.timezone)}
             </div>
             <span className="text-[10px] text-emerald-400/60">Final 1/3 Night</span>
           </div>
@@ -860,7 +943,7 @@ export function PrayerTimesView() {
             </div>
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">Astronomical Prayer Schedule</h3>
-              <p className="text-xs text-emerald-300/60">Complete forward timetable for your exact coordinates</p>
+              <p className="text-xs text-emerald-300/60">Complete forward timetable for {location.cityName} ({location.timezone})</p>
             </div>
           </div>
 
@@ -917,7 +1000,7 @@ export function PrayerTimesView() {
                     <Icon size={14} className="text-emerald-500" />
                   </div>
                   <div className="text-lg font-bold font-mono text-white">
-                    {formatPrayerTime(tmrwTime, settings.is24Hour)}
+                    {formatPrayerTime(tmrwTime, settings.is24Hour, location.timezone)}
                   </div>
                   <span className="text-[10px] text-emerald-400/50 mt-1">{prayer.arabic}</span>
                 </div>
@@ -962,12 +1045,12 @@ export function PrayerTimesView() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.fajr, settings.is24Hour)}</td>
-                      <td className="py-3 px-3 text-emerald-400/50">{formatPrayerTime(day.prayers.sunrise, settings.is24Hour)}</td>
-                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.dhuhr, settings.is24Hour)}</td>
-                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.asr, settings.is24Hour)}</td>
-                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.maghrib, settings.is24Hour)}</td>
-                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.isha, settings.is24Hour)}</td>
+                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.fajr, settings.is24Hour, location.timezone)}</td>
+                      <td className="py-3 px-3 text-emerald-400/50">{formatPrayerTime(day.prayers.sunrise, settings.is24Hour, location.timezone)}</td>
+                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.dhuhr, settings.is24Hour, location.timezone)}</td>
+                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.asr, settings.is24Hour, location.timezone)}</td>
+                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.maghrib, settings.is24Hour, location.timezone)}</td>
+                      <td className="py-3 px-3">{formatPrayerTime(day.prayers.isha, settings.is24Hour, location.timezone)}</td>
                     </tr>
                   );
                 })}
@@ -976,6 +1059,23 @@ export function PrayerTimesView() {
           </div>
         )}
       </div>
+
+      {/* Location & Prayer Privacy Policy Disclosure */}
+      <div className="bg-[#04120C] border border-emerald-900/50 rounded-3xl p-5 sm:p-6 space-y-3">
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
+          <ShieldCheck size={16} className="text-emerald-400 shrink-0" />
+          <span>Privacy Policy — Location & Prayer Calculations</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {PRIVACY_POLICY_SECTIONS.map((sec) => (
+            <div key={sec.title} className="bg-[#020B07]/70 border border-emerald-950/80 rounded-2xl p-4">
+              <h4 className="text-xs font-bold text-white mb-1">{sec.title}</h4>
+              <p className="text-[11px] text-emerald-200/70 leading-relaxed">{sec.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
+
