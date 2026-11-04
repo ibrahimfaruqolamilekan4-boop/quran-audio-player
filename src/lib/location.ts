@@ -302,5 +302,123 @@ export function getSystemTimezone(): string {
   }
 }
 
-export const LOCATION_PRIVACY_NOTICE = 
-  "Your location is processed directly on your device to calculate accurate astronomical prayer times and align the Qibla compass. Coordinates are never saved on our servers unless you explicitly activate server-sent Push Notifications.";
+/**
+ * Returns the formatted UTC offset (e.g. "GMT+3", "UTC-4") and whether Daylight Saving Time (DST)
+ * is currently active for the given IANA timezone.
+ */
+export function getTimezoneOffsetInfo(timezone: string, date: Date = new Date()): {
+  offsetLabel: string;
+  isDst: boolean;
+} {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'shortOffset',
+    }).formatToParts(date);
+    const tzPart = parts.find((p) => p.type === 'timeZoneName')?.value || 'UTC';
+    const offsetLabel = tzPart.replace('GMT', 'UTC');
+
+    // Determine if DST is active by comparing January and July offsets in minutes
+    const getOffsetMinutes = (d: Date) => {
+      const utcDate = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+      const tzDate = new Date(d.toLocaleString('en-US', { timeZone: timezone }));
+      return Math.round((tzDate.getTime() - utcDate.getTime()) / 60000);
+    };
+
+    const jan = new Date(date.getFullYear(), 0, 1);
+    const jul = new Date(date.getFullYear(), 6, 1);
+    const janOffset = getOffsetMinutes(jan);
+    const julOffset = getOffsetMinutes(jul);
+    const curOffset = getOffsetMinutes(date);
+    const standardOffset = Math.min(janOffset, julOffset);
+    const isDst = janOffset !== julOffset && curOffset > standardOffset;
+
+    return { offsetLabel, isDst };
+  } catch {
+    return { offsetLabel: 'UTC', isDst: false };
+  }
+}
+
+/**
+ * Searches cities worldwide using the Open-Meteo Geocoding API (returns coordinates, country,
+ * and exact IANA timezone) combined with instant local preset matching for offline resilience.
+ */
+export async function searchGlobalCitiesGeocode(query: string): Promise<CityPreset[]> {
+  const q = query.trim();
+  const qLower = q.toLowerCase();
+
+  const localMatches = POPULAR_GLOBAL_CITIES.filter(
+    (c) =>
+      c.name.toLowerCase().includes(qLower) ||
+      c.country.toLowerCase().includes(qLower) ||
+      c.countryCode.toLowerCase().includes(qLower)
+  );
+
+  if (q.length < 2 || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+    return localMatches.length > 0 ? localMatches : POPULAR_GLOBAL_CITIES;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+      q
+    )}&count=12&language=en&format=json`;
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.results)) {
+        const remotePresets: CityPreset[] = data.results
+          .filter((r: any) => typeof r.latitude === 'number' && typeof r.longitude === 'number')
+          .map((r: any) => {
+            const countryCode = (r.country_code || '').toUpperCase();
+            const country = r.country || r.admin1 || 'Unknown';
+            const displaySub = r.admin1 && r.admin1 !== r.name ? `${r.name}, ${r.admin1}` : r.name;
+            return {
+              name: displaySub,
+              country,
+              countryCode,
+              latitude: Number(r.latitude.toFixed(5)),
+              longitude: Number(r.longitude.toFixed(5)),
+              timezone: r.timezone || getSystemTimezone(),
+              defaultMethod: getDefaultCalculationMethod(countryCode, country),
+            };
+          });
+
+        // Merge local matches first, then deduplicate remote matches
+        const seen = new Set(localMatches.map((c) => `${c.name.toLowerCase()}|${c.countryCode}`));
+        const combined = [...localMatches];
+        for (const rem of remotePresets) {
+          const key = `${rem.name.toLowerCase()}|${rem.countryCode}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            combined.push(rem);
+          }
+        }
+        return combined;
+      }
+    }
+  } catch {
+    // Gracefully fall back to local presets when offline or blocked
+  }
+
+  return localMatches;
+}
+
+export const LOCATION_PRIVACY_NOTICE =
+  'Your location stays strictly on your device (in local storage) to calculate astronomical prayer times and Qibla direction offline. Coordinates are never sent to or stored on our servers unless you explicitly opt in to server-sent Push Notifications.';
+
+export const PRIVACY_POLICY_SECTIONS = [
+  {
+    title: 'On-Device Location Processing (Default)',
+    body: 'By default, your GPS coordinates or manually selected city remain 100% on your device inside browser localStorage. All prayer times (Fajr, Sunrise, Dhuhr, Asr, Maghrib, Isha, Duha, and Tahajjud) and Qibla compass bearings are calculated locally on your phone or computer so they work even without an internet connection.',
+  },
+  {
+    title: 'When Coordinates Are Stored on the Server (Opt-In Only)',
+    body: 'We only transmit and store your coordinates, timezone, and calculation method in our database if you explicitly opt in to closed-app Push Notifications. This is strictly required so our push scheduler can compute your next prayer time and deliver timely prayer alerts while the app is closed. Revoking push notifications immediately deletes your stored push subscription.',
+  },
+];
+

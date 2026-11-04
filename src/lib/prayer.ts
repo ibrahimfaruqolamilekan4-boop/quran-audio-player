@@ -300,8 +300,33 @@ export interface ComputedPrayersWithAuxiliary {
 }
 
 /**
+ * Resolves a Date instance whose local year/month/day matches the calendar date
+ * currently active in the specified IANA timezone.
+ */
+export function resolveCalendarDateInTimezone(date: Date = new Date(), timezone?: string): Date {
+  if (!timezone) return date;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    }).formatToParts(date);
+    const year = Number(parts.find((p) => p.type === 'year')?.value);
+    const month = Number(parts.find((p) => p.type === 'month')?.value);
+    const day = Number(parts.find((p) => p.type === 'day')?.value);
+    if (year && month && day) {
+      return new Date(year, month - 1, day, 12, 0, 0);
+    }
+  } catch {
+    // Fallback to raw Date if timezone string is invalid
+  }
+  return date;
+}
+
+/**
  * Calculates primary prayer times and auxiliary Islamic astronomical times
- * with custom minute adjustments and high latitude support.
+ * with custom minute adjustments, high latitude support, and target timezone awareness.
  */
 export function calculatePrayerTimes(
   latitude: number,
@@ -310,11 +335,13 @@ export function calculatePrayerTimes(
   method: string = 'MuslimWorldLeague',
   madhab: 'shafi' | 'hanafi' = 'shafi',
   highLatitudeRule: 'MiddleOfTheNight' | 'SeventhOfTheNight' | 'TwilightAngle' = 'MiddleOfTheNight',
-  adjustments: PrayerMinuteAdjustments = DEFAULT_PRAYER_SETTINGS.adjustments
+  adjustments: PrayerMinuteAdjustments = DEFAULT_PRAYER_SETTINGS.adjustments,
+  timezone?: string
 ): ComputedPrayersWithAuxiliary {
   const coords = new Coordinates(latitude, longitude);
   const params = getCalculationParameters(method, madhab, highLatitudeRule);
-  const pt = new PrayerTimes(coords, date, params);
+  const calendarDate = resolveCalendarDateInTimezone(date, timezone);
+  const pt = new PrayerTimes(coords, calendarDate, params);
 
   // Apply minute adjustments
   const applyAdj = (d: Date, minutes: number = 0): Date => {
@@ -332,7 +359,7 @@ export function calculatePrayerTimes(
   const duha = new Date(sunrise.getTime() + 15 * 60 * 1000);
 
   // Next day's Fajr for nocturnal division
-  const tomorrow = new Date(date);
+  const tomorrow = new Date(calendarDate);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowPt = new PrayerTimes(coords, tomorrow, params);
   const nextFajr = applyAdj(tomorrowPt.fajr, adjustments?.fajr);
@@ -374,29 +401,48 @@ export function calculateDistanceToKaaba(lat1: number, lon1: number): number {
   return Math.round(calculateDistanceKm(lat1, lon1, lat2, lon2));
 }
 
-export function formatPrayerTime(date: Date, is24Hour: boolean = false): string {
+export function formatPrayerTime(
+  date: Date,
+  is24Hour: boolean = false,
+  timezone?: string
+): string {
   if (!date || isNaN(date.getTime())) return '--:--';
-  return date.toLocaleTimeString([], {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: !is24Hour,
-  });
+  try {
+    return date.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: !is24Hour,
+      ...(timezone ? { timeZone: timezone } : {}),
+    });
+  } catch {
+    return date.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: !is24Hour,
+    });
+  }
 }
 
 /**
- * Robust Hijri date calculator with English and Arabic month names
+ * Robust Hijri date calculator with English and Arabic month names and target timezone support
  */
-export function getHijriDate(date: Date = new Date()): { english: string; arabic: string; full: string } {
+export function getHijriDate(
+  date: Date = new Date(),
+  timezone?: string
+): { english: string; arabic: string; full: string } {
   try {
+    const tzOption = timezone ? { timeZone: timezone } : {};
     const enFormatter = new Intl.DateTimeFormat('en-TN-u-ca-islamic-umalqura', {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
+      ...tzOption,
     });
     const arFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
+      ...tzOption,
     });
 
     const enStr = enFormatter.format(date);
@@ -415,3 +461,4 @@ export function getHijriDate(date: Date = new Date()): { english: string; arabic
     };
   }
 }
+
