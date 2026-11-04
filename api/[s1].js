@@ -7986,7 +7986,7 @@ var require_version = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.118.0";
+    exports.version = "2.119.0";
   }
 });
 
@@ -8045,7 +8045,7 @@ var require_serializer2 = __commonJS({
   "node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    var Serializer = class {
+    var Serializer = class _Serializer {
       constructor(allowedMetadataKeys) {
         this.HEADER_LENGTH = 1;
         this.USER_BROADCAST_PUSH_META_LENGTH = 6;
@@ -8053,8 +8053,8 @@ var require_serializer2 = __commonJS({
         this.BINARY_ENCODING = 0;
         this.JSON_ENCODING = 1;
         this.BROADCAST_EVENT = "broadcast";
-        this.allowedMetadataKeys = [];
-        this.allowedMetadataKeys = allowedMetadataKeys !== null && allowedMetadataKeys !== void 0 ? allowedMetadataKeys : [];
+        this.allowedMetadataKeys = _Serializer.DEFAULT_METADATA_KEYS;
+        this.allowedMetadataKeys = allowedMetadataKeys !== null && allowedMetadataKeys !== void 0 ? allowedMetadataKeys : _Serializer.DEFAULT_METADATA_KEYS;
       }
       encode(msg, callback) {
         if (msg.event === this.BROADCAST_EVENT && !(msg.payload instanceof ArrayBuffer) && typeof msg.payload.event === "string") {
@@ -8190,6 +8190,7 @@ var require_serializer2 = __commonJS({
         return Object.fromEntries(Object.entries(obj).filter(([key]) => keys.includes(key)));
       }
     };
+    Serializer.DEFAULT_METADATA_KEYS = ["persist"];
     exports.default = Serializer;
   }
 });
@@ -11046,7 +11047,7 @@ var require_RealtimeChannel = __commonJS({
        *
        * @param event The name of the broadcast event
        * @param payload Payload to be sent (required)
-       * @param opts Options including timeout
+       * @param opts Options including timeout and persist
        * @returns Promise resolving to object with success status, and error details if failed
        *
        * @category Realtime
@@ -11068,6 +11069,17 @@ var require_RealtimeChannel = __commonJS({
         url.pathname += `/${encodeURIComponent(this.subTopic)}/events/${encodeURIComponent(event)}`;
         if (this.private) {
           url.searchParams.set("private", "true");
+        }
+        if (opts.persist) {
+          if (!this.private) {
+            return Promise.reject(new Error("Realtime httpSend() cannot store a message on a public channel."));
+          }
+          const ttl = typeof opts.persist === "object" ? opts.persist.ttl : void 0;
+          if (ttl === void 0) {
+            url.searchParams.set("persist", "true");
+          } else {
+            url.searchParams.set("persist[ttl]", String(ttl));
+          }
         }
         const options = {
           method: "POST",
@@ -11096,6 +11108,7 @@ var require_RealtimeChannel = __commonJS({
        * @param args.type The type of event to send
        * @param args.event The name of the event being sent
        * @param args.payload Payload to be sent
+       * @param args.persist Stores the broadcast for replay on a private channel
        * @param opts Options to be used during the send process
        *
        * @category Realtime
@@ -11139,6 +11152,15 @@ var require_RealtimeChannel = __commonJS({
        */
       async send(args, opts = {}) {
         var _a, _b;
+        if (args.type === "broadcast" && args.persist && (!this.private || this.socket.vsn === constants_1.VSN_1_0_0)) {
+          const persistError = this.private ? "Realtime send() cannot store a message with protocol 1.0.0. Use httpSend() or connect with vsn 2.0.0." : "Realtime send() cannot store a message on a public channel.";
+          if (this.socket.hasLogger()) {
+            this.socket.log("channel", persistError);
+          } else {
+            console.error(persistError);
+          }
+          return "error";
+        }
         if (!this.channelAdapter.canPush() && args.type === "broadcast") {
           const fallbackWarning = "Realtime send() is automatically falling back to REST API. This behavior will be deprecated in the future. Please use httpSend() explicitly for REST delivery.";
           if (this.socket.hasLogger()) {
@@ -11147,6 +11169,15 @@ var require_RealtimeChannel = __commonJS({
             console.warn(fallbackWarning);
           }
           const { event, payload: endpoint_payload } = args;
+          if (args.persist) {
+            const persistError = "Realtime send() fell back to REST and cannot store this message. The batch endpoint does not support persistence. Use httpSend() or send after the channel is connected and subscribed.";
+            if (this.socket.hasLogger()) {
+              this.socket.log("channel", persistError);
+            } else {
+              console.error(persistError);
+            }
+            return "error";
+          }
           const headers = {
             apikey: this.socket.apiKey ? this.socket.apiKey : "",
             "Content-Type": "application/json"
@@ -11187,7 +11218,7 @@ var require_RealtimeChannel = __commonJS({
               resolve("ok");
             }
             push.receive("ok", () => resolve("ok"));
-            push.receive("error", () => resolve("error"));
+            push.receive("error", (response) => resolve(args.persist && typeof (response === null || response === void 0 ? void 0 : response.error) === "string" ? response.error : "error"));
             push.receive("timeout", () => resolve("timed out"));
           });
         }
@@ -12151,7 +12182,7 @@ var require_RealtimeClient = __commonJS({
             defaultDecode = this.serializer.decode.bind(this.serializer);
             break;
           default:
-            throw new Error(`Unsupported serializer version: ${result.vsn}`);
+            throw new Error(`Unsupported serializer version: ${vsn}`);
         }
         result.vsn = vsn;
         result.encode = (_l = options === null || options === void 0 ? void 0 : options.encode) !== null && _l !== void 0 ? _l : defaultEncode;
@@ -12227,7 +12258,7 @@ var require_version2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.118.0";
+    exports.version = "2.119.0";
   }
 });
 
@@ -13924,6 +13955,8 @@ var require_GoTrueAdminApi = __commonJS({
       }
       /**
        * Delete a user. Requires a `service_role` key.
+       * Returns the user that was deleted. In cases of concurrent updates, the user object returned
+       * might not accurately reflect the user information at the time of deletion.
        *
        * @param id The user id you want to remove.
        * @param shouldSoftDelete If true, then the user will be soft-deleted from the auth schema. Soft deletion allows user identification from the hashed user ID but is not reversible.
@@ -13948,7 +13981,14 @@ var require_GoTrueAdminApi = __commonJS({
        * ```json
        * {
        *   "data": {
-       *     "user": {}
+       *     "user": {
+       *       "id": "715ed5db-f090-4b8c-a067-640ecee36aa0",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z"
+       *     }
        *   },
        *   "error": null
        * }
@@ -13957,13 +13997,18 @@ var require_GoTrueAdminApi = __commonJS({
       async deleteUser(id, shouldSoftDelete = false) {
         (0, helpers_1.validateUUID)(id);
         try {
-          return await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${id}`, {
+          const { data, error } = await this.getUserById(id);
+          if (error) {
+            return { data: { user: null }, error };
+          }
+          await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${id}`, {
             headers: this.headers,
             body: {
               should_soft_delete: shouldSoftDelete
             },
-            xform: fetch_1._userResponse
+            noResolveJson: true
           });
+          return { data, error: null };
         } catch (error) {
           if ((0, errors_1.isAuthError)(error)) {
             return { data: { user: null }, error };
@@ -16045,7 +16090,7 @@ var require_GoTrueClient = __commonJS({
        * Be aware that you may get back an error message that will not distinguish
        * between the cases where the account does not exist or that the
        * email/phone and password combination is wrong or that the account can only
-       * be accessed via social login.
+       * be accessed via social sign-in.
        *
        * @category Auth
        *
@@ -16228,7 +16273,7 @@ var require_GoTrueClient = __commonJS({
        * @category Auth
        *
        * @remarks
-       * - This method is used for signing in using [Social Login (OAuth) providers](/docs/guides/auth#configure-third-party-providers).
+       * - This method is used for signing in using [social sign-in (OAuth) providers](/docs/guides/auth/social-sign-in).
        * - It works by redirecting your application to the provider's authorization screen, before bringing back the user to your app.
        *
        * @example Sign in using a third-party provider
@@ -16960,7 +17005,7 @@ var require_GoTrueClient = __commonJS({
        *
        * Be aware that you may get back an error message that will not distinguish
        * between the cases where the account does not exist or, that the account
-       * can only be accessed via social login.
+       * can only be accessed via social sign-in.
        *
        * Do note that you will need to configure a Whatsapp sender on Twilio
        * if you are using phone sign in with the 'whatsapp' channel. The whatsapp
@@ -18475,12 +18520,31 @@ var require_GoTrueClient = __commonJS({
         return !!currentStorageContent;
       }
       /**
-       * Inside a browser context, `signOut()` will remove the logged in user from the browser session and log them out - removing all items from localstorage and then trigger a `"SIGNED_OUT"` event.
+       * Inside a browser context, `signOut()` will remove the logged in user from the browser session
+       * and log them out - removing all items from localstorage and then trigger a `"SIGNED_OUT"`
+       * event.
        *
-       * For server-side management, you can revoke all refresh tokens for a user by passing a user's JWT through to `auth.api.signOut(JWT: string)`.
-       * There is no way to revoke a user's access token jwt until it expires. It is recommended to set a shorter expiry on the jwt for this reason.
+       * For server-side management, you can revoke all refresh tokens for a user by passing a user's
+       * JWT through to `auth.api.signOut(JWT: string)`.
        *
-       * If using `others` scope, no `SIGNED_OUT` event is fired!
+       * There is no way to revoke a user's access token jwt until it expires. It is recommended to set
+       * a shorter expiry on the jwt for this reason.
+       *
+       * `signOut` behavior depends on the selected scope:
+       *
+       * - `local`: The local session is removed first and a `SIGNED_OUT` event is fired, then the client
+       *   makes a best-effort request to revoke the refresh token on the server. If the request fails,
+       *   the client is still signed out locally and the error is returned, but the server may retain
+       *   the refresh token until it expires.
+       *
+       * - `global`: All of the user's sessions are first invalidated on the server. Once the server
+       *   acknowledges the request, the local session is cleared. If server logout fails, the local
+       *   session is retained, no `SIGNED_OUT` event is triggered, and the server or network error is
+       *   returned. A 401, 403, or 404 response counts as a successful sign-out.
+       *
+       * - `others`: All other sessions are invalidated when the server accepts the request; the
+       *   current local session remains unchanged. In case of server or network failures, the error is
+       *   returned. A `SIGNED_OUT` event is never triggered, regardless of the outcome.
        *
        * **Warning:** the default `scope` is `'global'`. This signs the user out of
        * **every device they are currently signed in on**, not just the current
@@ -18498,7 +18562,13 @@ var require_GoTrueClient = __commonJS({
        *   usually what apps want on a "Sign out" button, especially when users
        *   sign in from multiple devices and do not expect signing out of one to
        *   terminate the others.
-       * - Since Supabase Auth uses JWTs for authentication, the access token JWT will be valid until it's expired. When the user signs out, Supabase revokes the refresh token and deletes the JWT from the client-side. This does not revoke the JWT and it will still be valid until it expires.
+       * - With the default `global` scope, `signOut()` while offline returns an error and keeps the user
+       *   signed in. To sign out regardless, fall back to `signOut({ scope: 'local' })` when the call
+       *   returns an error.
+       * - Since Supabase Auth uses JWTs for authentication, the access token JWT will be valid until
+       *   it's expired. When the user signs out, Supabase revokes the refresh token and deletes the
+       *   JWT from the client-side. This does not revoke the JWT and it will still be valid until it
+       *   expires.
        *
        * @example Sign out of every device (global – default)
        * ```js
@@ -18524,7 +18594,7 @@ var require_GoTrueClient = __commonJS({
         }
         return await this._signOut(options);
       }
-      async _signOut({ scope } = { scope: "global" }) {
+      async _signOut({ scope = "global" } = {}) {
         return await this._useSession(async (result) => {
           var _a;
           const removeCurrentSession = async () => {
@@ -18532,24 +18602,36 @@ var require_GoTrueClient = __commonJS({
           };
           const { data, error: sessionError } = result;
           if (sessionError && !(0, errors_1.isAuthSessionMissingError)(sessionError)) {
+            if (scope === "local" && (0, errors_1.isAuthRetryableFetchError)(sessionError)) {
+              await removeCurrentSession();
+            }
             return this._returnResult({ error: sessionError });
           }
           const accessToken = (_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token;
-          if (accessToken) {
-            const { error } = await this.admin.signOut(accessToken, scope);
-            if (error) {
-              if (!((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403) || (0, errors_1.isAuthSessionMissingError)(error))) {
-                if (scope !== "others") {
-                  await removeCurrentSession();
-                }
-                return this._returnResult({ error });
-              }
+          let removeError = null;
+          const finish = (value) => {
+            if (removeError) {
+              throw removeError.thrown;
+            }
+            return value;
+          };
+          if (scope === "local") {
+            try {
+              await removeCurrentSession();
+            } catch (thrown) {
+              removeError = { thrown };
             }
           }
-          if (scope !== "others") {
+          if (accessToken) {
+            const { error } = await this.admin.signOut(accessToken, scope);
+            if (error && !((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403) || (0, errors_1.isAuthSessionMissingError)(error))) {
+              return finish(this._returnResult({ error }));
+            }
+          }
+          if (scope === "global") {
             await removeCurrentSession();
           }
-          return this._returnResult({ error: null });
+          return finish(this._returnResult({ error: null }));
         });
       }
       /**  *
@@ -18637,9 +18719,9 @@ var require_GoTrueClient = __commonJS({
        * ```
        *
        * @exampleDescription Store OAuth provider tokens on sign in
-       * When using [OAuth (Social Login)](/docs/guides/auth/social-login) you sometimes wish to get access to the provider's access token and refresh token, in order to call provider APIs in the name of the user.
+       * When using [OAuth (social sign-in)](/docs/guides/auth/social-sign-in) you sometimes wish to get access to the provider's access token and refresh token, in order to call provider APIs in the name of the user.
        *
-       * For example, if you are using [Sign in with Google](/docs/guides/auth/social-login/auth-google) you may want to use the provider token to call Google APIs on behalf of the user. Supabase Auth does not keep track of the provider access and refresh token, but does return them for you once, immediately after sign in. You can use the `onAuthStateChange` method to listen for the presence of the provider tokens and store them in local storage. You can further send them to your server's APIs for use on the backend.
+       * For example, if you are using [Sign in with Google](/docs/guides/auth/social-sign-in/auth-google) you may want to use the provider token to call Google APIs on behalf of the user. Supabase Auth does not keep track of the provider access and refresh token, but does return them for you once, immediately after sign in. You can use the `onAuthStateChange` method to listen for the presence of the provider tokens and store them in local storage. You can further send them to your server's APIs for use on the backend.
        *
        * Finally, make sure you remove them from local storage on the `SIGNED_OUT` event. If the OAuth provider supports token revocation, make sure you call those APIs either from the frontend or schedule them to be called on the backend.
        *
@@ -24375,6 +24457,30 @@ function toTransportFailure(cause, status, statusText) {
     statusText
   };
 }
+function withTimeout(fetch$1, timeout) {
+  if (timeout === void 0 || timeout <= 0) return fetch$1;
+  return (input, init) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const existingSignal = init === null || init === void 0 ? void 0 : init.signal;
+    if (existingSignal) {
+      if (existingSignal.aborted) {
+        clearTimeout(timeoutId);
+        return fetch$1(input, init);
+      }
+      const abortHandler = () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      };
+      existingSignal.addEventListener("abort", abortHandler, { once: true });
+      return fetch$1(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => {
+        clearTimeout(timeoutId);
+        existingSignal.removeEventListener("abort", abortHandler);
+      });
+    }
+    return fetch$1(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
+  };
+}
 var PostgrestClient = class PostgrestClient2 {
   /**
   * Creates a PostgREST client.
@@ -24390,6 +24496,10 @@ var PostgrestClient = class PostgrestClient2 {
   *   When enabled, idempotent requests (GET, HEAD, OPTIONS) that fail with network
   *   errors or HTTP 503/520 responses will be automatically retried up to 3 times
   *   with exponential backoff (1s, 2s, 4s). Defaults to `true`.
+  * @param options.wrapFetch - Wraps every fetch this client uses, including a per-request
+  *   `fetch` passed to `from()`, and is carried over to clients returned by `schema()`.
+  *   Use it for headers or instrumentation that must reach every request regardless of
+  *   which fetch performs it.
   * @example Using supabase-js (recommended)
   * ```ts
   * import { createClient } from '@supabase/supabase-js'
@@ -24415,44 +24525,35 @@ var PostgrestClient = class PostgrestClient2 {
   * })
   * ```
   */
-  constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8e3, retry } = {}) {
+  constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8e3, retry, wrapFetch } = {}) {
     this.url = url;
     this.headers = new Headers(headers);
     this.schemaName = schema;
     this.urlLengthLimit = urlLengthLimit;
-    const originalFetch = fetch$1 !== null && fetch$1 !== void 0 ? fetch$1 : globalThis.fetch;
-    if (timeout !== void 0 && timeout > 0) this.fetch = (input, init) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-      const existingSignal = init === null || init === void 0 ? void 0 : init.signal;
-      if (existingSignal) {
-        if (existingSignal.aborted) {
-          clearTimeout(timeoutId);
-          return originalFetch(input, init);
-        }
-        const abortHandler = () => {
-          clearTimeout(timeoutId);
-          controller.abort();
-        };
-        existingSignal.addEventListener("abort", abortHandler, { once: true });
-        return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => {
-          clearTimeout(timeoutId);
-          existingSignal.removeEventListener("abort", abortHandler);
-        });
-      }
-      return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
-    };
-    else this.fetch = originalFetch;
+    this.timeout = timeout;
+    this.wrapFetch = wrapFetch;
+    this.baseFetch = fetch$1 !== null && fetch$1 !== void 0 ? fetch$1 : globalThis.fetch;
+    this.fetch = this.baseFetch ? this.decorateFetch(this.baseFetch) : void 0;
     this.retry = retry;
   }
-  from(relation) {
+  /**
+  * Applies the client's decorations to a fetch implementation: `wrapFetch`
+  * first, then the timeout guard, so the timeout bounds the whole wrapped call.
+  * The client-level fetch and every per-request `fetch` passed to `from()` go
+  * through this.
+  */
+  decorateFetch(fetch$1) {
+    return withTimeout(this.wrapFetch ? this.wrapFetch(fetch$1) : fetch$1, this.timeout);
+  }
+  from(relation, options) {
+    var _options$urlLengthLim, _options$retry;
     if (!relation || typeof relation !== "string" || relation.trim() === "") throw new Error("Invalid relation name: relation must be a non-empty string.");
     return new PostgrestQueryBuilder(new URL(`${this.url}/${relation}`), {
       headers: new Headers(this.headers),
       schema: this.schemaName,
-      fetch: this.fetch,
-      urlLengthLimit: this.urlLengthLimit,
-      retry: this.retry
+      fetch: (options === null || options === void 0 ? void 0 : options.fetch) ? this.decorateFetch(options.fetch) : this.fetch,
+      urlLengthLimit: (_options$urlLengthLim = options === null || options === void 0 ? void 0 : options.urlLengthLimit) !== null && _options$urlLengthLim !== void 0 ? _options$urlLengthLim : this.urlLengthLimit,
+      retry: (_options$retry = options === null || options === void 0 ? void 0 : options.retry) !== null && _options$retry !== void 0 ? _options$retry : this.retry
     });
   }
   /**
@@ -24468,7 +24569,9 @@ var PostgrestClient = class PostgrestClient2 {
     return new PostgrestClient2(this.url, {
       headers: this.headers,
       schema,
-      fetch: this.fetch,
+      fetch: this.baseFetch,
+      timeout: this.timeout,
+      wrapFetch: this.wrapFetch,
       urlLengthLimit: this.urlLengthLimit,
       retry: this.retry
     });
@@ -25662,6 +25765,10 @@ var DEFAULT_FILE_OPTIONS = {
   contentType: "text/plain;charset=UTF-8",
   upsert: false
 };
+function mergeFileOptions(fileOptions) {
+  const definedOptions = Object.fromEntries(Object.entries(fileOptions !== null && fileOptions !== void 0 ? fileOptions : {}).filter(([, value]) => value !== void 0));
+  return _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), definedOptions);
+}
 var StorageFileApi = class extends BaseApiClient {
   constructor(url, headers = {}, bucketId, fetch$1) {
     super(url, headers, fetch$1, "storage");
@@ -25678,7 +25785,7 @@ var StorageFileApi = class extends BaseApiClient {
     var _this = this;
     return _this.handleOperation(async () => {
       let body;
-      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      const options = mergeFileOptions(fileOptions);
       let headers = _objectSpread22(_objectSpread22({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
       const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob || typeof FormData !== "undefined" && fileBody instanceof FormData) body = _this.prepareUploadFormData(fileBody, options);
@@ -25817,7 +25924,7 @@ var StorageFileApi = class extends BaseApiClient {
     url.searchParams.set("token", token);
     return _this3.handleOperation(async () => {
       let body;
-      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      const options = mergeFileOptions(fileOptions);
       let headers = _objectSpread22(_objectSpread22({}, _this3.headers), { "x-upsert": String(options.upsert) });
       const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob || typeof FormData !== "undefined" && fileBody instanceof FormData) body = _this3.prepareUploadFormData(fileBody, options);
@@ -26309,6 +26416,14 @@ var StorageFileApi = class extends BaseApiClient {
   /**
   * Checks the existence of a file.
   *
+  * This reads the object's metadata, so the result is `false` only when Storage reports that the
+  * key does not exist: an error with code `NoSuchKey`, or an HTTP 404 with no error code. In that
+  * case `data` is `false` and `error` holds the original error.
+  *
+  * Every other failure throws instead of returning `false`, including an invalid or expired JWT
+  * (`InvalidJWT`), a missing bucket (`NoSuchBucket`) and network errors. With `throwOnError()`,
+  * a missing key throws as well.
+  *
   * @category Storage
   * @subcategory File Buckets
   * @param path The file path, including the file name. For example `folder/image.png`.
@@ -26323,26 +26438,16 @@ var StorageFileApi = class extends BaseApiClient {
   * ```
   */
   async exists(path4) {
-    var _this11 = this;
-    const _path = _this11._getFinalPath(path4);
-    try {
-      await head(_this11.fetch, `${_this11.url}/object/${_path}`, { headers: _this11.headers });
-      return {
-        data: true,
-        error: null
-      };
-    } catch (error) {
-      if (_this11.shouldThrowOnError) throw error;
-      if (isStorageError(error)) {
-        var _error$originalError;
-        const status = error instanceof StorageApiError ? error.status : error instanceof StorageUnknownError ? (_error$originalError = error.originalError) === null || _error$originalError === void 0 ? void 0 : _error$originalError.status : void 0;
-        if (status !== void 0 && [400, 404].includes(status)) return {
-          data: false,
-          error
-        };
-      }
-      throw error;
-    }
+    const { error } = await this.info(path4);
+    if (!error) return {
+      data: true,
+      error: null
+    };
+    if (error instanceof StorageApiError && (error.code === "NoSuchKey" || error.status === 404 && error.code === void 0)) return {
+      data: false,
+      error
+    };
+    throw error;
   }
   /**
   * A simple convenience function to get the URL for an asset in a public bucket. If you do not want to use this function, you can construct the public URL by concatenating the bucket URL with the path to the asset.
@@ -26708,7 +26813,7 @@ var StorageFileApi = class extends BaseApiClient {
     return query;
   }
 };
-var version = "2.118.0";
+var version = "2.119.0";
 var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version}` };
 var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
@@ -28269,7 +28374,7 @@ var StorageClient = class extends StorageBucketApi {
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
-var version2 = "2.118.0";
+var version2 = "2.119.0";
 var JS_ENV = "";
 var JS_RUNTIME_VERSION;
 if (typeof Deno !== "undefined") {
@@ -28793,7 +28898,8 @@ var SupabaseClient = class {
     this.rest = new PostgrestClient(new URL("rest/v1", baseUrl).href, {
       headers: this.headers,
       schema: settings.db.schema,
-      fetch: this.fetch,
+      fetch: resolveFetch2(settings.global.fetch),
+      wrapFetch: (fetch$1) => fetchWithAuth(supabaseKey, supabaseUrl, this._getSessionToken.bind(this), fetch$1, settings.tracePropagation),
       timeout: settings.db.timeout,
       urlLengthLimit: settings.db.urlLengthLimit,
       retry: settings.db.retry
@@ -28813,10 +28919,24 @@ var SupabaseClient = class {
   /**
   * Perform a query on a table or a view.
   *
+  * A per-request `fetch` is wrapped the same way as the client-level fetch: the
+  * `apikey`, `Authorization` and trace headers are added before it is called.
+  * The same applies to clients returned by `.schema()`.
+  *
   * @param relation - The table or view name to query
+  * @param options - Per-request options that override client-level defaults
+  *
+  * @example Per-request fetch options
+  * ```ts
+  * const { data } = await supabase
+  *   .from('countries', {
+  *     fetch: (input, init) => fetch(input, { ...init, cache: 'force-cache' }),
+  *   })
+  *   .select('*')
+  * ```
   */
-  from(relation) {
-    return this.rest.from(relation);
+  from(relation, options) {
+    return this.rest.from(relation, options);
   }
   /**
   * Select a schema to query or perform an function (rpc) call.
@@ -32318,9 +32438,834 @@ var handler24 = async (req, res) => {
 };
 var supabase_backgrounds_default = handler24;
 
+// backend/adhan-voices.ts
+init_lib();
+var OFFICIAL_MUEZZIN_SLOTS = [
+  {
+    id: "nabawi-khashuqji",
+    muezzin_name_en: "Sheikh Abdul-Rahman bin Abdul-Ilah Khashuqji",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0628\u062F \u0627\u0644\u0631\u062D\u0645\u0646 \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0625\u0644\u0647 \u062E\u0627\u0634\u0642\u062C\u064A",
+    title_en: "Chief Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: true,
+    is_active: true,
+    sort_order: 1
+  },
+  {
+    id: "nabawi-isam-bukhari",
+    muezzin_name_en: "Sheikh Isam bin Husain Bukhari",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0635\u0627\u0645 \u0628\u0646 \u062D\u0633\u064A\u0646 \u0628\u062E\u0627\u0631\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 2
+  },
+  {
+    id: "nabawi-saud-bukhari",
+    muezzin_name_en: "Sheikh Saud bin Abdul-Aziz Bukhari",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0633\u0639\u0648\u062F \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0639\u0632\u064A\u0632 \u0628\u062E\u0627\u0631\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 3
+  },
+  {
+    id: "nabawi-hakeem",
+    muezzin_name_en: "Sheikh Muhammad bin Majid Hakeem",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0645\u062D\u0645\u062F \u0628\u0646 \u0645\u0627\u062C\u062F \u062D\u0643\u064A\u0645",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 4
+  },
+  {
+    id: "nabawi-hunainy",
+    muezzin_name_en: "Sheikh Abdullah bin Muhammad Al-Hunainy",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0628\u062F \u0627\u0644\u0644\u0647 \u0628\u0646 \u0645\u062D\u0645\u062F \u0627\u0644\u062D\u0646\u064A\u0646\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 5
+  },
+  {
+    id: "nabawi-surayhee",
+    muezzin_name_en: "Sheikh Abdul-Majeed bin Abdul-Ilah Al-Surayhee",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0628\u062F \u0627\u0644\u0645\u062C\u064A\u062F \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0625\u0644\u0647 \u0627\u0644\u0633\u0631\u064A\u062D\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 6
+  },
+  {
+    id: "nabawi-ansari",
+    muezzin_name_en: "Sheikh Ahmed bin Muhammad Al-Ansari",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0623\u062D\u0645\u062F \u0628\u0646 \u0645\u062D\u0645\u062F \u0627\u0644\u0623\u0646\u0635\u0627\u0631\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 7
+  },
+  {
+    id: "nabawi-katib",
+    muezzin_name_en: "Sheikh Adil bin Sa\u2019eed Katib",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0627\u062F\u0644 \u0628\u0646 \u0633\u0639\u064A\u062F \u0643\u0627\u062A\u0628",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 8
+  },
+  {
+    id: "nabawi-shareef",
+    muezzin_name_en: "Sheikh Anas bin Sami Shareef",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0623\u0646\u0633 \u0628\u0646 \u0633\u0627\u0645\u064A \u0634\u0631\u064A\u0641",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 9
+  },
+  {
+    id: "nabawi-afifi",
+    muezzin_name_en: "Sheikh Ahmed bin Abdullah Al-Afifi",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0623\u062D\u0645\u062F \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0644\u0647 \u0627\u0644\u0639\u0641\u064A\u0641\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.",
+    source_url: "https://prh.gov.sa",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 10
+  },
+  {
+    id: "alafasy-kuwait",
+    muezzin_name_en: "Sheikh Mishary Rashid Alafasy",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0645\u0634\u0627\u0631\u064A \u0628\u0646 \u0631\u0627\u0634\u062F \u0627\u0644\u0639\u0641\u0627\u0633\u064A",
+    title_en: "Adhan of the Grand Mosque of Kuwait (Standard & Fajr)",
+    mosque_en: "Al-Masjid Al-Kabir (Grand Mosque, Kuwait)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0643\u0628\u064A\u0631 \u0628\u0627\u0644\u0643\u0648\u064A\u062A",
+    audio_url: null,
+    fajr_audio_url: null,
+    duration_seconds: 0,
+    fajr_duration_seconds: 0,
+    size_bytes: 0,
+    storage_paths: [],
+    license_status: "upload_when_licensed",
+    license_notes: "Alafasy Studio / Grand Mosque recording. Personal listening is permitted; commercial in-app bundling requires studio clearance \u2014 upload when licensed.",
+    source_url: "https://alafasy.me",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 11
+  }
+];
+var seededOfficialSlotsOnce = false;
+async function ensureAdhanVoicesTable() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS adhan_voices (
+      id                    TEXT PRIMARY KEY,
+      muezzin_name_en       TEXT NOT NULL,
+      muezzin_name_ar       TEXT,
+      title_en              TEXT NOT NULL,
+      mosque_en             TEXT DEFAULT 'Al-Masjid an-Nabawi (Prophet''s Mosque, Madinah)',
+      mosque_ar             TEXT DEFAULT '\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641',
+      audio_url             TEXT,
+      fajr_audio_url        TEXT,
+      duration_seconds      NUMERIC DEFAULT 0,
+      fajr_duration_seconds NUMERIC DEFAULT 0,
+      size_bytes            BIGINT DEFAULT 0,
+      storage_paths         JSONB DEFAULT '[]'::jsonb,
+      license_status        TEXT NOT NULL DEFAULT 'upload_when_licensed',
+      license_notes         TEXT,
+      source_url            TEXT,
+      official_verified     BOOLEAN DEFAULT true,
+      is_default            BOOLEAN DEFAULT false,
+      is_active             BOOLEAN DEFAULT true,
+      sort_order            INT DEFAULT 0,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+  await q(`
+    CREATE TABLE IF NOT EXISTS adhan_voices_meta (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      version BIGINT NOT NULL DEFAULT 1,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+  await q(`
+    INSERT INTO adhan_voices_meta (id, version, updated_at)
+    VALUES (1, 1, now())
+    ON CONFLICT (id) DO NOTHING
+  `).catch(() => {
+  });
+  await q(`
+    CREATE INDEX IF NOT EXISTS idx_adhan_voices_active_sort ON adhan_voices (is_active, sort_order ASC, created_at DESC)
+  `).catch(() => {
+  });
+  if (!seededOfficialSlotsOnce) {
+    seededOfficialSlotsOnce = true;
+    const sb = getSupabaseAdmin();
+    for (const slot of OFFICIAL_MUEZZIN_SLOTS) {
+      await q(
+        `INSERT INTO adhan_voices (
+           id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+           audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+           size_bytes, storage_paths, license_status, license_notes, source_url,
+           official_verified, is_default, is_active, sort_order, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), now())
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          slot.id,
+          slot.muezzin_name_en,
+          slot.muezzin_name_ar,
+          slot.title_en,
+          slot.mosque_en,
+          slot.mosque_ar,
+          slot.audio_url,
+          slot.fajr_audio_url,
+          slot.duration_seconds,
+          slot.fajr_duration_seconds,
+          slot.size_bytes,
+          JSON.stringify(slot.storage_paths),
+          slot.license_status,
+          slot.license_notes,
+          slot.source_url,
+          slot.official_verified,
+          slot.is_default,
+          slot.is_active,
+          slot.sort_order
+        ]
+      ).catch(() => {
+      });
+      if (sb) {
+        try {
+          await sb.from("adhan_voices").upsert(slot, { onConflict: "id", ignoreDuplicates: true });
+        } catch {
+        }
+      }
+    }
+  }
+}
+async function bumpAdhanVoicesVersion() {
+  let nextVersion = Date.now();
+  try {
+    const res = await q(
+      `UPDATE adhan_voices_meta SET version = version + 1, updated_at = now() WHERE id = 1 RETURNING version`
+    );
+    if (res.rows?.[0]?.version) {
+      nextVersion = Number(res.rows[0].version);
+    }
+  } catch {
+  }
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    try {
+      const { data: curr } = await sb.from("adhan_voices_meta").select("version").eq("id", 1).maybeSingle();
+      const v = Number(curr?.version || 1) + 1;
+      nextVersion = Math.max(nextVersion, v);
+      await sb.from("adhan_voices_meta").upsert(
+        { id: 1, version: v, updated_at: (/* @__PURE__ */ new Date()).toISOString() },
+        { onConflict: "id" }
+      );
+    } catch {
+    }
+  }
+  return nextVersion;
+}
+async function getActiveAdhanVoicesAndVersion(includeInactive = false) {
+  await ensureAdhanVoicesTable().catch(() => {
+  });
+  const byId = /* @__PURE__ */ new Map();
+  const hiddenIds = /* @__PURE__ */ new Set();
+  for (const slot of OFFICIAL_MUEZZIN_SLOTS) {
+    byId.set(slot.id, { ...slot, created_at: (/* @__PURE__ */ new Date()).toISOString() });
+  }
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from("adhan_voices").select("*").order("sort_order", { ascending: true }).order("created_at", { ascending: false });
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          if (!includeInactive && row.is_active === false) {
+            hiddenIds.add(row.id);
+            byId.delete(row.id);
+          } else {
+            byId.set(row.id, row);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase adhan_voices query fallback:", e);
+    }
+  }
+  try {
+    const result = await q(`
+      SELECT id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+             audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+             size_bytes, storage_paths, license_status, license_notes, source_url,
+             official_verified, is_default, is_active, sort_order, created_at, updated_at
+      FROM adhan_voices
+      ORDER BY sort_order ASC, created_at DESC
+    `);
+    for (const row of result.rows || []) {
+      if (!includeInactive && row.is_active === false) {
+        hiddenIds.add(row.id);
+        byId.delete(row.id);
+      } else if (!hiddenIds.has(row.id)) {
+        const existing = byId.get(row.id);
+        if (!existing || row.audio_url || row.fajr_audio_url || !existing.audio_url) {
+          byId.set(row.id, { ...existing, ...row });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Local/Postgres adhan_voices query notice:", e);
+  }
+  const voices = Array.from(byId.values()).sort((a, b) => {
+    const sa = Number(a.sort_order ?? 0);
+    const sbOrder = Number(b.sort_order ?? 0);
+    if (sa !== sbOrder) return sa - sbOrder;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+  let version3 = 1;
+  let updated_at = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    const metaRes = await q(
+      `SELECT version, updated_at FROM adhan_voices_meta WHERE id = 1`
+    );
+    if (metaRes.rows?.[0]) {
+      version3 = Number(metaRes.rows[0].version || 1);
+      updated_at = metaRes.rows[0].updated_at || updated_at;
+    }
+  } catch {
+  }
+  if (sb) {
+    try {
+      const { data: meta } = await sb.from("adhan_voices_meta").select("version, updated_at").eq("id", 1).maybeSingle();
+      if (meta?.version && Number(meta.version) > version3) {
+        version3 = Number(meta.version);
+        updated_at = meta.updated_at || updated_at;
+      }
+    } catch {
+    }
+  }
+  return { voices, version: version3, updated_at };
+}
+var handler25 = async (req, res) => {
+  if (req.method !== "GET") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    const { voices, version: version3, updated_at } = await getActiveAdhanVoicesAndVersion(false);
+    const urlObj = new URL(req.url || "/api/adhan-voices", "http://localhost");
+    if (urlObj.searchParams.get("version_only") === "1") {
+      return sendJson(res, 200, {
+        version: version3,
+        count: voices.length,
+        updated_at
+      });
+    }
+    return sendJson(res, 200, {
+      voices,
+      version: version3,
+      updated_at
+    });
+  } catch (err) {
+    console.error("Failed to load adhan voices:", err);
+    return sendJson(res, 500, { error: "Failed to load adhan voices" });
+  }
+};
+var adhan_voices_default = handler25;
+
+// backend/admin/adhan-voices.ts
+init_lib();
+var handler26 = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    await ensureAdhanVoicesTable().catch(() => {
+    });
+    if (req.method === "GET") {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const { voices, version: version3, updated_at } = await getActiveAdhanVoicesAndVersion(true);
+      return sendJson(res, 200, { voices, version: version3, updated_at });
+    }
+    if (req.method === "POST") {
+      const body = await readJsonLarge(req);
+      const action = body.action || "add";
+      if (action === "add" || action === "update") {
+        const id = String(body.id || `adhan_${Date.now()}`).trim();
+        const muezzin_name_en = body.muezzin_name_en !== void 0 ? String(body.muezzin_name_en).trim() : void 0;
+        const muezzin_name_ar = body.muezzin_name_ar !== void 0 ? body.muezzin_name_ar ? String(body.muezzin_name_ar).trim() : null : void 0;
+        const title_en = body.title_en !== void 0 ? String(body.title_en).trim() : void 0;
+        const mosque_en = body.mosque_en !== void 0 ? String(body.mosque_en).trim() : void 0;
+        const mosque_ar = body.mosque_ar !== void 0 ? body.mosque_ar ? String(body.mosque_ar).trim() : null : void 0;
+        const audio_url = body.audio_url !== void 0 ? body.audio_url ? String(body.audio_url).trim() : null : void 0;
+        const fajr_audio_url = body.fajr_audio_url !== void 0 ? body.fajr_audio_url ? String(body.fajr_audio_url).trim() : null : void 0;
+        const duration_seconds = body.duration_seconds !== void 0 ? Number(body.duration_seconds || 0) : void 0;
+        const fajr_duration_seconds = body.fajr_duration_seconds !== void 0 ? Number(body.fajr_duration_seconds || 0) : void 0;
+        const size_bytes = body.size_bytes !== void 0 ? Number(body.size_bytes || 0) : void 0;
+        const storage_paths = body.storage_paths !== void 0 ? Array.isArray(body.storage_paths) ? body.storage_paths : [] : void 0;
+        const license_status = body.license_status !== void 0 ? String(body.license_status) : void 0;
+        const license_notes = body.license_notes !== void 0 ? body.license_notes ? String(body.license_notes).trim() : null : void 0;
+        const source_url = body.source_url !== void 0 ? body.source_url ? String(body.source_url).trim() : null : void 0;
+        const official_verified = body.official_verified !== void 0 ? Boolean(body.official_verified) : void 0;
+        const is_default = body.is_default !== void 0 ? Boolean(body.is_default) : void 0;
+        const is_active = body.is_active !== void 0 ? Boolean(body.is_active) : void 0;
+        const sort_order = body.sort_order !== void 0 ? Number(body.sort_order) : void 0;
+        if (action === "add" && !muezzin_name_en) {
+          return sendJson(res, 400, { error: "Muezzin name (English) is required." });
+        }
+        const sb = getSupabaseAdmin();
+        const seedMatch = OFFICIAL_MUEZZIN_SLOTS.find((s) => s.id === id);
+        let existingRow = seedMatch ? { ...seedMatch } : null;
+        try {
+          const existingRes = await q(`SELECT * FROM adhan_voices WHERE id = $1`, [id]);
+          if (existingRes.rows?.[0]) {
+            existingRow = { ...existingRow, ...existingRes.rows[0] };
+          }
+        } catch {
+        }
+        if (sb && !existingRow) {
+          try {
+            const { data } = await sb.from("adhan_voices").select("*").eq("id", id).maybeSingle();
+            if (data) existingRow = data;
+          } catch {
+          }
+        }
+        const finalAudioUrl = audio_url !== void 0 ? audio_url : existingRow?.audio_url ?? null;
+        const finalFajrAudioUrl = fajr_audio_url !== void 0 ? fajr_audio_url : existingRow?.fajr_audio_url ?? null;
+        const finalLicenseStatus = license_status !== void 0 ? license_status : finalAudioUrl || finalFajrAudioUrl ? "admin_uploaded" : existingRow?.license_status || "upload_when_licensed";
+        const merged = {
+          id,
+          muezzin_name_en: muezzin_name_en ?? existingRow?.muezzin_name_en ?? "Muezzin",
+          muezzin_name_ar: muezzin_name_ar !== void 0 ? muezzin_name_ar : existingRow?.muezzin_name_ar ?? null,
+          title_en: title_en ?? existingRow?.title_en ?? "Adhan Recording",
+          mosque_en: mosque_en ?? existingRow?.mosque_en ?? "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+          mosque_ar: mosque_ar !== void 0 ? mosque_ar : existingRow?.mosque_ar ?? "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+          audio_url: finalAudioUrl,
+          fajr_audio_url: finalFajrAudioUrl,
+          duration_seconds: duration_seconds ?? Number(existingRow?.duration_seconds || 0),
+          fajr_duration_seconds: fajr_duration_seconds ?? Number(existingRow?.fajr_duration_seconds || 0),
+          size_bytes: size_bytes ?? Number(existingRow?.size_bytes || 0),
+          storage_paths: storage_paths ?? (Array.isArray(existingRow?.storage_paths) ? existingRow.storage_paths : []),
+          license_status: finalLicenseStatus,
+          license_notes: license_notes !== void 0 ? license_notes : existingRow?.license_notes ?? null,
+          source_url: source_url !== void 0 ? source_url : existingRow?.source_url ?? null,
+          official_verified: official_verified ?? Boolean(existingRow?.official_verified ?? false),
+          is_default: is_default ?? Boolean(existingRow?.is_default ?? false),
+          is_active: is_active ?? Boolean(existingRow?.is_active ?? true),
+          sort_order: sort_order ?? Number(existingRow?.sort_order ?? 20),
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        if (merged.is_default) {
+          await q(`UPDATE adhan_voices SET is_default = false WHERE id != $1`, [id]).catch(() => {
+          });
+          if (sb) {
+            try {
+              await sb.from("adhan_voices").update({ is_default: false }).neq("id", id);
+            } catch {
+            }
+          }
+        }
+        let savedToSupabase = false;
+        let savedToDb = false;
+        if (sb) {
+          try {
+            const { error } = await sb.from("adhan_voices").upsert(merged, { onConflict: "id" });
+            if (!error) savedToSupabase = true;
+          } catch (e) {
+            console.warn("Supabase adhan_voices upsert notice:", e);
+          }
+        }
+        try {
+          await q(
+            `INSERT INTO adhan_voices (
+               id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+               audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+               size_bytes, storage_paths, license_status, license_notes, source_url,
+               official_verified, is_default, is_active, sort_order, created_at, updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), now())
+             ON CONFLICT (id) DO UPDATE SET
+               muezzin_name_en = EXCLUDED.muezzin_name_en,
+               muezzin_name_ar = EXCLUDED.muezzin_name_ar,
+               title_en = EXCLUDED.title_en,
+               mosque_en = EXCLUDED.mosque_en,
+               mosque_ar = EXCLUDED.mosque_ar,
+               audio_url = EXCLUDED.audio_url,
+               fajr_audio_url = EXCLUDED.fajr_audio_url,
+               duration_seconds = EXCLUDED.duration_seconds,
+               fajr_duration_seconds = EXCLUDED.fajr_duration_seconds,
+               size_bytes = EXCLUDED.size_bytes,
+               storage_paths = EXCLUDED.storage_paths,
+               license_status = EXCLUDED.license_status,
+               license_notes = EXCLUDED.license_notes,
+               source_url = EXCLUDED.source_url,
+               official_verified = EXCLUDED.official_verified,
+               is_default = EXCLUDED.is_default,
+               is_active = EXCLUDED.is_active,
+               sort_order = EXCLUDED.sort_order,
+               updated_at = now()`,
+            [
+              merged.id,
+              merged.muezzin_name_en,
+              merged.muezzin_name_ar,
+              merged.title_en,
+              merged.mosque_en,
+              merged.mosque_ar,
+              merged.audio_url,
+              merged.fajr_audio_url,
+              merged.duration_seconds,
+              merged.fajr_duration_seconds,
+              merged.size_bytes,
+              JSON.stringify(merged.storage_paths),
+              merged.license_status,
+              merged.license_notes,
+              merged.source_url,
+              merged.official_verified,
+              merged.is_default,
+              merged.is_active,
+              merged.sort_order
+            ]
+          );
+          savedToDb = true;
+        } catch (e) {
+          console.warn("Database adhan_voices upsert notice:", e);
+        }
+        if (!savedToSupabase && !savedToDb) {
+          return sendJson(res, 500, { error: "Failed to save Adhan voice to database." });
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3, voice: merged });
+      }
+      if (action === "set-default") {
+        const id = String(body.id || "").trim();
+        if (!id) return sendJson(res, 400, { error: "Voice ID is required" });
+        await q(`UPDATE adhan_voices SET is_default = (id = $1), updated_at = now()`, [id]).catch(() => {
+        });
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            await sb.from("adhan_voices").update({ is_default: false }).neq("id", id);
+            await sb.from("adhan_voices").update({ is_default: true, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id);
+          } catch {
+          }
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "reorder") {
+        const order = Array.isArray(body.order) ? body.order : [];
+        const sb = getSupabaseAdmin();
+        for (const item of order) {
+          if (!item?.id) continue;
+          const sortVal = Number(item.sort_order ?? 0);
+          await q(`UPDATE adhan_voices SET sort_order = $2, updated_at = now() WHERE id = $1`, [item.id, sortVal]).catch(
+            () => {
+            }
+          );
+          if (sb) {
+            try {
+              await sb.from("adhan_voices").update({ sort_order: sortVal }).eq("id", item.id);
+            } catch {
+            }
+          }
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "delete") {
+        const id = String(body.id || "").trim();
+        if (!id) return sendJson(res, 400, { error: "Voice ID is required" });
+        let paths = [];
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            const { data: existing } = await sb.from("adhan_voices").select("storage_paths").eq("id", id).maybeSingle();
+            if (Array.isArray(existing?.storage_paths)) {
+              paths = existing.storage_paths;
+            }
+            const isOfficialSeed2 = OFFICIAL_MUEZZIN_SLOTS.some((s) => s.id === id);
+            if (isOfficialSeed2) {
+              await sb.from("adhan_voices").update({
+                audio_url: null,
+                fajr_audio_url: null,
+                duration_seconds: 0,
+                fajr_duration_seconds: 0,
+                size_bytes: 0,
+                storage_paths: [],
+                license_status: "upload_when_licensed",
+                updated_at: (/* @__PURE__ */ new Date()).toISOString()
+              }).eq("id", id);
+            } else {
+              await sb.from("adhan_voices").delete().eq("id", id);
+            }
+            if (paths.length > 0) {
+              await sb.storage.from("ambient-backgrounds").remove(paths.map((p) => p.replace(/^\/+/, "")));
+            }
+          } catch (e) {
+            console.warn("Supabase delete adhan_voices notice:", e);
+          }
+        }
+        const isOfficialSeed = OFFICIAL_MUEZZIN_SLOTS.some((s) => s.id === id);
+        if (isOfficialSeed) {
+          await q(
+            `UPDATE adhan_voices
+             SET audio_url = NULL,
+                 fajr_audio_url = NULL,
+                 duration_seconds = 0,
+                 fajr_duration_seconds = 0,
+                 size_bytes = 0,
+                 storage_paths = '[]'::jsonb,
+                 license_status = 'upload_when_licensed',
+                 updated_at = now()
+             WHERE id = $1`,
+            [id]
+          ).catch(() => {
+          });
+        } else {
+          await q(`DELETE FROM adhan_voices WHERE id = $1`, [id]).catch(() => {
+          });
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "signed-upload-url") {
+        const path4 = String(body.path || "").replace(/^\/+/, "");
+        if (!path4) return sendJson(res, 400, { error: "Path is required" });
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+        if (sb && supabaseUrl) {
+          try {
+            const { data, error } = await sb.storage.from("ambient-backgrounds").createSignedUploadUrl(path4);
+            if (!error && data?.signedUrl) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+              return sendJson(res, 200, {
+                ok: true,
+                signedUrl: data.signedUrl,
+                token: data.token,
+                publicUrl
+              });
+            }
+          } catch (e) {
+            console.warn("Adhan createSignedUploadUrl notice:", e?.message);
+          }
+        }
+        return sendJson(res, 200, { ok: false });
+      }
+      if (action === "upload") {
+        const path4 = String(body.path || "").replace(/^\/+/, "");
+        const contentType = String(body.contentType || "audio/mpeg");
+        const base64Data = String(body.data || "");
+        if (!path4 || !base64Data) return sendJson(res, 400, { error: "Path and data are required" });
+        const buffer = Buffer.from(base64Data, "base64");
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+        if (sb && supabaseUrl) {
+          try {
+            const { error } = await sb.storage.from("ambient-backgrounds").upload(path4, buffer, {
+              contentType,
+              upsert: true,
+              cacheControl: "31536000"
+            });
+            if (!error) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+              return sendJson(res, 200, { ok: true, publicUrl });
+            }
+          } catch (e) {
+            console.warn("Supabase adhan audio upload fallback:", e);
+          }
+        }
+        const mediaId = `adhan_${Date.now()}_${path4.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-36)}`;
+        const dataUrl = `data:${contentType};base64,${base64Data}`;
+        await q("INSERT INTO global_media (id, kind, mime_type, data_url) VALUES ($1, $2, $3, $4)", [
+          mediaId,
+          "audio",
+          contentType,
+          dataUrl
+        ]);
+        return sendJson(res, 200, { ok: true, publicUrl: `/api/media/${mediaId}` });
+      }
+      if (action === "seed-official-slots") {
+        const sb = getSupabaseAdmin();
+        for (const slot of OFFICIAL_MUEZZIN_SLOTS) {
+          await q(
+            `INSERT INTO adhan_voices (
+               id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+               audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+               size_bytes, storage_paths, license_status, license_notes, source_url,
+               official_verified, is_default, is_active, sort_order, created_at, updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), now())
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              slot.id,
+              slot.muezzin_name_en,
+              slot.muezzin_name_ar,
+              slot.title_en,
+              slot.mosque_en,
+              slot.mosque_ar,
+              slot.audio_url,
+              slot.fajr_audio_url,
+              slot.duration_seconds,
+              slot.fajr_duration_seconds,
+              slot.size_bytes,
+              JSON.stringify(slot.storage_paths),
+              slot.license_status,
+              slot.license_notes,
+              slot.source_url,
+              slot.official_verified,
+              slot.is_default,
+              slot.is_active,
+              slot.sort_order
+            ]
+          ).catch(() => {
+          });
+          if (sb) {
+            try {
+              await sb.from("adhan_voices").upsert(slot, { onConflict: "id", ignoreDuplicates: true });
+            } catch {
+            }
+          }
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, count: OFFICIAL_MUEZZIN_SLOTS.length, version: version3 });
+      }
+      return sendJson(res, 400, { error: "Unknown action" });
+    }
+    return sendJson(res, 405, { error: "Method not allowed" });
+  } catch (err) {
+    console.error("Admin adhan-voices error:", err);
+    return sendJson(res, 500, { error: err?.message || "Server error" });
+  }
+};
+var adhan_voices_default2 = handler26;
+
 // backend/plans.ts
 init_lib();
-async function handler25(req, res) {
+async function handler27(req, res) {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -32335,7 +33280,7 @@ async function handler25(req, res) {
 
 // backend/admin/plans.ts
 init_lib();
-async function handler26(req, res) {
+async function handler28(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -32379,7 +33324,7 @@ async function handler26(req, res) {
 
 // backend/admin/payments.ts
 init_lib();
-async function handler27(req, res) {
+async function handler29(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -32529,7 +33474,7 @@ async function handler27(req, res) {
 
 // backend/admin/payments-diagnostics.ts
 init_lib();
-async function handler28(req, res) {
+async function handler30(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const rawSecret = process.env.FLW_SECRET_KEY || "";
@@ -32639,12 +33584,12 @@ var routes = [
   [/^\/api\/health$/, handler15],
   [/^\/api\/reciters$/, reciters_default3],
   [/^\/api\/ambient$/, ambient_default2],
-  [/^\/api\/plans$/, handler25],
-  [/^\/api\/admin\/plans(\/.*)?$/, handler26],
-  [/^\/api\/admin\/plan-price-logs$/, handler26],
-  [/^\/api\/admin\/payments\/diagnostics$/, handler28],
-  [/^\/api\/admin\/payments$/, handler27],
-  [/^\/api\/admin\/reconcile-payments$/, handler27],
+  [/^\/api\/plans$/, handler27],
+  [/^\/api\/admin\/plans(\/.*)?$/, handler28],
+  [/^\/api\/admin\/plan-price-logs$/, handler28],
+  [/^\/api\/admin\/payments\/diagnostics$/, handler30],
+  [/^\/api\/admin\/payments$/, handler29],
+  [/^\/api\/admin\/reconcile-payments$/, handler29],
   [/^\/api\/payments\/verify-flutterwave$/, handler19],
   [/^\/api\/webhooks\/flutterwave$/, handler20],
   [/^\/api\/payments\/create-virtual-account$/, handler21],
@@ -32652,9 +33597,11 @@ var routes = [
   [/^\/api\/payments\/check-transfer-status$/, handler23],
   [/^\/api\/backgrounds$/, backgrounds_default],
   [/^\/api\/admin\/supabase-backgrounds$/, supabase_backgrounds_default],
+  [/^\/api\/adhan-voices$/, adhan_voices_default],
+  [/^\/api\/admin\/adhan-voices$/, adhan_voices_default2],
   [/^\/api\/media(\/.*)?$/, mediaHandler]
 ];
-var handler29 = async (req, res) => {
+var handler31 = async (req, res) => {
   const url = (req.url || "").split("?")[0];
   const match = routes.find(([pattern]) => pattern.test(url));
   if (!match) {
@@ -32669,7 +33616,7 @@ var handler29 = async (req, res) => {
     }
   }
 };
-var index_default = handler29;
+var index_default = handler31;
 export {
   index_default as default
 };

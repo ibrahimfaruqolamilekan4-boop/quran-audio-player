@@ -27,6 +27,7 @@ import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
 import { PWAInstallHeader } from './components/PWAInstallHeader';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { AdhanSchedulerOverlay } from './components/AdhanSchedulerOverlay';
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
   const { user, role, loading } = useAuth();
@@ -162,6 +163,7 @@ export default function App() {
           <div className="flex flex-col min-h-screen relative selection:bg-teal-500/30 selection:text-teal-200">
             <QuranicPremiumBackground />
             <PWAInstallHeader />
+            <AdhanSchedulerOverlay />
             <div className="flex-1 flex flex-col relative z-10">
               <Routes>
                 <Route path="/" element={<LandingView />} />

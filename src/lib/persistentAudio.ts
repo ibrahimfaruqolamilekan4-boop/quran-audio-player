@@ -15,6 +15,7 @@ export interface TrackMetadata {
 
 let quranAudioInstance: HTMLAudioElement | null = null;
 let ambientAudioInstance: HTMLAudioElement | null = null;
+let adhanAudioInstance: HTMLAudioElement | null = null;
 
 export function getQuranAudio(): HTMLAudioElement {
   if (!quranAudioInstance) {
@@ -39,6 +40,94 @@ export function getAmbientAudio(): HTMLAudioElement {
   return ambientAudioInstance;
 }
 
+export function getAdhanAudio(): HTMLAudioElement {
+  if (!adhanAudioInstance) {
+    adhanAudioInstance = new Audio();
+    adhanAudioInstance.preload = 'auto';
+    adhanAudioInstance.setAttribute('playsinline', 'true');
+    adhanAudioInstance.setAttribute('webkit-playsinline', 'true');
+    (adhanAudioInstance as any).x5Playsinline = true;
+  }
+  return adhanAudioInstance;
+}
+
+interface DuckedPlaybackSnapshot {
+  quranWasPlaying: boolean;
+  ambientWasPlaying: boolean;
+  quranVolume: number;
+  ambientVolume: number;
+}
+
+let activeDuckSnapshot: DuckedPlaybackSnapshot | null = null;
+
+/**
+ * Gently ducks and pauses Quran recitation & ambient audio when Adhan starts playing,
+ * saving their exact state so they can be resumed automatically when Adhan ends or is silenced.
+ */
+export function duckAndPauseForAdhan(): DuckedPlaybackSnapshot {
+  const quran = getQuranAudio();
+  const ambient = getAmbientAudio();
+
+  if (!activeDuckSnapshot) {
+    activeDuckSnapshot = {
+      quranWasPlaying: !quran.paused && Boolean(quran.src),
+      ambientWasPlaying: !ambient.paused && Boolean(ambient.src),
+      quranVolume: quran.volume,
+      ambientVolume: ambient.volume,
+    };
+  }
+
+  if (activeDuckSnapshot.quranWasPlaying) {
+    try {
+      quran.volume = Math.max(0.05, activeDuckSnapshot.quranVolume * 0.2);
+      quran.pause();
+    } catch {}
+  }
+
+  if (activeDuckSnapshot.ambientWasPlaying) {
+    try {
+      ambient.volume = Math.max(0.05, activeDuckSnapshot.ambientVolume * 0.2);
+      ambient.pause();
+    } catch {}
+  }
+
+  return activeDuckSnapshot;
+}
+
+/**
+ * Restores Quran recitation & ambient audio volume and resumes playback after Adhan finishes or is stopped.
+ */
+export function restoreAfterAdhan(): boolean {
+  if (!activeDuckSnapshot) return false;
+  const snap = activeDuckSnapshot;
+  activeDuckSnapshot = null;
+
+  const quran = getQuranAudio();
+  const ambient = getAmbientAudio();
+
+  try {
+    quran.volume = snap.quranVolume;
+  } catch {}
+  try {
+    ambient.volume = snap.ambientVolume;
+  } catch {}
+
+  if (snap.quranWasPlaying && quran.src) {
+    quran.play().catch(() => {});
+  }
+  if (snap.ambientWasPlaying && ambient.src) {
+    ambient.play().catch(() => {});
+  }
+
+  return snap.quranWasPlaying || snap.ambientWasPlaying;
+}
+
+export function isBackgroundAudioDuckedForAdhan(): boolean {
+  return Boolean(
+    activeDuckSnapshot && (activeDuckSnapshot.quranWasPlaying || activeDuckSnapshot.ambientWasPlaying)
+  );
+}
+
 let isAudioUnlocked = false;
 
 /**
@@ -50,22 +139,20 @@ export function unlockAudio() {
   isAudioUnlocked = true;
   const quranAudio = getQuranAudio();
   const ambientAudio = getAmbientAudio();
+  const adhanAudio = getAdhanAudio();
+  const silentWav = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
-  if (quranAudio.paused && !quranAudio.src) {
-    quranAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-    quranAudio.play().then(() => {
-      quranAudio.pause();
-      quranAudio.currentTime = 0;
-      quranAudio.src = '';
-    }).catch(() => {});
-  }
-  if (ambientAudio.paused && !ambientAudio.src) {
-    ambientAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-    ambientAudio.play().then(() => {
-      ambientAudio.pause();
-      ambientAudio.currentTime = 0;
-      ambientAudio.src = '';
-    }).catch(() => {});
+  for (const el of [quranAudio, ambientAudio, adhanAudio]) {
+    if (el.paused && !el.src) {
+      el.src = silentWav;
+      el.play()
+        .then(() => {
+          el.pause();
+          el.currentTime = 0;
+          el.src = '';
+        })
+        .catch(() => {});
+    }
   }
 }
 

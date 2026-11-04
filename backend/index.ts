@@ -43,6 +43,8 @@ import createHostedCheckout from './payments/create-hosted-checkout';
 import checkTransferStatus from './payments/check-transfer-status';
 import publicBackgrounds from './backgrounds';
 import adminSupabaseBackgrounds from './admin/supabase-backgrounds';
+import publicAdhanVoices from './adhan-voices';
+import adminAdhanVoices from './admin/adhan-voices';
 import publicPlans from './plans';
 import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
@@ -83,6 +85,8 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
   [/^\/api\/backgrounds$/, publicBackgrounds],
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
+  [/^\/api\/adhan-voices$/, publicAdhanVoices],
+  [/^\/api\/admin\/adhan-voices$/, adminAdhanVoices],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

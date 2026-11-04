@@ -167,6 +167,8 @@ export interface PrayerMinuteAdjustments {
   isha: number;
 }
 
+export type PrayerAdhanMode = 'full' | 'takbir' | 'chime' | 'silent';
+
 export interface PrayerSettings {
   cityName: string;
   country?: string;
@@ -181,6 +183,8 @@ export interface PrayerSettings {
   is24Hour: boolean;
   notificationsEnabled: boolean;
   prayerReminders: Record<string, boolean>;
+  prayerAdhanModes?: Record<string, PrayerAdhanMode>;
+  useFajrAdhan?: boolean;
   reminderMinutesBefore?: number;
   activeAdhanVoiceId?: string;
 }
@@ -213,8 +217,17 @@ export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
     maghrib: true,
     isha: true,
   },
+  prayerAdhanModes: {
+    fajr: 'full',
+    sunrise: 'silent',
+    dhuhr: 'full',
+    asr: 'full',
+    maghrib: 'full',
+    isha: 'full',
+  },
+  useFajrAdhan: true,
   reminderMinutesBefore: 0,
-  activeAdhanVoiceId: 'medina-standard',
+  activeAdhanVoiceId: 'nabawi-khashuqji',
 };
 
 /**
