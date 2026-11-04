@@ -678,6 +678,109 @@ ALTER TABLE public.plans REPLICA IDENTITY FULL;
 ALTER TABLE public.payments REPLICA IDENTITY FULL;
 
 -- ------------------------------------------------------------------------------
+-- SECTION 9: ADHAN VOICES CATALOG & REALTIME SYNC (PHASE 2)
+-- Admin-managed muezzin recordings with Fajr-specific support and licensing metadata.
+-- No hardcoded audio URLs: slots start as 'upload_when_licensed' until Admin uploads.
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.adhan_voices (
+  id TEXT PRIMARY KEY,
+  muezzin_name_en TEXT NOT NULL,
+  muezzin_name_ar TEXT,
+  title_en TEXT NOT NULL,
+  mosque_en TEXT DEFAULT 'Al-Masjid an-Nabawi (Prophet''s Mosque, Madinah)',
+  mosque_ar TEXT DEFAULT 'المسجد النبوي الشريف',
+  audio_url TEXT,
+  fajr_audio_url TEXT,
+  duration_seconds NUMERIC DEFAULT 0,
+  fajr_duration_seconds NUMERIC DEFAULT 0,
+  size_bytes BIGINT DEFAULT 0,
+  storage_paths JSONB DEFAULT '[]'::jsonb,
+  license_status TEXT NOT NULL DEFAULT 'upload_when_licensed' CHECK (license_status IN ('verified_licensed', 'upload_when_licensed', 'admin_uploaded')),
+  license_notes TEXT,
+  source_url TEXT,
+  official_verified BOOLEAN DEFAULT true,
+  is_default BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  sort_order INT DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_adhan_voices_active_sort ON public.adhan_voices (is_active, sort_order ASC, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.adhan_voices_meta (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  version BIGINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.adhan_voices_meta (id, version, updated_at)
+VALUES (1, 1, now())
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.adhan_voices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.adhan_voices_meta ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public can read adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Public can read adhan_voices"
+  ON public.adhan_voices FOR SELECT
+  USING (is_active = true OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only admin can insert adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Only admin can insert adhan_voices"
+  ON public.adhan_voices FOR INSERT
+  TO authenticated, service_role
+  WITH CHECK (auth.role() = 'service_role' OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only admin can update adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Only admin can update adhan_voices"
+  ON public.adhan_voices FOR UPDATE
+  TO authenticated, service_role
+  USING (auth.role() = 'service_role' OR public.is_admin())
+  WITH CHECK (auth.role() = 'service_role' OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only admin can delete adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Only admin can delete adhan_voices"
+  ON public.adhan_voices FOR DELETE
+  TO authenticated, service_role
+  USING (auth.role() = 'service_role' OR public.is_admin());
+
+DROP POLICY IF EXISTS "Public can read adhan_voices_meta" ON public.adhan_voices_meta;
+CREATE POLICY "Public can read adhan_voices_meta"
+  ON public.adhan_voices_meta FOR SELECT
+  USING (true);
+
+-- Ensure ambient-backgrounds storage bucket also accepts audio files for Adhan uploads
+UPDATE storage.buckets
+SET allowed_mime_types = ARRAY[
+  'video/mp4', 'video/webm',
+  'image/jpeg', 'image/png', 'image/webp',
+  'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/x-m4a', 'audio/wav', 'audio/ogg'
+]
+WHERE id = 'ambient-backgrounds';
+
+DO $$
+BEGIN
+  ALTER TABLE public.adhan_voices REPLICA IDENTITY FULL;
+  ALTER TABLE public.adhan_voices_meta REPLICA IDENTITY FULL;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'adhan_voices'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.adhan_voices;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'adhan_voices_meta'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.adhan_voices_meta;
+  END IF;
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
 -- SECTION 7: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
 -- ------------------------------------------------------------------------------
 -- UPDATE public.profiles

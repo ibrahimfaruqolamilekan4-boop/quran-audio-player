@@ -7,6 +7,9 @@ import {
   Bell,
   BellOff,
   Volume2,
+  VolumeX,
+  Play,
+  Square,
   ChevronRight,
   Sparkles,
   Search,
@@ -31,6 +34,7 @@ import {
   CALCULATION_METHODS,
   DEFAULT_PRAYER_SETTINGS,
   PrayerSettings,
+  PrayerAdhanMode,
   calculatePrayerTimes,
   formatPrayerTime,
   getHijriDate,
@@ -44,6 +48,16 @@ import {
   getTimezoneOffsetInfo,
   type CityPreset,
 } from '../lib/location';
+import {
+  fetchActiveAdhanVoices,
+  subscribeToAdhanVoices,
+  subscribeToAdhanPlaybackState,
+  getAdhanPlaybackState,
+  playAdhanPreview,
+  stopAdhanPlayback,
+  type AdhanVoiceRow,
+} from '../lib/adhanAudio';
+import { notifyPrayerSettingsUpdated } from '../components/AdhanSchedulerOverlay';
 
 const PRAYER_NAMES = [
   { key: 'fajr', english: 'Fajr', arabic: 'الفجر', description: 'Dawn to Sunrise', icon: Sunrise },
@@ -73,7 +87,25 @@ export function PrayerTimesView() {
   const [settings, setSettings] = useState<PrayerSettings>(() => {
     try {
       const saved = localStorage.getItem('nooraya_prayer_settings');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_PRAYER_SETTINGS,
+          ...parsed,
+          adjustments: {
+            ...DEFAULT_PRAYER_SETTINGS.adjustments,
+            ...(parsed.adjustments || {}),
+          },
+          prayerReminders: {
+            ...DEFAULT_PRAYER_SETTINGS.prayerReminders,
+            ...(parsed.prayerReminders || {}),
+          },
+          prayerAdhanModes: {
+            ...DEFAULT_PRAYER_SETTINGS.prayerAdhanModes,
+            ...(parsed.prayerAdhanModes || {}),
+          },
+        };
+      }
     } catch {
       // Ignored
     }
@@ -87,6 +119,31 @@ export function PrayerTimesView() {
   const [searchCityQuery, setSearchCityQuery] = useState('');
   const [filteredCities, setFilteredCities] = useState<CityPreset[]>(() => searchCities(''));
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [adhanVoices, setAdhanVoices] = useState<AdhanVoiceRow[]>([]);
+  const [adhanPlayback, setAdhanPlayback] = useState(getAdhanPlaybackState);
+
+  // Subscribe to Admin-managed Adhan voices via Supabase Realtime
+  useEffect(() => {
+    fetchActiveAdhanVoices().then((list) => {
+      setAdhanVoices(list);
+      // Reconcile default voice if current selection doesn't exist
+      const defaultRow = list.find((v) => v.is_default) || list[0];
+      if (defaultRow) {
+        setSettings((prev) => {
+          if (prev.activeAdhanVoiceId && list.some((v) => v.id === prev.activeAdhanVoiceId)) {
+            return prev;
+          }
+          return { ...prev, activeAdhanVoiceId: defaultRow.id };
+        });
+      }
+    }).catch(() => {});
+    return subscribeToAdhanVoices(setAdhanVoices);
+  }, []);
+
+  // Subscribe to Adhan playback state for Stop/Silence controls
+  useEffect(() => {
+    return subscribeToAdhanPlaybackState(setAdhanPlayback);
+  }, []);
 
   // Auto-adapt calculation method when user country changes if user hasn't explicitly locked one
   const recommendedMethod = useMemo(() => {
@@ -120,10 +177,11 @@ export function PrayerTimesView() {
     };
   }, [searchCityQuery, searchCities, searchCitiesGlobal]);
 
-  // Keep settings synced to localStorage
+  // Keep settings synced to localStorage and notify the global Adhan scheduler
   useEffect(() => {
     try {
       localStorage.setItem('nooraya_prayer_settings', JSON.stringify(settings));
+      notifyPrayerSettingsUpdated();
     } catch {
       // Ignored
     }
@@ -352,6 +410,29 @@ export function PrayerTimesView() {
       },
     }));
   };
+
+  const handlePrayerAdhanModeChange = (prayerKey: string, mode: PrayerAdhanMode) => {
+    setSettings((s) => ({
+      ...s,
+      prayerReminders: {
+        ...s.prayerReminders,
+        [prayerKey]: mode !== 'silent',
+      },
+      prayerAdhanModes: {
+        ...(s.prayerAdhanModes || DEFAULT_PRAYER_SETTINGS.prayerAdhanModes),
+        [prayerKey]: mode,
+      },
+    }));
+  };
+
+  const selectedMuezzin = useMemo(() => {
+    return (
+      adhanVoices.find((v) => v.id === settings.activeAdhanVoiceId) ||
+      adhanVoices.find((v) => v.is_default) ||
+      adhanVoices[0] ||
+      null
+    );
+  }, [adhanVoices, settings.activeAdhanVoiceId]);
 
   const nextPrayerMeta = PRAYER_NAMES.find((p) => p.key === nextPrayerKey);
 
@@ -874,10 +955,219 @@ export function PrayerTimesView() {
                 ) : (
                   <span className="text-[10px] font-medium text-emerald-300/60">Upcoming</span>
                 )}
+
+                {/* Per-Prayer Adhan Mode Quick Selector */}
+                <div className="mt-3 pt-2.5 border-t border-emerald-900/50 flex items-center justify-between gap-1">
+                  <span className="text-[10px] text-emerald-400/70 flex items-center gap-1">
+                    {(settings.prayerAdhanModes?.[prayer.key] || (prayer.key === 'sunrise' ? 'silent' : 'full')) === 'silent' ? (
+                      <BellOff size={11} className="text-slate-500" />
+                    ) : (
+                      <Volume2 size={11} className="text-amber-400" />
+                    )}
+                    <span>Adhan</span>
+                  </span>
+                  <select
+                    aria-label={`${prayer.english} Adhan Mode`}
+                    value={settings.prayerAdhanModes?.[prayer.key] || (prayer.key === 'sunrise' ? 'silent' : 'full')}
+                    onChange={(e) => handlePrayerAdhanModeChange(prayer.key, e.target.value as PrayerAdhanMode)}
+                    className="bg-[#020B07] border border-emerald-900/80 rounded-lg px-1.5 py-1 text-[10px] font-semibold text-emerald-200 focus:outline-none focus:border-emerald-400 cursor-pointer"
+                  >
+                    <option value="full">Full Adhan</option>
+                    <option value="takbir">Short Takbir</option>
+                    <option value="chime">Gentle Chime</option>
+                    <option value="silent">Silent</option>
+                  </select>
+                </div>
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* Phase 2: Adhan Audio & Muezzin Sanctuary Card */}
+      <div className="bg-gradient-to-br from-[#061A12] via-[#04140E] to-[#020B07] border border-emerald-500/30 rounded-3xl p-6 lg:p-7 shadow-xl space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-emerald-900/70 pb-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300 shrink-0">
+              <Volume2 size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base font-bold text-white tracking-tight">
+                  Adhan Audio & Muezzin Sanctuary
+                </h3>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  Auto-Ducks Quran & Ambient Audio
+                </span>
+              </div>
+              <p className="text-xs text-emerald-200/70 mt-1">
+                Official muezzins of <strong className="text-white">Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)</strong> &{' '}
+                <strong className="text-white">Sheikh Mishary Rashid Alafasy</strong>. When the app is open, a 1-second drift-corrected scheduler plays your chosen Adhan, pauses Quran/ambient audio, and resumes afterward.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {adhanPlayback.isPlaying && (
+              <button
+                type="button"
+                onClick={() => stopAdhanPlayback()}
+                className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-red-950/50 cursor-pointer"
+              >
+                <VolumeX size={14} />
+                <span>Stop / Silence Adhan</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setSettings((s) => ({ ...s, notificationsEnabled: !s.notificationsEnabled }))}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                settings.notificationsEnabled
+                  ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/50'
+                  : 'bg-slate-900 text-slate-400 border-slate-800'
+              }`}
+            >
+              {settings.notificationsEnabled ? <Bell size={14} className="text-emerald-400" /> : <BellOff size={14} />}
+              <span>{settings.notificationsEnabled ? 'In-App Adhan Enabled' : 'In-App Adhan Muted'}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          {/* Muezzin Selector */}
+          <div className="lg:col-span-7 space-y-3">
+            <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider block">
+              Select Muezzin Voice ({adhanVoices.length} Available)
+            </label>
+            <select
+              value={selectedMuezzin?.id || ''}
+              onChange={(e) => setSettings((s) => ({ ...s, activeAdhanVoiceId: e.target.value }))}
+              className="w-full bg-[#020B07] border border-emerald-800/80 rounded-2xl px-4 py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-400"
+            >
+              {adhanVoices.map((v) => {
+                const hasAudio = Boolean(v.audio_url || v.fajr_audio_url);
+                return (
+                  <option key={v.id} value={v.id}>
+                    {v.muezzin_name_en} {v.muezzin_name_ar ? `(${v.muezzin_name_ar})` : ''} —{' '}
+                    {hasAudio ? '✓ Audio Ready' : 'Upload When Licensed (Sanctuary Tone Active)'}
+                  </option>
+                );
+              })}
+            </select>
+
+            {selectedMuezzin && (
+              <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>{selectedMuezzin.muezzin_name_en}</span>
+                      {selectedMuezzin.muezzin_name_ar && (
+                        <span className="text-amber-300 font-serif">{selectedMuezzin.muezzin_name_ar}</span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-emerald-300/70">
+                      {selectedMuezzin.title_en} • {selectedMuezzin.mosque_en}
+                    </div>
+                  </div>
+                  {selectedMuezzin.audio_url || selectedMuezzin.fajr_audio_url ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      Licensed Audio Uploaded
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      Slot Ready — Upload When Licensed
+                    </span>
+                  )}
+                </div>
+                {selectedMuezzin.license_notes && (
+                  <p className="text-[11px] text-emerald-200/60 leading-relaxed">
+                    {selectedMuezzin.license_notes}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Preview & Fajr Options */}
+          <div className="lg:col-span-5 space-y-3">
+            <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider block">
+              Preview & Fajr Adhan Settings
+            </label>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (adhanPlayback.isPlaying) {
+                    stopAdhanPlayback();
+                  } else {
+                    void playAdhanPreview({ voice: selectedMuezzin || undefined, variant: 'standard' });
+                  }
+                }}
+                className="px-3.5 py-2.5 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+              >
+                {adhanPlayback.isPlaying ? (
+                  <>
+                    <Square size={13} className="text-red-400 fill-red-400" />
+                    <span>Stop Preview</span>
+                  </>
+                ) : (
+                  <>
+                    <Play size={13} className="text-emerald-400 fill-emerald-400" />
+                    <span>Preview Adhan</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void playAdhanPreview({ voice: selectedMuezzin || undefined, variant: 'fajr' })}
+                className="px-3.5 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Sunrise size={13} />
+                <span>Preview Fajr</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void playAdhanPreview({ voice: selectedMuezzin || undefined, variant: 'takbir' })}
+                className="px-3.5 py-2 rounded-xl bg-[#020B07] hover:bg-emerald-950/70 border border-emerald-900/80 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Play size={12} className="text-teal-400" />
+                <span>Short Takbir</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void playAdhanPreview({ variant: 'chime' })}
+                className="px-3.5 py-2 rounded-xl bg-[#020B07] hover:bg-emerald-950/70 border border-emerald-900/80 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles size={12} className="text-amber-400" />
+                <span>Gentle Chime</span>
+              </button>
+            </div>
+
+            {/* Separate Fajr Adhan Toggle */}
+            <label className="flex items-center justify-between bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-3.5 cursor-pointer">
+              <div className="pr-3">
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Sunrise size={13} className="text-amber-400" />
+                  <span>Use Fajr Adhan at Dawn</span>
+                </div>
+                <div className="text-[11px] text-emerald-300/60 mt-0.5">
+                  Includes &ldquo;As-salatu khayrun min an-nawm&rdquo; (الصلاة خير من النوم) when uploaded
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.useFajrAdhan !== false}
+                onChange={(e) => setSettings((s) => ({ ...s, useFajrAdhan: e.target.checked }))}
+                className="w-4 h-4 accent-emerald-500 rounded cursor-pointer shrink-0"
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Auxiliary Astronomical Times (Duha, Islamic Midnight, Tahajjud) */}
