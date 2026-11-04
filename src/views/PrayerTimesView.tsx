@@ -58,6 +58,7 @@ import {
   type AdhanVoiceRow,
 } from '../lib/adhanAudio';
 import { notifyPrayerSettingsUpdated } from '../components/AdhanSchedulerOverlay';
+import { PushNotificationsPanel } from '../components/PushNotificationsPanel';
 
 const PRAYER_NAMES = [
   { key: 'fajr', english: 'Fajr', arabic: 'الفجر', description: 'Dawn to Sunrise', icon: Sunrise },
@@ -1169,6 +1170,13 @@ export function PrayerTimesView() {
           </div>
         </div>
       </div>
+
+      {/* Phase 3: Closed-App Web Push Notifications + Test Notification + Diagnostics */}
+      <PushNotificationsPanel
+        location={location}
+        settings={settings}
+        onUpdateSettings={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+      />
 
       {/* Auxiliary Astronomical Times (Duha, Islamic Midnight, Tahajjud) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">

@@ -45,6 +45,7 @@ import publicBackgrounds from './backgrounds';
 import adminSupabaseBackgrounds from './admin/supabase-backgrounds';
 import publicAdhanVoices from './adhan-voices';
 import adminAdhanVoices from './admin/adhan-voices';
+import pushHandler from './push';
 import publicPlans from './plans';
 import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
@@ -87,6 +88,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
   [/^\/api\/admin\/adhan-voices$/, adminAdhanVoices],
+  [/^\/api\/push(\/.*)?$/, pushHandler],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

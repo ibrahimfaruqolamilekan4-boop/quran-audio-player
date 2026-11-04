@@ -28,6 +28,9 @@ import {
   getAdhanPlaybackState,
   notifyAdhanVoicesChanged,
 } from '../../lib/adhanAudio';
+import { PushNotificationsPanel } from '../../components/PushNotificationsPanel';
+import { DEFAULT_PRAYER_SETTINGS, type PrayerSettings } from '../../lib/prayer';
+import { getSavedLocation } from '../../lib/location';
 
 interface AdhanVoicesAdminProps {
   showToast: (message: string, type?: 'success' | 'error') => void;
@@ -38,6 +41,7 @@ export function AdhanVoicesAdmin({ showToast, askConfirm }: AdhanVoicesAdminProp
   const [voices, setVoices] = useState<AdhanVoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [adminPrayerSettings, setAdminPrayerSettings] = useState<PrayerSettings>(DEFAULT_PRAYER_SETTINGS);
   const [playback, setPlayback] = useState(getAdhanPlaybackState);
 
   // Add custom muezzin modal state
@@ -624,6 +628,16 @@ export function AdhanVoicesAdmin({ showToast, askConfirm }: AdhanVoicesAdminProp
             </div>
           );
         })}
+      </div>
+
+      {/* Phase 3 Admin Diagnostics & Closed-App Push Verification */}
+      <div className="pt-4">
+        <PushNotificationsPanel
+          location={getSavedLocation()}
+          settings={adminPrayerSettings}
+          onUpdateSettings={(patch) => setAdminPrayerSettings((prev) => ({ ...prev, ...patch }))}
+          isAdminView={true}
+        />
       </div>
     </section>
   );

@@ -118,6 +118,46 @@ export function AdhanSchedulerOverlay() {
     return subscribeToAdhanPlaybackState(setPlayback);
   }, []);
 
+  // Listen for Service Worker notification clicks and ?playAdhan=<prayerKey> URL triggers
+  useEffect(() => {
+    const triggerFromNotification = (prayerKeyRaw: string) => {
+      const key = prayerKeyRaw.toLowerCase();
+      const matched = SCHEDULED_PRAYERS.find((p) => p.key === key) || SCHEDULED_PRAYERS[0];
+      void startAdhanPlayback({
+        prayerKey: matched.key,
+        prayerNameEn: matched.english,
+        prayerNameAr: matched.arabic,
+        mode: 'full',
+        preferredVoiceId: settings.activeAdhanVoiceId,
+        useFajrAdhan: settings.useFajrAdhan !== false,
+        voices: voicesRef.current,
+      });
+    };
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const playAdhanParam = params.get('playAdhan');
+      if (playAdhanParam) {
+        triggerFromNotification(playAdhanParam);
+        params.delete('playAdhan');
+        const nextQuery = params.toString();
+        const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
+        window.history.replaceState({}, '', nextUrl);
+      }
+    } catch {}
+
+    const onSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NOORAYA_PUSH_NOTIFICATION_CLICK' && event.data?.prayerKey) {
+        triggerFromNotification(String(event.data.prayerKey));
+      }
+    };
+
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
+    }
+  }, [settings.activeAdhanVoiceId, settings.useFajrAdhan]);
+
   // Drift-corrected wall-clock scheduler: re-checks Date.now() every 1,000ms
   // (never relies on a long setTimeout that drifts when the device sleeps)
   useEffect(() => {
