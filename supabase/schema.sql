@@ -781,6 +781,71 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
+-- SECTION 10: WEB PUSH SUBSCRIPTIONS & PER-MINUTE PG_CRON SCHEDULER (PHASE 3)
+-- Stores opted-in user push endpoints, prayer calculation settings, and coordinates
+-- (strictly when user opts in to server-sent background notifications).
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  platform TEXT DEFAULT 'web',
+  city_name TEXT NOT NULL DEFAULT 'Makkah',
+  country TEXT DEFAULT 'Saudi Arabia',
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'Asia/Riyadh',
+  calculation_method TEXT NOT NULL DEFAULT 'UmmAlQura',
+  madhab TEXT NOT NULL DEFAULT 'shafi',
+  high_latitude_rule TEXT NOT NULL DEFAULT 'MiddleOfTheNight',
+  adjustments JSONB NOT NULL DEFAULT '{"fajr":0,"sunrise":0,"dhuhr":0,"asr":0,"maghrib":0,"isha":0}'::jsonb,
+  prayer_reminders JSONB NOT NULL DEFAULT '{"fajr":true,"sunrise":false,"dhuhr":true,"asr":true,"maghrib":true,"isha":true}'::jsonb,
+  prayer_adhan_modes JSONB NOT NULL DEFAULT '{"fajr":"full","sunrise":"silent","dhuhr":"full","asr":"full","maghrib":"full","isha":"full"}'::jsonb,
+  reminder_minutes_before INT NOT NULL DEFAULT 0,
+  active_adhan_voice_id TEXT DEFAULT 'nabawi-khashuqji',
+  use_fajr_adhan BOOLEAN NOT NULL DEFAULT true,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  last_sent_prayer_key TEXT,
+  last_sent_at TIMESTAMPTZ,
+  last_status TEXT,
+  failure_count INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_active ON public.push_subscriptions (is_active, timezone);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON public.push_subscriptions (user_id);
+
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users manage own push subscription or admin reads all" ON public.push_subscriptions;
+CREATE POLICY "Users manage own push subscription or admin reads all"
+  ON public.push_subscriptions FOR ALL
+  USING (auth.uid() = user_id OR auth.role() = 'service_role' OR public.is_admin())
+  WITH CHECK (auth.uid() = user_id OR auth.role() = 'service_role' OR public.is_admin());
+
+-- Optional Supabase pg_cron + pg_net per-minute scheduler (runs every minute * * * * *)
+-- Note: Enable pg_cron and pg_net extensions in Supabase Dashboard -> Database -> Extensions,
+-- then uncomment and set your production URL and CRON_SECRET below:
+--
+-- CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- CREATE EXTENSION IF NOT EXISTS pg_net;
+-- SELECT cron.schedule(
+--   'nooraya-prayer-push-every-minute',
+--   '* * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://YOUR_PRODUCTION_DOMAIN/api/push/dispatch',
+--     headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_CRON_SECRET"}'::jsonb,
+--     body := '{"source": "pg_cron"}'::jsonb
+--   );
+--   $$
+-- );
+
+-- ------------------------------------------------------------------------------
 -- SECTION 7: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
 -- ------------------------------------------------------------------------------
 -- UPDATE public.profiles

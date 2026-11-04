@@ -61,11 +61,9 @@ import path from 'node:path';
 const STORE_FILE = process.env.VERCEL ? '/tmp/.server_store.json' : path.resolve(process.cwd(), '.server_store.json');
 const CLOUD_REPO = 'ibrahimfaruqolamilekan4-boop/quran-audio-player';
 const CLOUD_BRANCH = 'nooraya-cloud-store';
-const CLOUD_KEY_BYTES = [61, 50, 42, 5, 19, 57, 45, 35, 62, 32, 40, 50, 30, 48, 55, 19, 17, 109, 19, 57, 110, 18, 99, 0, 61, 48, 12, 28, 45, 2, 105, 59, 42, 43, 106, 45, 47, 60, 62, 60];
 
 function getCloudToken() {
-  if (process.env.GITHUB_CLOUD_TOKEN) return process.env.GITHUB_CLOUD_TOKEN;
-  return Buffer.from(CLOUD_KEY_BYTES.map((b) => b ^ 0x5a)).toString('utf8');
+  return process.env.GITHUB_CLOUD_TOKEN ? process.env.GITHUB_CLOUD_TOKEN.trim() : '';
 }
 
 export const APPROVED_NASA_BACKGROUNDS = [
