@@ -338,6 +338,23 @@ export function resolveCalendarDateInTimezone(date: Date = new Date(), timezone?
 }
 
 /**
+ * Checks if the given Date falls within the Hijri month of Ramadan (month 9)
+ * in the target timezone according to the Umm al-Qura calendar.
+ */
+export function isRamadanInTimezone(date: Date = new Date(), timezone?: string): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat('en-TN-u-ca-islamic-umalqura', {
+      month: 'numeric',
+      ...(timezone ? { timeZone: timezone } : {}),
+    }).formatToParts(date);
+    const monthNum = Number(parts.find((p) => p.type === 'month')?.value);
+    return monthNum === 9;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Calculates primary prayer times and auxiliary Islamic astronomical times
  * with custom minute adjustments, high latitude support, and target timezone awareness.
  */
@@ -353,6 +370,9 @@ export function calculatePrayerTimes(
 ): ComputedPrayersWithAuxiliary {
   const coords = new Coordinates(latitude, longitude);
   const params = getCalculationParameters(method, madhab, highLatitudeRule);
+  if (method === 'UmmAlQura' && isRamadanInTimezone(date, timezone)) {
+    params.ishaInterval = 120;
+  }
   const calendarDate = resolveCalendarDateInTimezone(date, timezone);
   const pt = new PrayerTimes(coords, calendarDate, params);
 
