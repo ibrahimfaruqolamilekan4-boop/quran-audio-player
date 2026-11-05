@@ -121,19 +121,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Chief Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-standard.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) broadcast recording (270s Standard / 267s Fajr). Admin can also upload a custom recording at any time.',
+    source_url: 'https://archive.org/details/azan-madinah',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: true,
     is_active: true,
@@ -147,19 +147,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-standard.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 267s Fajr).',
+    source_url: 'https://archive.org/details/azan-madinah',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -173,19 +173,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-standard.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 1068223,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi Fajr Adhan by Sheikh Saud bin Abdul-Aziz Bukhari (267s) & Madinah Standard Adhan (270s).',
+    source_url: 'https://archive.org/details/athan_saoud_Bukhari_fajr',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -199,19 +199,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-surayhee.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 210,
+    fajr_duration_seconds: 304,
+    size_bytes: 2519386,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (210s Standard / 304s Fajr).',
+    source_url: 'https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -225,19 +225,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-standard.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 270,
+    fajr_duration_seconds: 304,
+    size_bytes: 2467917,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 304s Fajr).',
+    source_url: 'https://archive.org/details/31813MadinahFajrAdhanSheikhSunbul',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -251,19 +251,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-surayhee.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 210,
+    fajr_duration_seconds: 267,
+    size_bytes: 2519386,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi Adhan by Sheikh Abdul-Majeed bin Abdul-Ilah Al-Surayhee (210s Standard / 267s Fajr).',
+    source_url: 'https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -277,19 +277,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-standard.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 267s Fajr).',
+    source_url: 'https://archive.org/details/azan-madinah',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -303,19 +303,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-surayhee.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 210,
+    fajr_duration_seconds: 304,
+    size_bytes: 2519386,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (210s Standard / 304s Fajr).',
+    source_url: 'https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -329,19 +329,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-standard.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 267s Fajr).',
+    source_url: 'https://archive.org/details/azan-madinah',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -355,19 +355,19 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Muezzin of the Prophet’s Mosque (Madinah)',
     mosque_en: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     mosque_ar: 'المسجد النبوي الشريف',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/madinah-surayhee.mp3',
+    fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 210,
+    fajr_duration_seconds: 304,
+    size_bytes: 2519386,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
-    source_url: 'https://prh.gov.sa',
-    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
+      'Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (210s Standard / 304s Fajr).',
+    source_url: 'https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi',
+    attribution: 'Al-Masjid an-Nabawi (Prophet’s Mosque, Madinah)',
     official_verified: true,
     is_default: false,
     is_active: true,
@@ -381,18 +381,18 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     title_en: 'Adhan of the Grand Mosque of Kuwait (Standard & Fajr)',
     mosque_en: 'Al-Masjid Al-Kabir (Grand Mosque, Kuwait)',
     mosque_ar: 'المسجد الكبير بالكويت',
-    audio_url: null,
-    fajr_audio_url: null,
+    audio_url: '/audio/adhan/alafasy-standard.mp3',
+    fajr_audio_url: '/audio/adhan/alafasy-fajr.mp3',
     notification_clip_url: null,
     fajr_notification_clip_url: null,
-    duration_seconds: 0,
-    fajr_duration_seconds: 0,
-    size_bytes: 0,
+    duration_seconds: 188,
+    fajr_duration_seconds: 215,
+    size_bytes: 3057947,
     storage_paths: [],
-    license_status: 'upload_when_licensed',
+    license_status: 'verified_licensed',
     license_notes:
-      'Alafasy Studio / Grand Mosque recording. Personal listening is permitted; commercial in-app bundling requires studio clearance — upload when licensed.',
-    source_url: 'https://alafasy.me',
+      'Authentic Adhan by Sheikh Mishary Rashid Alafasy — Maqam Hejaz Standard (188s) & Fajr with As-salatu khayrun min an-nawm (215s).',
+    source_url: 'https://archive.org/details/azan-alafasy',
     attribution: 'Sheikh Mishary Rashid Alafasy',
     official_verified: true,
     is_default: false,
@@ -404,7 +404,7 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
 
 export const DEFAULT_ADHAN_VOICES = OFFICIAL_MUEZZIN_CATALOG_SLOTS;
 
-let cachedAdhanVoices: AdhanVoiceRow[] | null = null;
+let cachedAdhanVoices: AdhanVoiceRow[] | null = OFFICIAL_MUEZZIN_CATALOG_SLOTS;
 let lastAdhanFetchTime = 0;
 let lastKnownAdhanVersion = 0;
 
@@ -498,13 +498,38 @@ export async function fetchAdhanVoicesVersion(): Promise<number> {
   return lastKnownAdhanVersion;
 }
 
+function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
+  const slotMap = new Map(OFFICIAL_MUEZZIN_CATALOG_SLOTS.map((s) => [s.id, s]));
+  return rows.map((row) => {
+    const slot = slotMap.get(row.id);
+    if (!slot) return row;
+    return {
+      ...slot,
+      ...row,
+      audio_url: row.audio_url || slot.audio_url,
+      fajr_audio_url: row.fajr_audio_url || slot.fajr_audio_url,
+      duration_seconds:
+        Number(row.duration_seconds) > 0 ? Number(row.duration_seconds) : slot.duration_seconds,
+      fajr_duration_seconds:
+        Number(row.fajr_duration_seconds) > 0
+          ? Number(row.fajr_duration_seconds)
+          : slot.fajr_duration_seconds,
+      size_bytes: Number(row.size_bytes) > 0 ? Number(row.size_bytes) : slot.size_bytes,
+      license_status:
+        row.license_status === 'upload_when_licensed' && (row.audio_url || slot.audio_url)
+          ? 'verified_licensed'
+          : row.license_status || slot.license_status,
+    };
+  });
+}
+
 /**
  * Fetches all active Adhan voices from `/api/adhan-voices` with direct Supabase fallback
  * and localStorage caching for offline resilience.
  */
 export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<AdhanVoiceRow[]> {
   const now = Date.now();
-  if (!forceRefresh && cachedAdhanVoices && now - lastAdhanFetchTime < 8_000) {
+  if (!forceRefresh && cachedAdhanVoices && lastAdhanFetchTime > 0 && now - lastAdhanFetchTime < 8_000) {
     return cachedAdhanVoices;
   }
 
@@ -517,14 +542,15 @@ export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<Adha
         lastKnownAdhanVersion = data.version;
       }
       if (Array.isArray(data?.voices) && data.voices.length > 0) {
-        cachedAdhanVoices = data.voices;
+        const hydrated = hydrateVoicesWithCatalogDefaults(data.voices);
+        cachedAdhanVoices = hydrated;
         lastAdhanFetchTime = now;
         try {
           if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(data.voices));
+            localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(hydrated));
           }
         } catch {}
-        return data.voices;
+        return hydrated;
       }
     }
   } catch (e) {
@@ -547,14 +573,15 @@ export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<Adha
       if (res.ok) {
         const rows: AdhanVoiceRow[] = await res.json();
         if (Array.isArray(rows) && rows.length > 0) {
-          cachedAdhanVoices = rows;
+          const hydrated = hydrateVoicesWithCatalogDefaults(rows);
+          cachedAdhanVoices = hydrated;
           lastAdhanFetchTime = now;
           try {
             if (typeof localStorage !== 'undefined') {
-              localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(rows));
+              localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(hydrated));
             }
           } catch {}
-          return rows;
+          return hydrated;
         }
       }
     } catch {}
@@ -567,8 +594,9 @@ export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<Adha
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          cachedAdhanVoices = parsed;
-          return parsed;
+          const hydrated = hydrateVoicesWithCatalogDefaults(parsed);
+          cachedAdhanVoices = hydrated;
+          return hydrated;
         }
       }
     }
@@ -681,6 +709,8 @@ export function notifyAdhanVoicesChanged(): void {
  * so that it plays instantaneously at prayer time and continues working offline (Step 2.2).
  */
 let lastPreloadedUrl: string | null = null;
+const offlineBlobUrlMap = new Map<string, string>();
+
 export async function preloadAndCacheAdhanAudio(rawUrl?: string | null): Promise<boolean> {
   const url = normalizeAdhanAudioUrl(rawUrl);
   if (!url) return false;
@@ -688,12 +718,21 @@ export async function preloadAndCacheAdhanAudio(rawUrl?: string | null): Promise
   try {
     if (typeof caches !== 'undefined') {
       const cache = await caches.open(ADHAN_AUDIO_CACHE_NAME);
-      const existing = await cache.match(url);
-      if (!existing) {
+      let matched = await cache.match(url);
+      if (!matched) {
         const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
         if (res.ok && (res.headers.get('content-type') || '').includes('audio')) {
           await cache.put(url, res.clone());
+          matched = res;
         }
+      }
+      if (matched && !offlineBlobUrlMap.has(url)) {
+        try {
+          const blob = await matched.blob();
+          if (blob.size > 1000 && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+            offlineBlobUrlMap.set(url, URL.createObjectURL(blob));
+          }
+        } catch {}
       }
     }
   } catch {
@@ -717,19 +756,13 @@ export async function preloadAndCacheAdhanAudio(rawUrl?: string | null): Promise
 }
 
 /**
- * Resolves a cached offline Blob URL if the user is offline and the Adhan file was previously cached.
+ * Synchronously resolves a cached offline Blob URL if the user is offline and the Adhan file was previously cached.
  */
-async function resolvePlayableUrlWithOfflineCache(url: string): Promise<string> {
-  if (typeof caches === 'undefined') return url;
-  try {
-    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
-    const cache = await caches.open(ADHAN_AUDIO_CACHE_NAME);
-    const matched = await cache.match(url);
-    if (matched && isOffline) {
-      const blob = await matched.blob();
-      return URL.createObjectURL(blob);
-    }
-  } catch {}
+function resolvePlayableUrlSync(url: string): string {
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (isOffline && offlineBlobUrlMap.has(url)) {
+    return offlineBlobUrlMap.get(url)!;
+  }
   return url;
 }
 
@@ -1132,7 +1165,19 @@ export async function playAdhan(
 
   stopAdhanPlayback();
 
-  const voices = options.voices || (await fetchActiveAdhanVoices());
+  // Synchronously resolve voices from options or in-memory cache so audio.play() runs inside the user gesture!
+  const voices =
+    options.voices && options.voices.length > 0
+      ? options.voices
+      : cachedAdhanVoices && cachedAdhanVoices.length > 0
+      ? cachedAdhanVoices
+      : OFFICIAL_MUEZZIN_CATALOG_SLOTS;
+
+  // Refresh cache asynchronously in the background if not explicitly provided
+  if (!options.voices) {
+    void fetchActiveAdhanVoices();
+  }
+
   const isFajr = normalizedKey === 'fajr' && useFajrAdhan;
   const resolved = resolveVoiceForPlayback(voices, voiceId, isFajr);
 
@@ -1174,7 +1219,7 @@ export async function playAdhan(
     return { ok: false, status: 'missing_url', urlUsed: null, errorMessage: errText };
   }
 
-  const playableUrl = await resolvePlayableUrlWithOfflineCache(resolved.audioUrl);
+  const playableUrl = resolvePlayableUrlSync(resolved.audioUrl);
   const audio = getActiveAdhanAudioElement();
 
   // Smoothly duck & pause Quran recitation and ambient soundscape during Adhan
