@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   BellRing,
   BellOff,
@@ -15,6 +15,10 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
+  Volume2,
+  Play,
+  Square,
+  Timer,
 } from 'lucide-react';
 import type { UserLocation } from '../lib/location';
 import type { PrayerSettings } from '../lib/prayer';
@@ -25,10 +29,20 @@ import {
   fetchPushDiagnostics,
   type PushDiagnosticsReport,
 } from '../lib/pushNotifications';
+import {
+  playAdhan,
+  stopAdhanPlayback,
+  subscribeToAdhanPlaybackState,
+  getAdhanPlaybackState,
+  getAdhanDiagnosticLogs,
+  type AdhanVoiceRow,
+  type AdhanDiagnosticEntry,
+} from '../lib/adhanAudio';
 
 interface PushNotificationsPanelProps {
   location: UserLocation;
   settings: PrayerSettings;
+  voices?: AdhanVoiceRow[];
   onUpdateSettings?: (patch: Partial<PrayerSettings>) => void;
   isAdminView?: boolean;
 }
@@ -36,6 +50,7 @@ interface PushNotificationsPanelProps {
 export function PushNotificationsPanel({
   location,
   settings,
+  voices,
   onUpdateSettings,
   isAdminView = false,
 }: PushNotificationsPanelProps) {
@@ -43,12 +58,18 @@ export function PushNotificationsPanel({
   const [loadingDiag, setLoadingDiag] = useState(true);
   const [subscribing, setSubscribing] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const countdownTimerRef = useRef<number | null>(null);
   const [dispatchingCron, setDispatchingCron] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     text: string;
     type: 'success' | 'error' | 'info';
   } | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(isAdminView);
+  const [showDiagnostics, setShowDiagnostics] = useState(true);
+  const [adhanState, setAdhanState] = useState(getAdhanPlaybackState());
+  const [latestAdhanLog, setLatestAdhanLog] = useState<AdhanDiagnosticEntry | null>(
+    () => getAdhanDiagnosticLogs()[0] || null
+  );
 
   const loadDiagnostics = useCallback(async () => {
     setLoadingDiag(true);
@@ -65,6 +86,22 @@ export function PushNotificationsPanel({
   useEffect(() => {
     void loadDiagnostics();
   }, [loadDiagnostics]);
+
+  useEffect(() => {
+    const unsub = subscribeToAdhanPlaybackState((st) => {
+      setAdhanState(st);
+      setLatestAdhanLog(st.lastDiagnostic || getAdhanDiagnosticLogs()[0] || null);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current !== null) {
+        window.clearInterval(countdownTimerRef.current);
+      }
+    };
+  }, []);
 
   // Keep server subscription in sync when user is already subscribed and changes location or settings
   useEffect(() => {
@@ -134,6 +171,51 @@ export function PushNotificationsPanel({
     }
   };
 
+  const handleSendTestIn10Seconds = () => {
+    if (countdownSeconds !== null) {
+      if (countdownTimerRef.current !== null) {
+        window.clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+      setCountdownSeconds(null);
+      setStatusMessage({
+        text: '10-second delayed notification test cancelled.',
+        type: 'info',
+      });
+      return;
+    }
+
+    setStatusMessage({
+      text: '10-second countdown started — lock your screen or switch apps now to test the closed-app notification path.',
+      type: 'info',
+    });
+    let remaining = 10;
+    setCountdownSeconds(remaining);
+
+    countdownTimerRef.current = window.setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        setCountdownSeconds(remaining);
+      } else {
+        if (countdownTimerRef.current !== null) {
+          window.clearInterval(countdownTimerRef.current);
+          countdownTimerRef.current = null;
+        }
+        setCountdownSeconds(null);
+        void handleSendTest();
+      }
+    }, 1000);
+  };
+
+  const handleTestAdhanNow = async (prayer: 'dhuhr' | 'fajr') => {
+    await playAdhan(settings.activeAdhanVoiceId, prayer, {
+      mode: 'full',
+      trigger: 'test_button',
+      voices,
+    });
+    setLatestAdhanLog(getAdhanDiagnosticLogs()[0] || null);
+  };
+
   const handleRunDispatchNow = async () => {
     setDispatchingCron(true);
     setStatusMessage(null);
@@ -170,7 +252,7 @@ export function PushNotificationsPanel({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-base font-bold text-white tracking-tight">
-                Notifications When the App is Closed (Web Push)
+                Notifications & Diagnostics (Open App + Closed App)
               </h3>
               {diag?.pushSubscribed ? (
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
@@ -183,7 +265,7 @@ export function PushNotificationsPanel({
               )}
             </div>
             <p className="text-xs text-emerald-200/70 mt-1 max-w-2xl leading-relaxed">
-              Receive prayer alerts for <strong className="text-white">{location.cityName}</strong> even when Nooraya is closed or your phone screen is locked. Tapping a notification opens Nooraya and plays the Adhan immediately.
+              Receive prayer alerts for <strong className="text-white">{location.cityName}</strong> even when Nooraya is closed or your phone screen is locked. Note: Web Push notifications play your device&apos;s standard system alert sound when closed; tapping the notification opens the full-screen <strong className="text-white">&ldquo;It is time for Prayer&rdquo;</strong> screen to play the real Muezzin Adhan.
             </p>
           </div>
         </div>
@@ -216,12 +298,150 @@ export function PushNotificationsPanel({
             type="button"
             onClick={handleSendTest}
             disabled={testingPush}
-            className="px-4 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+            className="px-3.5 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
           >
             <Send size={13} />
-            <span>{testingPush ? 'Sending...' : 'Send Test Notification'}</span>
+            <span>{testingPush ? 'Sending...' : 'Send Test Now'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSendTestIn10Seconds}
+            disabled={testingPush}
+            className="px-3.5 py-2.5 rounded-2xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/35 text-teal-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+          >
+            <Timer size={13} />
+            <span>
+              {countdownSeconds !== null
+                ? `Sending in ${countdownSeconds}s (Cancel)`
+                : 'Test Notification in 10s'}
+            </span>
           </button>
         </div>
+      </div>
+
+      {/* Device Delivery Path Status Line (Step 2.7 Requirement) */}
+      <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-2">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
+          <Volume2 size={14} className="text-emerald-400" />
+          <span>Active Delivery Path on This Device</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-emerald-400/70">
+              1. When App is Open / Foreground
+            </div>
+            <div className="font-semibold text-white mt-0.5">
+              Single HTML5 Audio Engine (Real Muezzin Audio File Only — Zero Synthetic Tone)
+            </div>
+            <div className="text-[11px] text-emerald-200/70 mt-0.5">
+              Ducks Quran &amp; ambient audio, preloads &amp; caches Adhan 15 min before prayer, and restores previous playback when finished.
+            </div>
+          </div>
+
+          <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-amber-400/80">
+              2. When App is Closed / Screen Locked
+            </div>
+            <div className="font-semibold text-white mt-0.5">
+              {diag?.pushSubscribed
+                ? 'VAPID Web Push Active (OS Default Notification Sound; Tap Plays Full Adhan)'
+                : 'Web Push Off (Enable Above to Receive Closed-App Prayer Alerts)'}
+            </div>
+            <div className="text-[11px] text-emerald-200/70 mt-0.5">
+              Web browsers do not support custom MP3/WAV notification sounds when closed; tapping the notification opens the full-screen Adhan player.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Step 2.7: Test Adhan Now + Live Audio Inspector Readout */}
+      <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold text-white flex items-center gap-2">
+              <Play size={13} className="text-emerald-400" />
+              <span>Test Adhan Audio Engine Now (Real File Verification)</span>
+            </div>
+            <div className="text-[11px] text-emerald-300/70 mt-0.5">
+              Plays the selected voice&apos;s real audio file (never a synthetic oscillator) and reports the exact URL, duration, readyState, and playback result below.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {adhanState.isPlaying ? (
+              <button
+                type="button"
+                onClick={() => stopAdhanPlayback()}
+                className="px-3.5 py-2 rounded-xl bg-red-500 hover:bg-red-400 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Square size={12} className="fill-white" />
+                <span>Stop Adhan</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleTestAdhanNow('dhuhr')}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play size={12} className="text-emerald-400 fill-emerald-400" />
+                  <span>Test Adhan Now</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleTestAdhanNow('fajr')}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play size={12} className="text-amber-400 fill-amber-400" />
+                  <span>Test Fajr Adhan Now</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {latestAdhanLog && (
+          <div className="bg-[#04140D] border border-emerald-950 rounded-xl p-3 text-[11px] font-mono space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-emerald-300">
+              <span>
+                Voice: <strong className="text-white">{latestAdhanLog.muezzinName || 'Default'}</strong> ({latestAdhanLog.voiceId || '—'}) • Prayer:{' '}
+                <strong className="text-amber-300 uppercase">{latestAdhanLog.prayerKey}</strong>
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  latestAdhanLog.playResult === 'playing'
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : latestAdhanLog.playResult === 'autoplay_blocked'
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-red-500/20 text-red-300'
+                }`}
+              >
+                {latestAdhanLog.playResult}
+              </span>
+            </div>
+            <div className="text-emerald-200/80 break-all">
+              URL: <span className="text-white">{latestAdhanLog.urlUsed || 'null (no audio file uploaded yet)'}</span>
+            </div>
+            <div className="text-emerald-300/70 flex flex-wrap gap-x-4 gap-y-1">
+              <span>
+                Duration:{' '}
+                <strong className="text-white">
+                  {latestAdhanLog.durationSeconds ? `${latestAdhanLog.durationSeconds}s` : '—'}
+                </strong>
+              </span>
+              <span>
+                readyState: <strong className="text-white">{latestAdhanLog.readyState}</strong>
+              </span>
+              <span>
+                Path: <strong className="text-white">{latestAdhanLog.pathTaken}</strong>
+              </span>
+            </div>
+            {latestAdhanLog.audioError && (
+              <div className="text-red-300 pt-0.5">Error: {latestAdhanLog.audioError}</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* iOS Safari "Add to Home Screen First" Guide */}
@@ -307,7 +527,7 @@ export function PushNotificationsPanel({
             className="text-xs font-bold text-emerald-300 hover:text-white flex items-center gap-2 cursor-pointer"
           >
             <Activity size={14} className="text-teal-400" />
-            <span>Push & Scheduler Diagnostics (User + Admin)</span>
+            <span>Push &amp; Scheduler Diagnostics (User + Admin)</span>
             {showDiagnostics ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
 

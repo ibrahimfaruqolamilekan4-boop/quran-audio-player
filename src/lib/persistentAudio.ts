@@ -17,9 +17,38 @@ let quranAudioInstance: HTMLAudioElement | null = null;
 let ambientAudioInstance: HTMLAudioElement | null = null;
 let adhanAudioInstance: HTMLAudioElement | null = null;
 
+function createSafeAudioElement(): HTMLAudioElement {
+  if (typeof Audio !== 'undefined') {
+    return new Audio();
+  }
+  const stub: any = {
+    src: '',
+    preload: 'auto',
+    loop: false,
+    volume: 1,
+    muted: false,
+    paused: true,
+    currentTime: 0,
+    duration: 0,
+    readyState: 4,
+    error: null,
+    onended: null,
+    onerror: null,
+    setAttribute() {},
+    load() {},
+    async play() {
+      this.paused = false;
+    },
+    pause() {
+      this.paused = true;
+    },
+  };
+  return stub as HTMLAudioElement;
+}
+
 export function getQuranAudio(): HTMLAudioElement {
   if (!quranAudioInstance) {
-    quranAudioInstance = new Audio();
+    quranAudioInstance = createSafeAudioElement();
     quranAudioInstance.preload = 'auto';
     quranAudioInstance.setAttribute('playsinline', 'true');
     quranAudioInstance.setAttribute('webkit-playsinline', 'true');
@@ -30,7 +59,7 @@ export function getQuranAudio(): HTMLAudioElement {
 
 export function getAmbientAudio(): HTMLAudioElement {
   if (!ambientAudioInstance) {
-    ambientAudioInstance = new Audio();
+    ambientAudioInstance = createSafeAudioElement();
     ambientAudioInstance.loop = true;
     ambientAudioInstance.preload = 'auto';
     ambientAudioInstance.setAttribute('playsinline', 'true');
@@ -42,7 +71,7 @@ export function getAmbientAudio(): HTMLAudioElement {
 
 export function getAdhanAudio(): HTMLAudioElement {
   if (!adhanAudioInstance) {
-    adhanAudioInstance = new Audio();
+    adhanAudioInstance = createSafeAudioElement();
     adhanAudioInstance.preload = 'auto';
     adhanAudioInstance.setAttribute('playsinline', 'true');
     adhanAudioInstance.setAttribute('webkit-playsinline', 'true');

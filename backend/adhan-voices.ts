@@ -1,5 +1,5 @@
 // GET /api/adhan-voices -> { voices: AdhanVoiceRow[], version: number, updated_at: string }
-import { type Handler, q, sendJson } from './_lib.mjs';
+import { type Handler, q, sendJson, serverStore } from './_lib.mjs';
 import { getSupabaseAdmin } from './lib/supabase-server';
 
 export interface AdhanVoiceSeed {
@@ -291,6 +291,8 @@ export async function ensureAdhanVoicesTable() {
       mosque_ar             TEXT DEFAULT 'المسجد النبوي الشريف',
       audio_url             TEXT,
       fajr_audio_url        TEXT,
+      notification_clip_url TEXT,
+      fajr_notification_clip_url TEXT,
       duration_seconds      NUMERIC DEFAULT 0,
       fajr_duration_seconds NUMERIC DEFAULT 0,
       size_bytes            BIGINT DEFAULT 0,
@@ -298,9 +300,11 @@ export async function ensureAdhanVoicesTable() {
       license_status        TEXT NOT NULL DEFAULT 'upload_when_licensed',
       license_notes         TEXT,
       source_url            TEXT,
+      attribution           TEXT,
       official_verified     BOOLEAN DEFAULT true,
       is_default            BOOLEAN DEFAULT false,
       is_active             BOOLEAN DEFAULT true,
+      is_premium            BOOLEAN DEFAULT false,
       sort_order            INT DEFAULT 0,
       created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -439,10 +443,7 @@ export async function getActiveAdhanVoicesAndVersion(includeInactive = false): P
   // 3. Also query Postgres / persistent serverStore
   try {
     const result = await q(`
-      SELECT id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
-             audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
-             size_bytes, storage_paths, license_status, license_notes, source_url,
-             official_verified, is_default, is_active, sort_order, created_at, updated_at
+      SELECT *
       FROM adhan_voices
       ORDER BY sort_order ASC, created_at DESC
     `);
@@ -452,7 +453,6 @@ export async function getActiveAdhanVoicesAndVersion(includeInactive = false): P
         byId.delete(row.id);
       } else if (!hiddenIds.has(row.id)) {
         const existing = byId.get(row.id);
-        // Prefer row that has uploaded audio_url or newer updated_at
         if (!existing || row.audio_url || row.fajr_audio_url || !existing.audio_url) {
           byId.set(row.id, { ...existing, ...row });
         }
@@ -460,6 +460,20 @@ export async function getActiveAdhanVoicesAndVersion(includeInactive = false): P
     }
   } catch (e) {
     console.warn('Local/Postgres adhan_voices query notice:', e);
+  }
+
+  // 3b. Merge serverStore.adhanVoices fallback
+  if (Array.isArray(serverStore.adhanVoices)) {
+    for (const row of serverStore.adhanVoices) {
+      if (!row?.id) continue;
+      if (!includeInactive && row.is_active === false) {
+        hiddenIds.add(row.id);
+        byId.delete(row.id);
+      } else if (!hiddenIds.has(row.id)) {
+        const existing = byId.get(row.id);
+        byId.set(row.id, { ...existing, ...row });
+      }
+    }
   }
 
   const voices = Array.from(byId.values()).sort((a, b) => {

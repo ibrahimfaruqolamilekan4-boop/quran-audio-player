@@ -1,6 +1,6 @@
 // Admin API for Adhan voices management (Supabase + Postgres/ServerStore + Realtime version counter)
 // Supports: list all (including inactive), add, update, delete, reorder, set-default, signed-upload-url, upload, seed-official-slots
-import { type Handler, q, requireAdmin, sendJson } from '../_lib.mjs';
+import { type Handler, q, requireAdmin, sendJson, serverStore, saveStore } from '../_lib.mjs';
 import { readJsonLarge } from '../media-lib.mjs';
 import {
   ensureAdhanVoicesTable,
@@ -38,6 +38,8 @@ const handler: Handler = async (req, res) => {
         const mosque_ar = body.mosque_ar !== undefined ? (body.mosque_ar ? String(body.mosque_ar).trim() : null) : undefined;
         const audio_url = body.audio_url !== undefined ? (body.audio_url ? String(body.audio_url).trim() : null) : undefined;
         const fajr_audio_url = body.fajr_audio_url !== undefined ? (body.fajr_audio_url ? String(body.fajr_audio_url).trim() : null) : undefined;
+        const notification_clip_url = body.notification_clip_url !== undefined ? (body.notification_clip_url ? String(body.notification_clip_url).trim() : null) : undefined;
+        const fajr_notification_clip_url = body.fajr_notification_clip_url !== undefined ? (body.fajr_notification_clip_url ? String(body.fajr_notification_clip_url).trim() : null) : undefined;
         const duration_seconds = body.duration_seconds !== undefined ? Number(body.duration_seconds || 0) : undefined;
         const fajr_duration_seconds = body.fajr_duration_seconds !== undefined ? Number(body.fajr_duration_seconds || 0) : undefined;
         const size_bytes = body.size_bytes !== undefined ? Number(body.size_bytes || 0) : undefined;
@@ -45,9 +47,11 @@ const handler: Handler = async (req, res) => {
         const license_status = body.license_status !== undefined ? String(body.license_status) : undefined;
         const license_notes = body.license_notes !== undefined ? (body.license_notes ? String(body.license_notes).trim() : null) : undefined;
         const source_url = body.source_url !== undefined ? (body.source_url ? String(body.source_url).trim() : null) : undefined;
+        const attribution = body.attribution !== undefined ? (body.attribution ? String(body.attribution).trim() : null) : undefined;
         const official_verified = body.official_verified !== undefined ? Boolean(body.official_verified) : undefined;
         const is_default = body.is_default !== undefined ? Boolean(body.is_default) : undefined;
         const is_active = body.is_active !== undefined ? Boolean(body.is_active) : undefined;
+        const is_premium = body.is_premium !== undefined ? Boolean(body.is_premium) : undefined;
         const sort_order = body.sort_order !== undefined ? Number(body.sort_order) : undefined;
 
         if (action === 'add' && !muezzin_name_en) {
@@ -94,6 +98,8 @@ const handler: Handler = async (req, res) => {
           mosque_ar: mosque_ar !== undefined ? mosque_ar : (existingRow?.mosque_ar ?? 'المسجد النبوي الشريف'),
           audio_url: finalAudioUrl,
           fajr_audio_url: finalFajrAudioUrl,
+          notification_clip_url: notification_clip_url !== undefined ? notification_clip_url : (existingRow?.notification_clip_url ?? null),
+          fajr_notification_clip_url: fajr_notification_clip_url !== undefined ? fajr_notification_clip_url : (existingRow?.fajr_notification_clip_url ?? null),
           duration_seconds: duration_seconds ?? Number(existingRow?.duration_seconds || 0),
           fajr_duration_seconds: fajr_duration_seconds ?? Number(existingRow?.fajr_duration_seconds || 0),
           size_bytes: size_bytes ?? Number(existingRow?.size_bytes || 0),
@@ -101,9 +107,11 @@ const handler: Handler = async (req, res) => {
           license_status: finalLicenseStatus,
           license_notes: license_notes !== undefined ? license_notes : (existingRow?.license_notes ?? null),
           source_url: source_url !== undefined ? source_url : (existingRow?.source_url ?? null),
+          attribution: attribution !== undefined ? attribution : (existingRow?.attribution ?? null),
           official_verified: official_verified ?? Boolean(existingRow?.official_verified ?? false),
           is_default: is_default ?? Boolean(existingRow?.is_default ?? false),
           is_active: is_active ?? Boolean(existingRow?.is_active ?? true),
+          is_premium: is_premium ?? Boolean(existingRow?.is_premium ?? false),
           sort_order: sort_order ?? Number(existingRow?.sort_order ?? 20),
           updated_at: new Date().toISOString(),
         };
@@ -185,9 +193,21 @@ const handler: Handler = async (req, res) => {
           console.warn('Database adhan_voices upsert notice:', e);
         }
 
-        if (!savedToSupabase && !savedToDb) {
-          return sendJson(res, 500, { error: 'Failed to save Adhan voice to database.' });
+        if (!Array.isArray(serverStore.adhanVoices)) {
+          serverStore.adhanVoices = [];
         }
+        if (merged.is_default) {
+          for (const v of serverStore.adhanVoices) {
+            if (v.id !== id) v.is_default = false;
+          }
+        }
+        const storeIdx = serverStore.adhanVoices.findIndex((v: any) => v.id === id);
+        if (storeIdx >= 0) {
+          serverStore.adhanVoices[storeIdx] = { ...serverStore.adhanVoices[storeIdx], ...merged };
+        } else {
+          serverStore.adhanVoices.push(merged);
+        }
+        await saveStore().catch(() => {});
 
         const version = await bumpAdhanVoicesVersion();
         return sendJson(res, 200, { ok: true, version, voice: merged });

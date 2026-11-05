@@ -55,6 +55,8 @@ import {
   getAdhanPlaybackState,
   playAdhanPreview,
   stopAdhanPlayback,
+  resumeBlockedAdhanFromGesture,
+  clearAdhanError,
   type AdhanVoiceRow,
 } from '../lib/adhanAudio';
 import { notifyPrayerSettingsUpdated } from '../components/AdhanSchedulerOverlay';
@@ -975,7 +977,6 @@ export function PrayerTimesView() {
                   >
                     <option value="full">Full Adhan</option>
                     <option value="takbir">Short Takbir</option>
-                    <option value="chime">Gentle Chime</option>
                     <option value="silent">Silent</option>
                   </select>
                 </div>
@@ -1051,7 +1052,7 @@ export function PrayerTimesView() {
                 return (
                   <option key={v.id} value={v.id}>
                     {v.muezzin_name_en} {v.muezzin_name_ar ? `(${v.muezzin_name_ar})` : ''} —{' '}
-                    {hasAudio ? '✓ Audio Ready' : 'Upload When Licensed (Sanctuary Tone Active)'}
+                    {hasAudio ? '✓ Real Adhan Audio Ready' : 'Upload When Licensed (No Audio File Uploaded Yet)'}
                   </option>
                 );
               })}
@@ -1088,15 +1089,46 @@ export function PrayerTimesView() {
                 )}
               </div>
             )}
+
+            {/* Inline Autoplay Blocked or Audio Unavailable Banner */}
+            {adhanPlayback.autoplayBlocked && (
+              <div className="bg-amber-950/60 border border-amber-500/50 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+                <div className="text-xs text-amber-100">
+                  <strong className="text-amber-300">Autoplay Blocked by Browser:</strong> Tap the button to start the real Adhan recording immediately.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void resumeBlockedAdhanFromGesture()}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shrink-0 cursor-pointer"
+                >
+                  Tap to Play Adhan
+                </button>
+              </div>
+            )}
+
+            {adhanPlayback.errorMessage && (
+              <div className="bg-red-950/60 border border-red-500/50 rounded-2xl p-3.5 flex items-start justify-between gap-3">
+                <div className="text-xs text-red-100 leading-relaxed">
+                  {adhanPlayback.errorMessage}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => clearAdhanError()}
+                  className="px-2.5 py-1 rounded-lg bg-red-900/60 hover:bg-red-800/80 text-red-200 text-[11px] font-semibold shrink-0 cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Preview & Fajr Options */}
           <div className="lg:col-span-5 space-y-3">
             <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider block">
-              Preview & Fajr Adhan Settings
+              Preview Real Adhan & Fajr Settings
             </label>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -1106,17 +1138,17 @@ export function PrayerTimesView() {
                     void playAdhanPreview({ voice: selectedMuezzin || undefined, variant: 'standard' });
                   }
                 }}
-                className="px-3.5 py-2.5 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                className="px-3 py-2.5 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
               >
                 {adhanPlayback.isPlaying ? (
                   <>
                     <Square size={13} className="text-red-400 fill-red-400" />
-                    <span>Stop Preview</span>
+                    <span>Stop</span>
                   </>
                 ) : (
                   <>
                     <Play size={13} className="text-emerald-400 fill-emerald-400" />
-                    <span>Preview Adhan</span>
+                    <span>Test Adhan</span>
                   </>
                 )}
               </button>
@@ -1124,28 +1156,19 @@ export function PrayerTimesView() {
               <button
                 type="button"
                 onClick={() => void playAdhanPreview({ voice: selectedMuezzin || undefined, variant: 'fajr' })}
-                className="px-3.5 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                className="px-3 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
               >
                 <Sunrise size={13} />
-                <span>Preview Fajr</span>
+                <span>Test Fajr</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => void playAdhanPreview({ voice: selectedMuezzin || undefined, variant: 'takbir' })}
-                className="px-3.5 py-2 rounded-xl bg-[#020B07] hover:bg-emerald-950/70 border border-emerald-900/80 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                className="px-3 py-2.5 rounded-2xl bg-[#020B07] hover:bg-emerald-950/70 border border-emerald-900/80 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Play size={12} className="text-teal-400" />
                 <span>Short Takbir</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void playAdhanPreview({ variant: 'chime' })}
-                className="px-3.5 py-2 rounded-xl bg-[#020B07] hover:bg-emerald-950/70 border border-emerald-900/80 text-emerald-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Sparkles size={12} className="text-amber-400" />
-                <span>Gentle Chime</span>
               </button>
             </div>
 
@@ -1175,6 +1198,7 @@ export function PrayerTimesView() {
       <PushNotificationsPanel
         location={location}
         settings={settings}
+        voices={adhanVoices}
         onUpdateSettings={(patch) => setSettings((s) => ({ ...s, ...patch }))}
       />
 

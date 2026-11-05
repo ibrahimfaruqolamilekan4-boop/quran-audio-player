@@ -1,15 +1,18 @@
 /**
- * Nooraya Adhan Voices & In-App Playback Engine (Phase 2)
+ * Nooraya Adhan Voices & Real-Audio-Only Playback Engine
  *
- * - Zero hardcoded audio URLs: all muezzin voices live in the `adhan_voices` table
- *   and Supabase Storage, managed by the Admin Portal and synced live via Supabase Realtime.
- * - Includes verified official Prophet's Mosque (Al-Masjid an-Nabawi) muezzins
- *   (under the Presidency of Religious Affairs at the Grand Mosque and the Prophet's Mosque)
- *   and Sheikh Mishary Rashid Alafasy with transparent licensing states ('upload_when_licensed'
- *   until an admin uploads a cleared recording).
- * - Supports separate Fajr Adhan ("As-salatu khayrun min an-nawm").
- * - Supports per-prayer modes: 'full' | 'takbir' | 'chime' | 'silent'.
- * - Ducks/pauses Quran recitation & ambient audio during Adhan and resumes afterward.
+ * STRICT GUARANTEES (Step 2.1 – 2.7):
+ * 1. ZERO synthetic tones, oscillators, beeps, chimes, or stand-in sounds.
+ *    If a voice's recording is missing or fails to load/decode, we NEVER play a substitute sound;
+ *    instead we emit a clear visible error ("Adhan audio is not available: <reason>") and log it.
+ * 2. Adhan audio comes ONLY from the selected voice's real audio file (`fajr_audio_url` for Fajr,
+ *    `audio_url` for Dhuhr/Asr/Maghrib/Isha).
+ * 3. Preloads the next prayer's Adhan file before prayer time and caches it in Cache Storage
+ *    (`nooraya-adhan-audio-v1`) so it plays immediately and works offline after caching.
+ * 4. Uses the single persistent audio manager (`getAdhanAudio()`), smoothly ducks/pauses
+ *    Quran & ambient audio during Adhan, and restores them when Adhan finishes or is stopped.
+ * 5. If browser autoplay policy blocks playback (`NotAllowedError`), enters `autoplayBlocked: true`
+ *    state ("Tap to play Adhan") so one user tap synchronously starts playback.
  */
 
 import {
@@ -25,9 +28,10 @@ import {
   unlockAudio,
 } from './persistentAudio';
 import { uploadMediaToServer } from './upload';
+import { processAdhanAudioFile, type ProcessedAdhanUploadResult } from './adhanAudioProcessor';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-export type AdhanMode = 'full' | 'takbir' | 'chime' | 'silent';
+export type AdhanMode = 'full' | 'takbir' | 'silent';
 
 export type AdhanLicenseStatus =
   | 'verified_licensed'
@@ -43,6 +47,8 @@ export interface AdhanVoiceRow {
   mosque_ar?: string | null;
   audio_url?: string | null;
   fajr_audio_url?: string | null;
+  notification_clip_url?: string | null;
+  fajr_notification_clip_url?: string | null;
   duration_seconds?: number | null;
   fajr_duration_seconds?: number | null;
   size_bytes?: number | null;
@@ -50,33 +56,62 @@ export interface AdhanVoiceRow {
   license_status: AdhanLicenseStatus;
   license_notes?: string | null;
   source_url?: string | null;
+  attribution?: string | null;
   official_verified?: boolean;
   is_default?: boolean;
   is_active?: boolean;
+  is_premium?: boolean;
   sort_order?: number;
   created_at?: string;
   updated_at?: string;
 }
 
+export interface AdhanDiagnosticLogEntry {
+  id: string;
+  timestamp: string;
+  trigger: 'scheduled' | 'test_button' | 'preview' | 'notification_tap' | 'gesture_resume';
+  prayerKey: string;
+  voiceId: string | null;
+  muezzinName: string | null;
+  urlUsed: string | null;
+  isFajrVariant: boolean;
+  readyState: number;
+  audioError: string | null;
+  playResult: 'playing' | 'autoplay_blocked' | 'missing_url' | 'load_or_decode_error' | 'silent_mode';
+  pathTaken: string;
+  durationSeconds: number | null;
+}
+
+export type AdhanDiagnosticEntry = AdhanDiagnosticLogEntry;
+
 export interface ActiveAdhanPlaybackState {
   isPlaying: boolean;
+  autoplayBlocked: boolean;
+  errorMessage: string | null;
+  notificationTapScreenOpen: boolean;
   prayerKey: string | null;
   prayerNameEn: string | null;
   prayerNameAr: string | null;
+  voiceId: string | null;
   muezzinNameEn: string | null;
   muezzinNameAr: string | null;
+  mosqueEn: string | null;
+  audioUrlUsed: string | null;
+  durationSeconds: number | null;
   mode: AdhanMode | 'preview';
   isFajrVariant: boolean;
-  usedFallbackChime: boolean;
   backgroundAudioPaused: boolean;
   startedAt: number | null;
+  lastDiagnostic: AdhanDiagnosticLogEntry | null;
 }
+
+export const ADHAN_AUDIO_CACHE_NAME = 'nooraya-adhan-audio-v1';
 
 /**
  * Verified official Muezzins of Al-Masjid an-Nabawi (Prophet's Mosque, Madinah)
  * under the Presidency of Religious Affairs at the Grand Mosque and the Prophet's Mosque,
  * plus Sheikh Mishary Rashid Alafasy.
- * No hardcoded audio URLs — slots remain 'upload_when_licensed' until Admin uploads audio.
+ * Zero hardcoded audio URLs — slots remain 'upload_when_licensed' until Admin uploads audio.
  */
 export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
   {
@@ -88,6 +123,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -96,9 +133,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: true,
     is_active: true,
+    is_premium: false,
     sort_order: 1,
   },
   {
@@ -110,6 +149,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -118,9 +159,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 2,
   },
   {
@@ -132,6 +175,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -140,9 +185,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 3,
   },
   {
@@ -154,6 +201,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -162,9 +211,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 4,
   },
   {
@@ -176,6 +227,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -184,9 +237,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 5,
   },
   {
@@ -198,6 +253,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -206,9 +263,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 6,
   },
   {
@@ -220,6 +279,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -228,9 +289,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 7,
   },
   {
@@ -242,6 +305,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -250,9 +315,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 8,
   },
   {
@@ -264,6 +331,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -272,9 +341,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 9,
   },
   {
@@ -286,6 +357,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -294,9 +367,11 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Official Haramain broadcast recording under the Presidency of the Two Holy Mosques. Upload when licensed for commercial distribution.',
     source_url: 'https://prh.gov.sa',
+    attribution: 'Presidency of Religious Affairs at the Grand Mosque and the Prophet’s Mosque',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 10,
   },
   {
@@ -308,6 +383,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد الكبير بالكويت',
     audio_url: null,
     fajr_audio_url: null,
+    notification_clip_url: null,
+    fajr_notification_clip_url: null,
     duration_seconds: 0,
     fajr_duration_seconds: 0,
     size_bytes: 0,
@@ -316,16 +393,73 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     license_notes:
       'Alafasy Studio / Grand Mosque recording. Personal listening is permitted; commercial in-app bundling requires studio clearance — upload when licensed.',
     source_url: 'https://alafasy.me',
+    attribution: 'Sheikh Mishary Rashid Alafasy',
     official_verified: true,
     is_default: false,
     is_active: true,
+    is_premium: false,
     sort_order: 11,
   },
 ];
 
+export const DEFAULT_ADHAN_VOICES = OFFICIAL_MUEZZIN_CATALOG_SLOTS;
+
 let cachedAdhanVoices: AdhanVoiceRow[] | null = null;
 let lastAdhanFetchTime = 0;
 let lastKnownAdhanVersion = 0;
+
+// Allow unit tests to inject a mocked HTMLAudioElement
+let testAudioElementOverride: HTMLAudioElement | null = null;
+export function setAdhanAudioElementForTesting(el: HTMLAudioElement | null): void {
+  testAudioElementOverride = el;
+}
+
+function getActiveAdhanAudioElement(): HTMLAudioElement {
+  return testAudioElementOverride || getAdhanAudio();
+}
+
+/**
+ * Normalizes and validates an Adhan audio URL:
+ * - Rejects empty/whitespace strings
+ * - Converts `http://` to `https://` on remote origins to prevent mixed-content blocks
+ * - Safely encodes spaces or unsafe characters
+ */
+export function normalizeAdhanAudioUrl(rawUrl?: string | null): string | null {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  let cleaned = rawUrl.trim();
+  if (!cleaned) return null;
+
+  if (cleaned.startsWith('http://') && !cleaned.startsWith('http://localhost')) {
+    cleaned = 'https://' + cleaned.slice('http://'.length);
+  }
+
+  // Encode unescaped spaces
+  cleaned = cleaned.replace(/ /g, '%20');
+  return cleaned;
+}
+
+const diagnosticLogs: AdhanDiagnosticLogEntry[] = [];
+function recordAdhanDiagnostic(entry: Omit<AdhanDiagnosticLogEntry, 'id' | 'timestamp'>): AdhanDiagnosticLogEntry {
+  const full: AdhanDiagnosticLogEntry = {
+    id: `adhan_diag_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: new Date().toISOString(),
+    ...entry,
+  };
+  diagnosticLogs.unshift(full);
+  if (diagnosticLogs.length > 25) {
+    diagnosticLogs.length = 25;
+  }
+  console.info('[AdhanDiagnostics]', JSON.stringify(full));
+  return full;
+}
+
+export function getAdhanDiagnosticLogs(): AdhanDiagnosticLogEntry[] {
+  return [...diagnosticLogs];
+}
+
+export function clearAdhanDiagnosticLogs(): void {
+  diagnosticLogs.length = 0;
+}
 
 /**
  * Fetches the lightweight version counter for `adhan_voices` so phones detect changes quickly.
@@ -386,7 +520,9 @@ export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<Adha
         cachedAdhanVoices = data.voices;
         lastAdhanFetchTime = now;
         try {
-          localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(data.voices));
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(data.voices));
+          }
         } catch {}
         return data.voices;
       }
@@ -414,7 +550,9 @@ export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<Adha
           cachedAdhanVoices = rows;
           lastAdhanFetchTime = now;
           try {
-            localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(rows));
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('nooraya_cached_adhan_voices_v1', JSON.stringify(rows));
+            }
           } catch {}
           return rows;
         }
@@ -424,12 +562,14 @@ export async function fetchActiveAdhanVoices(forceRefresh = false): Promise<Adha
 
   // 3. Offline cached voices or official catalog slots
   try {
-    const raw = localStorage.getItem('nooraya_cached_adhan_voices_v1');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        cachedAdhanVoices = parsed;
-        return parsed;
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('nooraya_cached_adhan_voices_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          cachedAdhanVoices = parsed;
+          return parsed;
+        }
       }
     }
   } catch {}
@@ -485,21 +625,26 @@ export function subscribeToAdhanVoices(onChange: (voices: AdhanVoiceRow[]) => vo
   } catch {}
 
   const handleVis = () => {
-    if (document.visibilityState === 'visible') {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
       void triggerRefresh();
     }
   };
   const handleOnline = () => void triggerRefresh();
 
-  window.addEventListener('visibilitychange', handleVis);
-  window.addEventListener('focus', handleVis);
-  window.addEventListener('online', handleOnline);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('visibilitychange', handleVis);
+    window.addEventListener('focus', handleVis);
+    window.addEventListener('online', handleOnline);
+  }
 
-  const pollTimer = window.setInterval(() => {
-    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-      void checkVersion();
-    }
-  }, 5000);
+  const pollTimer =
+    typeof window !== 'undefined'
+      ? window.setInterval(() => {
+          if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+            void checkVersion();
+          }
+        }, 5000)
+      : null;
 
   return () => {
     if (channel && client) {
@@ -510,10 +655,14 @@ export function subscribeToAdhanVoices(onChange: (voices: AdhanVoiceRow[]) => vo
         bc.close();
       } catch {}
     }
-    window.clearInterval(pollTimer);
-    window.removeEventListener('visibilitychange', handleVis);
-    window.removeEventListener('focus', handleVis);
-    window.removeEventListener('online', handleOnline);
+    if (pollTimer !== null && typeof window !== 'undefined') {
+      window.clearInterval(pollTimer);
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('visibilitychange', handleVis);
+      window.removeEventListener('focus', handleVis);
+      window.removeEventListener('online', handleOnline);
+    }
   };
 }
 
@@ -528,60 +677,71 @@ export function notifyAdhanVoicesChanged(): void {
 }
 
 /**
- * Probes an audio file's duration in seconds before uploading.
+ * Preloads and caches an Adhan audio URL in the browser Cache Storage (`nooraya-adhan-audio-v1`)
+ * so that it plays instantaneously at prayer time and continues working offline (Step 2.2).
  */
-export async function probeAudioFileDuration(file: File): Promise<number> {
-  return new Promise((resolve) => {
-    const audio = document.createElement('audio');
-    audio.preload = 'metadata';
-    const url = URL.createObjectURL(file);
-    audio.src = url;
+let lastPreloadedUrl: string | null = null;
+export async function preloadAndCacheAdhanAudio(rawUrl?: string | null): Promise<boolean> {
+  const url = normalizeAdhanAudioUrl(rawUrl);
+  if (!url) return false;
 
-    const timer = setTimeout(() => {
-      URL.revokeObjectURL(url);
-      resolve(180);
-    }, 2500);
+  try {
+    if (typeof caches !== 'undefined') {
+      const cache = await caches.open(ADHAN_AUDIO_CACHE_NAME);
+      const existing = await cache.match(url);
+      if (!existing) {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (res.ok && (res.headers.get('content-type') || '').includes('audio')) {
+          await cache.put(url, res.clone());
+        }
+      }
+    }
+  } catch {
+    // Non-fatal if Cache API or CORS restricts caching
+  }
 
-    audio.onloadedmetadata = () => {
-      clearTimeout(timer);
-      URL.revokeObjectURL(url);
-      resolve(Math.round(audio.duration || 180));
-    };
-
-    audio.onerror = () => {
-      clearTimeout(timer);
-      URL.revokeObjectURL(url);
-      resolve(180);
-    };
-  });
+  try {
+    const audio = getActiveAdhanAudioElement();
+    if (audio.paused && lastPreloadedUrl !== url) {
+      lastPreloadedUrl = url;
+      audio.preload = 'auto';
+      audio.src = url;
+      if (typeof audio.load === 'function') {
+        audio.load();
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Uploads an Adhan audio file (Standard or Fajr) to Supabase Storage / Server Media
- * and returns its public URL, duration, and storage path.
+ * Resolves a cached offline Blob URL if the user is offline and the Adhan file was previously cached.
  */
-export async function uploadAdhanAudioToCloud(
-  file: File,
-  voiceId: string,
-  variant: 'standard' | 'fajr' = 'standard'
-): Promise<{ publicUrl: string; durationSeconds: number; storagePath: string; sizeBytes: number }> {
-  const durationSeconds = await probeAudioFileDuration(file);
-  const extMatch = file.name.match(/\.(mp3|m4a|wav|ogg|aac)$/i);
-  const ext = extMatch ? extMatch[1].toLowerCase() : 'mp3';
-  const contentType =
-    file.type && file.type.startsWith('audio/')
-      ? file.type
-      : ext === 'm4a'
-      ? 'audio/mp4'
-      : ext === 'wav'
-      ? 'audio/wav'
-      : ext === 'ogg'
-      ? 'audio/ogg'
-      : 'audio/mpeg';
+async function resolvePlayableUrlWithOfflineCache(url: string): Promise<string> {
+  if (typeof caches === 'undefined') return url;
+  try {
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const cache = await caches.open(ADHAN_AUDIO_CACHE_NAME);
+    const matched = await cache.match(url);
+    if (matched && isOffline) {
+      const blob = await matched.blob();
+      return URL.createObjectURL(blob);
+    }
+  } catch {}
+  return url;
+}
 
-  const cleanVoiceId = voiceId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const storagePath = `adhan/${cleanVoiceId}_${variant}_${Date.now()}.${ext}`;
-
+/**
+ * Uploads a single Blob/File to Supabase Storage or server media fallback.
+ */
+async function uploadBlobToStorage(
+  blob: Blob,
+  storagePath: string,
+  contentType: string,
+  label: string
+): Promise<string> {
   // Method 1: Signed upload URL from /api/admin/adhan-voices
   try {
     const signRes = await fetch('/api/admin/adhan-voices', {
@@ -598,15 +758,10 @@ export async function uploadAdhanAudioToCloud(
             'Content-Type': contentType,
             'cache-control': 'max-age=31536000',
           },
-          body: file,
+          body: blob,
         });
         if (putRes.ok) {
-          return {
-            publicUrl: signData.publicUrl,
-            durationSeconds,
-            storagePath,
-            sizeBytes: file.size,
-          };
+          return signData.publicUrl;
         }
       }
     }
@@ -625,21 +780,16 @@ export async function uploadAdhanAudioToCloud(
           'x-upsert': 'true',
           'cache-control': 'max-age=31536000',
         },
-        body: file,
+        body: blob,
       });
       if (res.ok) {
-        return {
-          publicUrl: `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${storagePath}`,
-          durationSeconds,
-          storagePath,
-          sizeBytes: file.size,
-        };
+        return `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${storagePath}`;
       }
     } catch {}
   }
 
   // Method 3: Server-side upload for files <= 3.5 MB
-  if (file.size <= 3.5 * 1024 * 1024) {
+  if (blob.size <= 3.5 * 1024 * 1024) {
     try {
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -648,7 +798,7 @@ export async function uploadAdhanAudioToCloud(
           resolve(r.includes(',') ? r.split(',')[1] : r);
         };
         reader.onerror = reject;
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(blob);
       });
       const srvRes = await fetch('/api/admin/adhan-voices', {
         method: 'POST',
@@ -663,56 +813,115 @@ export async function uploadAdhanAudioToCloud(
       if (srvRes.ok) {
         const srvData = await srvRes.json();
         if (srvData.ok && srvData.publicUrl) {
-          return {
-            publicUrl: srvData.publicUrl,
-            durationSeconds,
-            storagePath,
-            sizeBytes: file.size,
-          };
+          return srvData.publicUrl;
         }
       }
     } catch {}
   }
 
-  // Method 4: Chunked media upload fallback (supports large audio files on any server)
-  const chunkedUrl = await uploadMediaToServer(file, {
+  // Method 4: Chunked media upload fallback
+  const chunkedUrl = await uploadMediaToServer(blob, {
     filename: storagePath,
-    name: `${cleanVoiceId}_${variant}`,
+    name: label,
     type: contentType,
   });
 
   if (chunkedUrl) {
-    return {
-      publicUrl: chunkedUrl,
-      durationSeconds,
-      storagePath,
-      sizeBytes: file.size,
-    };
+    return chunkedUrl;
   }
 
   throw new Error('Failed to upload Adhan audio file.');
 }
 
+/**
+ * One-step Admin Adhan audio processor & uploader (Step 2.6):
+ * - Decodes & validates duration >= 60s
+ * - Trims leading/trailing silence, normalizes peak loudness to -1.0 dBFS, adds fade-in/out
+ * - Uploads both the Full Web Version (`publicUrl`) and the <= 28s Native Notification WAV Clip (`notificationClipUrl`)
+ */
+export async function uploadAdhanAudioToCloud(
+  file: File,
+  voiceId: string,
+  variant: 'standard' | 'fajr' = 'standard',
+  options: { allowShortClipOverride?: boolean } = {}
+): Promise<{
+  publicUrl: string;
+  notificationClipUrl: string;
+  durationSeconds: number;
+  notificationClipDurationSeconds: number;
+  storagePath: string;
+  clipStoragePath: string;
+  sizeBytes: number;
+  dspReport: ProcessedAdhanUploadResult;
+}> {
+  const dspReport = await processAdhanAudioFile(file);
+
+  if (dspReport.isShortClipWarning && !options.allowShortClipOverride) {
+    throw new Error(
+      dspReport.shortClipWarningMessage ||
+        `Audio file is too short (${dspReport.trimmedDurationSeconds}s < 60s minimum for a full Adhan).`
+    );
+  }
+
+  const cleanVoiceId = voiceId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const ts = Date.now();
+  const storagePath = `adhan/${cleanVoiceId}_${variant}_${ts}.${dspReport.webExtension}`;
+  const clipStoragePath = `adhan/${cleanVoiceId}_${variant}_notify30s_${ts}.wav`;
+
+  const publicUrl = await uploadBlobToStorage(
+    dspReport.webBlob,
+    storagePath,
+    dspReport.webContentType,
+    `${cleanVoiceId}_${variant}`
+  );
+
+  const notificationClipUrl = await uploadBlobToStorage(
+    dspReport.notificationClipBlob,
+    clipStoragePath,
+    'audio/wav',
+    `${cleanVoiceId}_${variant}_notify30s`
+  );
+
+  // Immediately cache the newly uploaded URL for instant playback
+  void preloadAndCacheAdhanAudio(publicUrl);
+
+  return {
+    publicUrl,
+    notificationClipUrl,
+    durationSeconds: Math.round(dspReport.trimmedDurationSeconds),
+    notificationClipDurationSeconds: Math.round(dspReport.notificationClipDurationSeconds),
+    storagePath,
+    clipStoragePath,
+    sizeBytes: dspReport.webBlob.size,
+    dspReport,
+  };
+}
+
 // ==============================================================================
-// IN-APP ADHAN PLAYBACK & WEBAUDIO CHIME / TAKBIR ENGINE
+// IN-APP REAL-AUDIO-ONLY ADHAN PLAYBACK ENGINE (NO OSCILLATORS / NO FALLBACK TONES)
 // ==============================================================================
 
-let activeAudioCtx: AudioContext | null = null;
-let activeSynthStopTimer: number | null = null;
 let activeTakbirFadeTimer: number | null = null;
 
 let playbackState: ActiveAdhanPlaybackState = {
   isPlaying: false,
+  autoplayBlocked: false,
+  errorMessage: null,
+  notificationTapScreenOpen: false,
   prayerKey: null,
   prayerNameEn: null,
   prayerNameAr: null,
+  voiceId: null,
   muezzinNameEn: null,
   muezzinNameAr: null,
+  mosqueEn: null,
+  audioUrlUsed: null,
+  durationSeconds: null,
   mode: 'full',
   isFajrVariant: false,
-  usedFallbackChime: false,
   backgroundAudioPaused: false,
   startedAt: null,
+  lastDiagnostic: null,
 };
 
 const stateListeners = new Set<(state: ActiveAdhanPlaybackState) => void>();
@@ -730,6 +939,12 @@ export function getAdhanPlaybackState(): ActiveAdhanPlaybackState {
   return playbackState;
 }
 
+export function clearAdhanErrorMessage(): void {
+  emitPlaybackState({ errorMessage: null, autoplayBlocked: false, notificationTapScreenOpen: false });
+}
+
+export const clearAdhanError = clearAdhanErrorMessage;
+
 export function subscribeToAdhanPlaybackState(
   listener: (state: ActiveAdhanPlaybackState) => void
 ): () => void {
@@ -741,108 +956,15 @@ export function subscribeToAdhanPlaybackState(
 }
 
 /**
- * Synthesizes a serene Medina Emerald harmonic bell chime or dual-phrase Takbir cadence
- * using the browser's Web Audio API (100% offline, zero hardcoded audio files).
- */
-function playSynthesizedSanctuaryTone(variant: 'chime' | 'takbir', onEnded: () => void): void {
-  try {
-    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!Ctx) {
-      onEnded();
-      return;
-    }
-
-    if (activeAudioCtx) {
-      try {
-        activeAudioCtx.close();
-      } catch {}
-    }
-
-    const ctx: AudioContext = new Ctx();
-    activeAudioCtx = ctx;
-
-    const notes =
-      variant === 'chime'
-        ? [
-            { freq: 528, start: 0.0, duration: 2.2, gain: 0.22 },
-            { freq: 660, start: 0.55, duration: 2.4, gain: 0.18 },
-            { freq: 792, start: 1.15, duration: 3.0, gain: 0.16 },
-          ]
-        : [
-            // Dual-phrase reverent Takbir cadence
-            { freq: 440, start: 0.0, duration: 1.2, gain: 0.22 },
-            { freq: 554.37, start: 0.85, duration: 1.8, gain: 0.22 },
-            { freq: 440, start: 2.8, duration: 1.2, gain: 0.22 },
-            { freq: 554.37, start: 3.65, duration: 1.6, gain: 0.2 },
-            { freq: 659.25, start: 4.8, duration: 2.8, gain: 0.18 },
-          ];
-
-    const now = ctx.currentTime;
-    for (const n of notes) {
-      const osc = ctx.createOscillator();
-      const harmonic = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(n.freq, now + n.start);
-
-      harmonic.type = 'triangle';
-      harmonic.frequency.setValueAtTime(n.freq * 2, now + n.start);
-
-      const harmonicGain = ctx.createGain();
-      harmonicGain.gain.setValueAtTime(0.04, now + n.start);
-
-      gainNode.gain.setValueAtTime(0.0001, now + n.start);
-      gainNode.gain.exponentialRampToValueAtTime(n.gain, now + n.start + 0.08);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.duration);
-
-      osc.connect(gainNode);
-      harmonic.connect(harmonicGain);
-      harmonicGain.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      osc.start(now + n.start);
-      harmonic.start(now + n.start);
-      osc.stop(now + n.start + n.duration + 0.05);
-      harmonic.stop(now + n.start + n.duration + 0.05);
-    }
-
-    const totalMs = variant === 'chime' ? 4300 : 7800;
-    activeSynthStopTimer = window.setTimeout(() => {
-      activeSynthStopTimer = null;
-      if (activeAudioCtx === ctx) {
-        try {
-          ctx.close();
-        } catch {}
-        activeAudioCtx = null;
-      }
-      onEnded();
-    }, totalMs);
-  } catch {
-    onEnded();
-  }
-}
-
-/**
- * Immediately stops/silences any playing Adhan or chime and restores ducked Quran/ambient audio.
+ * Immediately stops/silences any playing Adhan and restores ducked Quran/ambient audio.
  */
 export function stopAdhanPlayback(): void {
-  if (activeSynthStopTimer) {
-    clearTimeout(activeSynthStopTimer);
-    activeSynthStopTimer = null;
-  }
   if (activeTakbirFadeTimer) {
     clearTimeout(activeTakbirFadeTimer);
     activeTakbirFadeTimer = null;
   }
-  if (activeAudioCtx) {
-    try {
-      activeAudioCtx.close();
-    } catch {}
-    activeAudioCtx = null;
-  }
 
-  const audio = getAdhanAudio();
+  const audio = getActiveAdhanAudioElement();
   try {
     audio.pause();
     audio.currentTime = 0;
@@ -855,24 +977,27 @@ export function stopAdhanPlayback(): void {
 
   emitPlaybackState({
     isPlaying: false,
+    autoplayBlocked: false,
+    notificationTapScreenOpen: false,
     prayerKey: null,
     prayerNameEn: null,
     prayerNameAr: null,
+    voiceId: null,
     muezzinNameEn: null,
     muezzinNameAr: null,
+    mosqueEn: null,
+    audioUrlUsed: null,
+    durationSeconds: null,
     isFajrVariant: false,
-    usedFallbackChime: false,
     backgroundAudioPaused: false,
     startedAt: null,
   });
 }
 
 /**
- * Resolves the best matching Muezzin voice from the catalog:
- * 1. Matches `preferredVoiceId` if it has an uploaded recording.
- * 2. Else falls back to the Admin default voice (`is_default`) if it has an uploaded recording.
- * 3. Else falls back to the first active voice with an uploaded recording.
- * 4. Else returns the matched catalog metadata slot (so UI displays the Muezzin name while playing the sanctuary chime).
+ * Strictly resolves the selected Muezzin voice and its real audio URL.
+ * - Does NOT silently substitute another voice or a synthetic tone if the selected voice lacks audio.
+ * - For Fajr (when `isFajr` is true), uses `fajr_audio_url` if available, or `audio_url` if only standard is uploaded.
  */
 export function resolveVoiceForPlayback(
   voices: AdhanVoiceRow[],
@@ -882,155 +1007,223 @@ export function resolveVoiceForPlayback(
   voice: AdhanVoiceRow | null;
   audioUrl: string | null;
   isFajrVariant: boolean;
+  missingReason: string | null;
 } {
   const activeVoices = voices.filter((v) => v.is_active !== false);
-  const preferred = activeVoices.find((v) => v.id === preferredVoiceId) || null;
-  const defaultVoice = activeVoices.find((v) => v.is_default && (v.audio_url || v.fajr_audio_url)) || null;
-  const firstWithAudio = activeVoices.find((v) => Boolean(v.audio_url || v.fajr_audio_url)) || null;
+  const preferred =
+    (preferredVoiceId ? activeVoices.find((v) => v.id === preferredVoiceId) : null) ||
+    activeVoices.find((v) => v.is_default) ||
+    activeVoices[0] ||
+    OFFICIAL_MUEZZIN_CATALOG_SLOTS[0] ||
+    null;
 
-  const pickUrl = (v: AdhanVoiceRow | null): { url: string | null; fajrUsed: boolean } => {
-    if (!v) return { url: null, fajrUsed: false };
-    if (isFajr && v.fajr_audio_url) {
-      return { url: v.fajr_audio_url, fajrUsed: true };
+  if (!preferred) {
+    return {
+      voice: null,
+      audioUrl: null,
+      isFajrVariant: false,
+      missingReason: 'No active Muezzin voice is configured in the catalog.',
+    };
+  }
+
+  const fajrUrl = normalizeAdhanAudioUrl(preferred.fajr_audio_url);
+  const stdUrl = normalizeAdhanAudioUrl(preferred.audio_url);
+
+  if (isFajr) {
+    if (fajrUrl) {
+      return {
+        voice: preferred,
+        audioUrl: fajrUrl,
+        isFajrVariant: true,
+        missingReason: null,
+      };
     }
-    if (v.audio_url) {
-      return { url: v.audio_url, fajrUsed: false };
+    if (stdUrl) {
+      return {
+        voice: preferred,
+        audioUrl: stdUrl,
+        isFajrVariant: false,
+        missingReason: null,
+      };
     }
-    if (v.fajr_audio_url) {
-      return { url: v.fajr_audio_url, fajrUsed: true };
-    }
-    return { url: null, fajrUsed: false };
+    return {
+      voice: preferred,
+      audioUrl: null,
+      isFajrVariant: true,
+      missingReason: `No Fajr or Standard Adhan audio file has been uploaded for ${preferred.muezzin_name_en} yet (status: ${preferred.license_status}). Upload a licensed recording in Admin → Adhan Voices.`,
+    };
+  }
+
+  if (stdUrl) {
+    return {
+      voice: preferred,
+      audioUrl: stdUrl,
+      isFajrVariant: false,
+      missingReason: null,
+    };
+  }
+
+  return {
+    voice: preferred,
+    audioUrl: null,
+    isFajrVariant: false,
+    missingReason: `No Adhan audio file has been uploaded for ${preferred.muezzin_name_en} yet (status: ${preferred.license_status}). Upload a licensed recording in Admin → Adhan Voices.`,
   };
-
-  const prefPick = pickUrl(preferred);
-  if (prefPick.url && preferred) {
-    return { voice: preferred, audioUrl: prefPick.url, isFajrVariant: prefPick.fajrUsed };
-  }
-
-  const defPick = pickUrl(defaultVoice);
-  if (defPick.url && defaultVoice) {
-    return { voice: defaultVoice, audioUrl: defPick.url, isFajrVariant: defPick.fajrUsed };
-  }
-
-  const anyPick = pickUrl(firstWithAudio);
-  if (anyPick.url && firstWithAudio) {
-    return { voice: firstWithAudio, audioUrl: anyPick.url, isFajrVariant: anyPick.fajrUsed };
-  }
-
-  const fallbackSlot = preferred || activeVoices[0] || OFFICIAL_MUEZZIN_CATALOG_SLOTS[0] || null;
-  return { voice: fallbackSlot, audioUrl: null, isFajrVariant: false };
 }
 
+const PRAYER_DISPLAY_NAMES: Record<string, { english: string; arabic: string }> = {
+  fajr: { english: 'Fajr', arabic: 'الفجر' },
+  sunrise: { english: 'Sunrise', arabic: 'الشروق' },
+  dhuhr: { english: 'Dhuhr', arabic: 'الظهر' },
+  asr: { english: 'Asr', arabic: 'العصر' },
+  maghrib: { english: 'Maghrib', arabic: 'المغرب' },
+  isha: { english: 'Isha', arabic: 'العشاء' },
+};
+
 /**
- * Triggers in-app Adhan playback (or preview) with automatic ducking/pausing of Quran & ambient audio
- * and automatic resumption upon completion or manual stop.
+ * Primary Adhan playback function (`playAdhan(voiceId, prayer)`):
+ * - Plays ONLY the real audio file for the selected voice (and the Fajr URL for Fajr).
+ * - Never plays an oscillator, beep, chime, or horn.
+ * - If the audio file is missing or fails to load, emits a visible error message (`errorMessage`) and logs it.
+ * - If autoplay is blocked by browser policy (`NotAllowedError`), enters `autoplayBlocked: true` ("Tap to play Adhan").
  */
-export async function startAdhanPlayback(options: {
-  prayerKey: string;
-  prayerNameEn: string;
-  prayerNameAr: string;
-  mode: AdhanMode;
-  preferredVoiceId?: string;
-  useFajrAdhan?: boolean;
-  voices?: AdhanVoiceRow[];
-}): Promise<void> {
-  const {
-    prayerKey,
-    prayerNameEn,
-    prayerNameAr,
-    mode,
-    preferredVoiceId,
-    useFajrAdhan = true,
-    voices: providedVoices,
-  } = options;
+export async function playAdhan(
+  voiceId: string | undefined,
+  prayerKey: string,
+  options: {
+    mode?: AdhanMode;
+    useFajrAdhan?: boolean;
+    voices?: AdhanVoiceRow[];
+    trigger?: AdhanDiagnosticLogEntry['trigger'];
+    openFullScreenModal?: boolean;
+  } = {}
+): Promise<{
+  ok: boolean;
+  status: AdhanDiagnosticLogEntry['playResult'];
+  urlUsed: string | null;
+  errorMessage: string | null;
+}> {
+  const normalizedKey = (prayerKey || 'fajr').toLowerCase();
+  const names = PRAYER_DISPLAY_NAMES[normalizedKey] || {
+    english: prayerKey || 'Prayer',
+    arabic: 'الصلاة',
+  };
+  const mode: AdhanMode = options.mode || 'full';
+  const useFajrAdhan = options.useFajrAdhan !== false;
+  const trigger = options.trigger || 'scheduled';
 
   if (mode === 'silent') {
-    return;
+    const diag = recordAdhanDiagnostic({
+      trigger,
+      prayerKey: normalizedKey,
+      voiceId: voiceId || null,
+      muezzinName: null,
+      urlUsed: null,
+      isFajrVariant: false,
+      readyState: 0,
+      audioError: null,
+      playResult: 'silent_mode',
+      pathTaken: 'silent_mode_skipped_audio',
+      durationSeconds: null,
+    });
+    emitPlaybackState({ lastDiagnostic: diag });
+    return { ok: true, status: 'silent_mode', urlUsed: null, errorMessage: null };
   }
 
-  unlockAudio();
   stopAdhanPlayback();
 
-  const voices = providedVoices || (await fetchActiveAdhanVoices());
-  const isFajr = prayerKey === 'fajr' && useFajrAdhan;
-  const resolved = resolveVoiceForPlayback(voices, preferredVoiceId, isFajr);
+  const voices = options.voices || (await fetchActiveAdhanVoices());
+  const isFajr = normalizedKey === 'fajr' && useFajrAdhan;
+  const resolved = resolveVoiceForPlayback(voices, voiceId, isFajr);
 
-  // Duck & pause Quran recitation and ambient soundscape during Adhan
+  if (!resolved.audioUrl) {
+    const errText = `Adhan audio is not available: ${resolved.missingReason || 'No recording uploaded for the selected Muezzin.'}`;
+    const diag = recordAdhanDiagnostic({
+      trigger,
+      prayerKey: normalizedKey,
+      voiceId: resolved.voice?.id || voiceId || null,
+      muezzinName: resolved.voice?.muezzin_name_en || null,
+      urlUsed: null,
+      isFajrVariant: isFajr,
+      readyState: 0,
+      audioError: errText,
+      playResult: 'missing_url',
+      pathTaken: 'aborted_missing_real_audio_url_no_fallback_tone',
+      durationSeconds: null,
+    });
+    emitPlaybackState({
+      isPlaying: false,
+      autoplayBlocked: false,
+      errorMessage: errText,
+      notificationTapScreenOpen: Boolean(options.openFullScreenModal),
+      prayerKey: normalizedKey,
+      prayerNameEn: names.english,
+      prayerNameAr: names.arabic,
+      voiceId: resolved.voice?.id || voiceId || null,
+      muezzinNameEn: resolved.voice?.muezzin_name_en || null,
+      muezzinNameAr: resolved.voice?.muezzin_name_ar || null,
+      mosqueEn: resolved.voice?.mosque_en || null,
+      audioUrlUsed: null,
+      durationSeconds: null,
+      mode,
+      isFajrVariant: isFajr,
+      backgroundAudioPaused: false,
+      startedAt: null,
+      lastDiagnostic: diag,
+    });
+    return { ok: false, status: 'missing_url', urlUsed: null, errorMessage: errText };
+  }
+
+  const playableUrl = await resolvePlayableUrlWithOfflineCache(resolved.audioUrl);
+  const audio = getActiveAdhanAudioElement();
+
+  // Smoothly duck & pause Quran recitation and ambient soundscape during Adhan
   const duckSnap = duckAndPauseForAdhan();
   const backgroundAudioPaused = duckSnap.quranWasPlaying || duckSnap.ambientWasPlaying;
 
-  const finishPlayback = () => {
+  audio.muted = false;
+  audio.volume = 1.0;
+  audio.currentTime = 0;
+  audio.src = playableUrl;
+
+  const expectedDuration = resolved.isFajrVariant
+    ? resolved.voice?.fajr_duration_seconds || resolved.voice?.duration_seconds || null
+    : resolved.voice?.duration_seconds || null;
+
+  audio.onended = () => {
     stopAdhanPlayback();
   };
 
-  if (mode === 'chime') {
-    emitPlaybackState({
-      isPlaying: true,
-      prayerKey,
-      prayerNameEn,
-      prayerNameAr,
-      muezzinNameEn: 'Medina Sanctuary Chime',
-      muezzinNameAr: 'تنبيه الحرم الهادئ',
-      mode: 'chime',
-      isFajrVariant: false,
-      usedFallbackChime: false,
-      backgroundAudioPaused,
-      startedAt: Date.now(),
-    });
-    playSynthesizedSanctuaryTone('chime', finishPlayback);
-    return;
-  }
-
-  if (!resolved.audioUrl) {
-    // Selected muezzin slot is awaiting licensed admin upload ('upload_when_licensed')
-    emitPlaybackState({
-      isPlaying: true,
-      prayerKey,
-      prayerNameEn,
-      prayerNameAr,
-      muezzinNameEn: resolved.voice?.muezzin_name_en || 'Medina Sanctuary Tone',
-      muezzinNameAr: resolved.voice?.muezzin_name_ar || 'تنبيه الصلاة',
-      mode,
-      isFajrVariant: false,
-      usedFallbackChime: true,
-      backgroundAudioPaused,
-      startedAt: Date.now(),
-    });
-    playSynthesizedSanctuaryTone(mode === 'takbir' ? 'takbir' : 'chime', finishPlayback);
-    return;
-  }
-
-  // Play the Admin-uploaded Muezzin audio file
-  const audio = getAdhanAudio();
-  audio.volume = 1.0;
-  audio.currentTime = 0;
-  audio.src = resolved.audioUrl;
-
-  emitPlaybackState({
-    isPlaying: true,
-    prayerKey,
-    prayerNameEn,
-    prayerNameAr,
-    muezzinNameEn: resolved.voice?.muezzin_name_en || 'Muezzin',
-    muezzinNameAr: resolved.voice?.muezzin_name_ar || null,
-    mode,
-    isFajrVariant: resolved.isFajrVariant,
-    usedFallbackChime: false,
-    backgroundAudioPaused,
-    startedAt: Date.now(),
-  });
-
-  audio.onended = () => {
-    finishPlayback();
-  };
-
   audio.onerror = () => {
-    // Graceful fallback to synthesized tone if audio stream fails
-    playSynthesizedSanctuaryTone(mode === 'takbir' ? 'takbir' : 'chime', finishPlayback);
+    const mediaErrCode = audio.error?.code;
+    const mediaErrMsg = audio.error?.message || `MediaError code ${mediaErrCode ?? 'unknown'}`;
+    const errText = `Adhan audio is not available: Failed to load or decode recording (${mediaErrMsg}).`;
+    restoreAfterAdhan();
+    const diag = recordAdhanDiagnostic({
+      trigger,
+      prayerKey: normalizedKey,
+      voiceId: resolved.voice?.id || null,
+      muezzinName: resolved.voice?.muezzin_name_en || null,
+      urlUsed: resolved.audioUrl,
+      isFajrVariant: resolved.isFajrVariant,
+      readyState: audio.readyState ?? 0,
+      audioError: mediaErrMsg,
+      playResult: 'load_or_decode_error',
+      pathTaken: 'html5_audio_onerror_no_fallback_tone',
+      durationSeconds: expectedDuration,
+    });
+    emitPlaybackState({
+      isPlaying: false,
+      autoplayBlocked: false,
+      errorMessage: errText,
+      audioUrlUsed: resolved.audioUrl,
+      backgroundAudioPaused: false,
+      lastDiagnostic: diag,
+    });
   };
 
   if (mode === 'takbir') {
-    // For Short Takbir mode, play the opening Takbir (~14s) and smoothly fade out
+    // Short Takbir mode plays the first 15 seconds of the real Muezzin recording and fades out smoothly
     activeTakbirFadeTimer = window.setTimeout(() => {
       const fadeStep = window.setInterval(() => {
         if (!playbackState.isPlaying || audio.paused) {
@@ -1041,108 +1234,310 @@ export async function startAdhanPlayback(options: {
           audio.volume = Math.max(0.05, audio.volume - 0.12);
         } else {
           clearInterval(fadeStep);
-          finishPlayback();
+          stopAdhanPlayback();
         }
       }, 180);
-    }, 13_500);
+    }, 14_000);
   }
 
   try {
     await audio.play();
-  } catch {
-    playSynthesizedSanctuaryTone(mode === 'takbir' ? 'takbir' : 'chime', finishPlayback);
+    const actualDuration =
+      audio.duration && !Number.isNaN(audio.duration) && Number.isFinite(audio.duration)
+        ? Math.round(audio.duration)
+        : expectedDuration;
+
+    const diag = recordAdhanDiagnostic({
+      trigger,
+      prayerKey: normalizedKey,
+      voiceId: resolved.voice?.id || null,
+      muezzinName: resolved.voice?.muezzin_name_en || null,
+      urlUsed: resolved.audioUrl,
+      isFajrVariant: resolved.isFajrVariant,
+      readyState: audio.readyState ?? 4,
+      audioError: null,
+      playResult: 'playing',
+      pathTaken: 'html5_audio_element_real_file_playing',
+      durationSeconds: actualDuration,
+    });
+
+    emitPlaybackState({
+      isPlaying: true,
+      autoplayBlocked: false,
+      errorMessage: null,
+      notificationTapScreenOpen: Boolean(options.openFullScreenModal),
+      prayerKey: normalizedKey,
+      prayerNameEn: names.english,
+      prayerNameAr: names.arabic,
+      voiceId: resolved.voice?.id || null,
+      muezzinNameEn: resolved.voice?.muezzin_name_en || 'Muezzin',
+      muezzinNameAr: resolved.voice?.muezzin_name_ar || null,
+      mosqueEn: resolved.voice?.mosque_en || null,
+      audioUrlUsed: resolved.audioUrl,
+      durationSeconds: actualDuration,
+      mode,
+      isFajrVariant: resolved.isFajrVariant,
+      backgroundAudioPaused,
+      startedAt: Date.now(),
+      lastDiagnostic: diag,
+    });
+
+    return { ok: true, status: 'playing', urlUsed: resolved.audioUrl, errorMessage: null };
+  } catch (err: any) {
+    const isNotAllowed =
+      err?.name === 'NotAllowedError' ||
+      String(err?.message || '').toLowerCase().includes('notallowed') ||
+      String(err?.message || '').toLowerCase().includes('user didn\'t interact') ||
+      String(err?.message || '').toLowerCase().includes('gesture');
+
+    if (isNotAllowed) {
+      // Browser blocked autoplay outside a user tap: keep audio.src ready and show "Tap to Play Adhan" prompt!
+      restoreAfterAdhan();
+      const diag = recordAdhanDiagnostic({
+        trigger,
+        prayerKey: normalizedKey,
+        voiceId: resolved.voice?.id || null,
+        muezzinName: resolved.voice?.muezzin_name_en || null,
+        urlUsed: resolved.audioUrl,
+        isFajrVariant: resolved.isFajrVariant,
+        readyState: audio.readyState ?? 0,
+        audioError: `${err?.name || 'NotAllowedError'}: ${err?.message || 'Autoplay blocked by browser'}`,
+        playResult: 'autoplay_blocked',
+        pathTaken: 'autoplay_blocked_showing_tap_to_play_prompt',
+        durationSeconds: expectedDuration,
+      });
+
+      emitPlaybackState({
+        isPlaying: false,
+        autoplayBlocked: true,
+        errorMessage: null,
+        notificationTapScreenOpen: true,
+        prayerKey: normalizedKey,
+        prayerNameEn: names.english,
+        prayerNameAr: names.arabic,
+        voiceId: resolved.voice?.id || null,
+        muezzinNameEn: resolved.voice?.muezzin_name_en || 'Muezzin',
+        muezzinNameAr: resolved.voice?.muezzin_name_ar || null,
+        mosqueEn: resolved.voice?.mosque_en || null,
+        audioUrlUsed: resolved.audioUrl,
+        durationSeconds: expectedDuration,
+        mode,
+        isFajrVariant: resolved.isFajrVariant,
+        backgroundAudioPaused: false,
+        startedAt: null,
+        lastDiagnostic: diag,
+      });
+
+      return {
+        ok: false,
+        status: 'autoplay_blocked',
+        urlUsed: resolved.audioUrl,
+        errorMessage: 'Browser requires a tap to start Adhan audio.',
+      };
+    }
+
+    // Any other playback failure (corrupt file, unsupported codec, network 404)
+    restoreAfterAdhan();
+    const errText = `Adhan audio is not available: ${err?.message || 'Audio playback failed.'}`;
+    const diag = recordAdhanDiagnostic({
+      trigger,
+      prayerKey: normalizedKey,
+      voiceId: resolved.voice?.id || null,
+      muezzinName: resolved.voice?.muezzin_name_en || null,
+      urlUsed: resolved.audioUrl,
+      isFajrVariant: resolved.isFajrVariant,
+      readyState: audio.readyState ?? 0,
+      audioError: `${err?.name || 'Error'}: ${err?.message || 'Playback failed'}`,
+      playResult: 'load_or_decode_error',
+      pathTaken: 'play_promise_rejected_no_fallback_tone',
+      durationSeconds: expectedDuration,
+    });
+
+    emitPlaybackState({
+      isPlaying: false,
+      autoplayBlocked: false,
+      errorMessage: errText,
+      notificationTapScreenOpen: Boolean(options.openFullScreenModal),
+      prayerKey: normalizedKey,
+      prayerNameEn: names.english,
+      prayerNameAr: names.arabic,
+      voiceId: resolved.voice?.id || null,
+      muezzinNameEn: resolved.voice?.muezzin_name_en || null,
+      muezzinNameAr: resolved.voice?.muezzin_name_ar || null,
+      mosqueEn: resolved.voice?.mosque_en || null,
+      audioUrlUsed: resolved.audioUrl,
+      durationSeconds: expectedDuration,
+      mode,
+      isFajrVariant: resolved.isFajrVariant,
+      backgroundAudioPaused: false,
+      startedAt: null,
+      lastDiagnostic: diag,
+    });
+
+    return { ok: false, status: 'load_or_decode_error', urlUsed: resolved.audioUrl, errorMessage: errText };
   }
 }
 
 /**
- * Plays an immediate preview of a specific Muezzin voice (Standard or Fajr) or tone mode.
+ * Synchronously resumes a blocked Adhan inside a user tap/click event handler (Step 2.3 & 2.4).
+ */
+export function resumeBlockedAdhanFromGesture(): void {
+  const audio = getActiveAdhanAudioElement();
+  const state = playbackState;
+
+  if (!state.audioUrlUsed) {
+    void playAdhan(state.voiceId || undefined, state.prayerKey || 'fajr', {
+      mode: state.mode === 'preview' ? 'full' : state.mode,
+      useFajrAdhan: state.isFajrVariant,
+      trigger: 'gesture_resume',
+      openFullScreenModal: false,
+    });
+    return;
+  }
+
+  const duckSnap = duckAndPauseForAdhan();
+  const backgroundAudioPaused = duckSnap.quranWasPlaying || duckSnap.ambientWasPlaying;
+
+  audio.muted = false;
+  audio.volume = 1.0;
+  if (!audio.src || audio.src !== state.audioUrlUsed) {
+    audio.src = state.audioUrlUsed;
+  }
+
+  audio
+    .play()
+    .then(() => {
+      const diag = recordAdhanDiagnostic({
+        trigger: 'gesture_resume',
+        prayerKey: state.prayerKey || 'fajr',
+        voiceId: state.voiceId,
+        muezzinName: state.muezzinNameEn,
+        urlUsed: state.audioUrlUsed,
+        isFajrVariant: state.isFajrVariant,
+        readyState: audio.readyState ?? 4,
+        audioError: null,
+        playResult: 'playing',
+        pathTaken: 'resumed_from_user_tap_gesture',
+        durationSeconds: state.durationSeconds,
+      });
+      emitPlaybackState({
+        isPlaying: true,
+        autoplayBlocked: false,
+        errorMessage: null,
+        backgroundAudioPaused,
+        startedAt: Date.now(),
+        lastDiagnostic: diag,
+      });
+    })
+    .catch((err) => {
+      restoreAfterAdhan();
+      emitPlaybackState({
+        isPlaying: false,
+        autoplayBlocked: false,
+        errorMessage: `Adhan audio is not available: ${err?.message || 'Playback failed on tap.'}`,
+      });
+    });
+}
+
+/**
+ * Wrapper used by `AdhanSchedulerOverlay` and `PrayerTimesView`.
+ */
+export async function startAdhanPlayback(options: {
+  prayerKey: string;
+  prayerNameEn: string;
+  prayerNameAr: string;
+  mode: AdhanMode;
+  preferredVoiceId?: string;
+  useFajrAdhan?: boolean;
+  voices?: AdhanVoiceRow[];
+  trigger?: AdhanDiagnosticLogEntry['trigger'];
+  openFullScreenModal?: boolean;
+}): Promise<{
+  ok: boolean;
+  status: AdhanDiagnosticLogEntry['playResult'];
+  urlUsed: string | null;
+  errorMessage: string | null;
+}> {
+  return playAdhan(options.preferredVoiceId, options.prayerKey, {
+    mode: options.mode,
+    useFajrAdhan: options.useFajrAdhan,
+    voices: options.voices,
+    trigger: options.trigger || 'scheduled',
+    openFullScreenModal: options.openFullScreenModal,
+  });
+}
+
+/**
+ * Plays an immediate preview of a specific Muezzin voice (Standard, Fajr, or Short Takbir).
+ * NEVER plays a synthetic tone — if the voice has no audio URL, emits a clear visible error message.
  */
 export async function playAdhanPreview(options: {
   voice?: AdhanVoiceRow;
-  variant?: 'standard' | 'fajr' | 'takbir' | 'chime';
-}): Promise<void> {
+  variant?: 'standard' | 'fajr' | 'takbir';
+}): Promise<{
+  ok: boolean;
+  status: AdhanDiagnosticLogEntry['playResult'];
+  urlUsed: string | null;
+  errorMessage: string | null;
+}> {
   const { voice, variant = 'standard' } = options;
 
   unlockAudio();
   stopAdhanPlayback();
 
-  const duckSnap = duckAndPauseForAdhan();
-  const backgroundAudioPaused = duckSnap.quranWasPlaying || duckSnap.ambientWasPlaying;
-
-  if (variant === 'chime') {
-    emitPlaybackState({
-      isPlaying: true,
-      prayerKey: 'preview',
-      prayerNameEn: 'Chime Preview',
-      prayerNameAr: 'معاينة التنبيه',
-      muezzinNameEn: 'Medina Sanctuary Chime',
-      muezzinNameAr: 'تنبيه الحرم الهادئ',
-      mode: 'preview',
-      isFajrVariant: false,
-      usedFallbackChime: false,
-      backgroundAudioPaused,
-      startedAt: Date.now(),
-    });
-    playSynthesizedSanctuaryTone('chime', () => stopAdhanPlayback());
-    return;
-  }
-
-  const targetUrl =
+  const rawUrl =
     variant === 'fajr'
-      ? voice?.fajr_audio_url || voice?.audio_url || null
-      : voice?.audio_url || voice?.fajr_audio_url || null;
+      ? voice?.fajr_audio_url || null
+      : voice?.audio_url || null;
+  const targetUrl = normalizeAdhanAudioUrl(rawUrl);
 
   if (!targetUrl) {
+    const missingLabel =
+      variant === 'fajr' ? 'Fajr Adhan recording' : 'Standard Adhan recording';
+    const muezzinLabel = voice?.muezzin_name_en || 'selected Muezzin';
+    const errText = `Adhan audio is not available: No ${missingLabel} has been uploaded for ${muezzinLabel}. Upload a licensed recording in Admin → Adhan Voices.`;
+
+    const diag = recordAdhanDiagnostic({
+      trigger: 'preview',
+      prayerKey: variant === 'fajr' ? 'fajr' : 'preview',
+      voiceId: voice?.id || null,
+      muezzinName: voice?.muezzin_name_en || null,
+      urlUsed: null,
+      isFajrVariant: variant === 'fajr',
+      readyState: 0,
+      audioError: errText,
+      playResult: 'missing_url',
+      pathTaken: 'preview_aborted_missing_real_audio_url',
+      durationSeconds: null,
+    });
+
     emitPlaybackState({
-      isPlaying: true,
+      isPlaying: false,
+      autoplayBlocked: false,
+      errorMessage: errText,
       prayerKey: 'preview',
-      prayerNameEn: variant === 'takbir' ? 'Short Takbir Preview' : 'Adhan Preview (Awaiting Audio Upload)',
-      prayerNameAr: 'معاينة الأذان',
-      muezzinNameEn: voice?.muezzin_name_en || 'Sanctuary Takbir Tone',
+      prayerNameEn: variant === 'fajr' ? 'Fajr Adhan Preview' : 'Adhan Preview',
+      prayerNameAr: variant === 'fajr' ? 'معاينة أذان الفجر' : 'معاينة الأذان',
+      voiceId: voice?.id || null,
+      muezzinNameEn: voice?.muezzin_name_en || null,
       muezzinNameAr: voice?.muezzin_name_ar || null,
+      mosqueEn: voice?.mosque_en || null,
+      audioUrlUsed: null,
+      durationSeconds: null,
       mode: 'preview',
       isFajrVariant: variant === 'fajr',
-      usedFallbackChime: true,
-      backgroundAudioPaused,
-      startedAt: Date.now(),
+      backgroundAudioPaused: false,
+      startedAt: null,
+      lastDiagnostic: diag,
     });
-    playSynthesizedSanctuaryTone('takbir', () => stopAdhanPlayback());
-    return;
+
+    return { ok: false, status: 'missing_url', urlUsed: null, errorMessage: errText };
   }
 
-  const audio = getAdhanAudio();
-  audio.volume = 1.0;
-  audio.currentTime = 0;
-  audio.src = targetUrl;
-
-  emitPlaybackState({
-    isPlaying: true,
-    prayerKey: 'preview',
-    prayerNameEn: variant === 'fajr' ? 'Fajr Adhan Preview' : variant === 'takbir' ? 'Short Takbir Preview' : 'Adhan Preview',
-    prayerNameAr: variant === 'fajr' ? 'معاينة أذان الفجر' : 'معاينة الأذان',
-    muezzinNameEn: voice?.muezzin_name_en || 'Muezzin',
-    muezzinNameAr: voice?.muezzin_name_ar || null,
-    mode: 'preview',
-    isFajrVariant: variant === 'fajr' && Boolean(voice?.fajr_audio_url),
-    usedFallbackChime: false,
-    backgroundAudioPaused,
-    startedAt: Date.now(),
+  return playAdhan(voice?.id, variant === 'fajr' ? 'fajr' : 'dhuhr', {
+    mode: variant === 'takbir' ? 'takbir' : 'full',
+    useFajrAdhan: variant === 'fajr',
+    voices: voice ? [voice] : undefined,
+    trigger: 'preview',
   });
-
-  audio.onended = () => stopAdhanPlayback();
-  audio.onerror = () => {
-    playSynthesizedSanctuaryTone('takbir', () => stopAdhanPlayback());
-  };
-
-  if (variant === 'takbir') {
-    activeTakbirFadeTimer = window.setTimeout(() => {
-      stopAdhanPlayback();
-    }, 15_000);
-  }
-
-  try {
-    await audio.play();
-  } catch {
-    playSynthesizedSanctuaryTone('takbir', () => stopAdhanPlayback());
-  }
 }
