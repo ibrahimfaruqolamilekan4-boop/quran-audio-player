@@ -50,6 +50,7 @@ import publicPlans from './plans';
 import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
 import paymentsDiagnostics from './admin/payments-diagnostics';
+import diagHandler from './diag';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -89,6 +90,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
   [/^\/api\/admin\/adhan-voices$/, adminAdhanVoices],
   [/^\/api\/push(\/.*)?$/, pushHandler],
+  [/^\/api\/diag$/, diagHandler],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

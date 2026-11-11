@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#06150F" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Nooraya Phase 0B — Decisive Control Audio Test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+      background-color: #06150F;
+      color: #F6F1E4;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 1.35rem;
+      margin: 0 0 6px 0;
+      color: #D4AF37;
+    }
+    .subtitle {
+      font-size: 0.85rem;
+      color: #A8BFB3;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: #0C2A20;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    button {
+      background: #D4AF37;
+      color: #06150F;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #11382B;
+      color: #F6F1E4;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      font-size: 0.82rem;
+    }
+    .stat-box {
+      background: #06150F;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .stat-label {
+      color: #A8BFB3;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stat-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 700;
+      color: #34C38F;
+      margin-top: 2px;
+      word-break: break-all;
+    }
+    #logBox {
+      background: #040E0A;
+      color: #D1DFD8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.75rem;
+      padding: 12px;
+      border-radius: 10px;
+      height: 320px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    audio {
+      width: 100%;
+      margin-top: 10px;
+    }
+    select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      background: #06150F;
+      color: #F6F1E4;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 0.88rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Phase 0B: Decisive Control Audio Test</h1>
+    <div class="subtitle">
+      Pure static HTML • Zero React • Single &lt;audio&gt; Element • Minimal Media Session • Exact Same MP3 Stream
+    </div>
+
+    <div class="card">
+      <label for="trackSelect" style="font-size:0.8rem;color:#A8BFB3;display:block;margin-bottom:6px;">
+        Select Canonical MP3 Stream (Same CDN as App):
+      </label>
+      <select id="trackSelect">
+        <option value="https://server8.mp3quran.net/afs/002.mp3">
+          Surah Al-Baqarah (002.mp3) — Mishary Rashid Alafasy (Long stream for 30m test)
+        </option>
+        <option value="https://server8.mp3quran.net/afs/001.mp3">
+          Surah Al-Fatihah (001.mp3) — Mishary Rashid Alafasy
+        </option>
+        <option value="/audio/adhan/madinah_standard.mp3">
+          Same-Origin Bundled Audio (/audio/adhan/madinah_standard.mp3)
+        </option>
+      </select>
+
+      <audio id="controlAudio" controls playsinline webkit-playsinline preload="auto" src="https://server8.mp3quran.net/afs/002.mp3"></audio>
+
+      <div class="btn-row">
+        <button id="btnPlay">Play Stream</button>
+        <button id="btnPause" class="secondary">Pause</button>
+        <button id="btnReloadResume" class="secondary">Force Reload + Resume at Timestamp</button>
+        <button id="btnCopyLogs" class="secondary">Copy Diagnostic Log</button>
+        <button id="btnClearLogs" class="secondary">Clear Log</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="status-grid">
+        <div class="stat-box">
+          <div class="stat-label">Display Mode</div>
+          <div class="stat-value" id="statMode">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">SW Controller</div>
+          <div class="stat-value" id="statSW">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Audio State</div>
+          <div class="stat-value" id="statAudio">paused</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Paused Elapsed</div>
+          <div class="stat-value" id="statPausedDuration">0s</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">readyState / netState</div>
+          <div class="stat-value" id="statReady">0 / 0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Visibility State</div>
+          <div class="stat-value" id="statVis">visible</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:0.85rem;color:#D4AF37;">Timestamped Event &amp; Lock-Screen Resume Log</strong>
+        <a href="/diag" style="color:#34C38F;font-size:0.8rem;text-decoration:none;">Open App /diag &rarr;</a>
+      </div>
+      <div id="logBox"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const audio = document.getElementById('controlAudio');
+      const trackSelect = document.getElementById('trackSelect');
+      const logBox = document.getElementById('logBox');
+      const statMode = document.getElementById('statMode');
+      const statSW = document.getElementById('statSW');
+      const statAudio = document.getElementById('statAudio');
+      const statPausedDuration = document.getElementById('statPausedDuration');
+      const statReady = document.getElementById('statReady');
+      const statVis = document.getElementById('statVis');
+
+      const STORAGE_KEY = 'nooraya_control_test_logs_v1';
+      let pausedAtMs = null;
+      let lastHeartbeatMs = Date.now();
+      let savedTime = 0;
+
+      const isStandalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true;
+      statMode.textContent = isStandalone ? 'Installed PWA' : 'Browser Tab';
+      statSW.textContent = navigator.serviceWorker && navigator.serviceWorker.controller ? 'Controlled' : 'None (Direct)';
+
+      function appendLog(event, detail) {
+        const now = new Date();
+        const ts = now.toISOString().slice(11, 23);
+        const pausedSec = pausedAtMs ? ((Date.now() - pausedAtMs) / 1000).toFixed(1) + 's' : '-';
+        const line = `[${ts}] ${event} | pos=${audio.currentTime.toFixed(1)}s | rs=${audio.readyState} ns=${audio.networkState} | pausedFor=${pausedSec} | vis=${document.visibilityState} | ${detail || ''}`;
+        console.log(line);
+        logBox.textContent = line + '\n' + logBox.textContent;
+        try {
+          const prev = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+          prev.unshift(line);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(prev.slice(0, 250)));
+        } catch (e) {}
+        updateStats();
+      }
+
+      function updateStats() {
+        statAudio.textContent = audio.paused ? 'PAUSED' : 'PLAYING (' + audio.currentTime.toFixed(1) + 's)';
+        statReady.textContent = 'rs=' + audio.readyState + ' / ns=' + audio.networkState + (audio.error ? ' ERR=' + audio.error.code : '');
+        statVis.textContent = document.visibilityState;
+        if (pausedAtMs && audio.paused) {
+          const sec = Math.floor((Date.now() - pausedAtMs) / 1000);
+          statPausedDuration.textContent = sec + 's';
+        } else {
+          statPausedDuration.textContent = '0s';
+        }
+      }
+
+      // Restore previous logs
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        if (saved.length > 0) {
+          logBox.textContent = saved.join('\n');
+        }
+      } catch (e) {}
+
+      function syncMediaSession() {
+        if (!('mediaSession' in navigator)) return;
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: 'Control Test — Surah Al-Baqarah',
+            artist: 'Mishary Rashid Alafasy',
+            album: 'Nooraya Phase 0B Control Test',
+            artwork: [
+              { src: window.location.origin + '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+              { src: window.location.origin + '/pwa-512x512.png', sizes: '512x512', type: 'image/png' }
+            ]
+          });
+          navigator.mediaSession.playbackState = audio.paused ? 'paused' : 'playing';
+          if (navigator.mediaSession.setPositionState && audio.duration > 0 && !isNaN(audio.duration)) {
+            navigator.mediaSession.setPositionState({
+              duration: audio.duration,
+              playbackRate: audio.playbackRate || 1,
+              position: Math.min(audio.currentTime, audio.duration)
+            });
+          }
+        } catch (err) {
+          appendLog('MEDIA_SESSION_ERR', err.message);
+        }
+      }
+
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', function () {
+          const waitSec = pausedAtMs ? ((Date.now() - pausedAtMs) / 1000).toFixed(1) : '0';
+          appendLog('LOCKSCREEN_ACTION_PLAY', 'Received after ' + waitSec + 's pause');
+          // Synchronous play inside MediaSession gesture
+          if (audio.error || audio.readyState === 0) {
+            const targetTime = savedTime || audio.currentTime || 0;
+            const currentSrc = audio.src;
+            appendLog('STREAM_RELOAD_ON_RESUME', 'rs=' + audio.readyState + ' restoring pos=' + targetTime.toFixed(1));
+            audio.src = currentSrc;
+            audio.currentTime = targetTime;
+          }
+          const p = audio.play();
+          if (p && p.then) {
+            p.then(function () {
+              pausedAtMs = null;
+              navigator.mediaSession.playbackState = 'playing';
+              appendLog('LOCKSCREEN_RESUME_OK', 'Resumed successfully after ' + waitSec + 's');
+            }).catch(function (err) {
+              appendLog('LOCKSCREEN_RESUME_REJECTED', (err && err.name) + ': ' + (err && err.message));
+            });
+          }
+        });
+
+        navigator.mediaSession.setActionHandler('pause', function () {
+          pausedAtMs = Date.now();
+          savedTime = audio.currentTime;
+          audio.pause();
+          navigator.mediaSession.playbackState = 'paused';
+          appendLog('LOCKSCREEN_ACTION_PAUSE', 'Paused from lock screen / Control Center');
+        });
+
+        navigator.mediaSession.setActionHandler('seekbackward', function () {
+          audio.currentTime = Math.max(0, audio.currentTime - 10);
+          appendLog('LOCKSCREEN_SEEK_BACK', '-10s');
+        });
+
+        navigator.mediaSession.setActionHandler('seekforward', function () {
+          audio.currentTime = Math.min(audio.duration || 99999, audio.currentTime + 10);
+          appendLog('LOCKSCREEN_SEEK_FWD', '+10s');
+        });
+      }
+
+      ['play', 'playing', 'pause', 'waiting', 'stalled', 'ended', 'error', 'loadedmetadata', 'canplay'].forEach(function (ev) {
+        audio.addEventListener(ev, function () {
+          if (ev === 'pause') {
+            if (!pausedAtMs) pausedAtMs = Date.now();
+            savedTime = audio.currentTime;
+          } else if (ev === 'playing') {
+            pausedAtMs = null;
+          }
+          syncMediaSession();
+          appendLog('AUDIO_' + ev.toUpperCase(), audio.error ? ('code=' + audio.error.code + ' ' + audio.error.message) : '');
+        });
+      });
+
+      audio.addEventListener('timeupdate', function () {
+        if (!audio.paused && audio.currentTime > 0) {
+          savedTime = audio.currentTime;
+        }
+        updateStats();
+      });
+
+      document.addEventListener('visibilitychange', function () {
+        appendLog('VISIBILITY_CHANGE', 'visibilityState=' + document.visibilityState);
+      });
+      window.addEventListener('pagehide', function (e) {
+        appendLog('PAGEHIDE', 'persisted=' + e.persisted);
+      });
+      window.addEventListener('pageshow', function (e) {
+        appendLog('PAGESHOW', 'persisted=' + e.persisted);
+      });
+      document.addEventListener('freeze', function () {
+        appendLog('PAGE_FREEZE', 'OS froze page');
+      });
+      document.addEventListener('resume', function () {
+        appendLog('PAGE_RESUME', 'OS resumed page');
+      });
+
+      // Heartbeat & freeze-gap detector
+      setInterval(function () {
+        const now = Date.now();
+        const delta = now - lastHeartbeatMs;
+        if (delta > 6000) {
+          appendLog('FREEZE_GAP_DETECTED', 'Process was suspended for ' + (delta / 1000).toFixed(1) + 's');
+        }
+        lastHeartbeatMs = now;
+        updateStats();
+      }, 2000);
+
+      trackSelect.addEventListener('change', function () {
+        audio.src = trackSelect.value;
+        savedTime = 0;
+        appendLog('TRACK_CHANGED', trackSelect.value);
+      });
+
+      document.getElementById('btnPlay').addEventListener('click', function () {
+        appendLog('UI_CLICK_PLAY', 'User tapped Play');
+        audio.play().then(function () {
+          syncMediaSession();
+          appendLog('UI_PLAY_RESOLVED', 'Playing');
+        }).catch(function (err) {
+          appendLog('UI_PLAY_REJECTED', err.name + ': ' + err.message);
+        });
+      });
+
+      document.getElementById('btnPause').addEventListener('click', function () {
+        pausedAtMs = Date.now();
+        savedTime = audio.currentTime;
+        audio.pause();
+        syncMediaSession();
+        appendLog('UI_CLICK_PAUSE', 'User tapped Pause');
+      });
+
+      document.getElementById('btnReloadResume').addEventListener('click', function () {
+        const t = savedTime || audio.currentTime || 0;
+        const src = audio.src;
+        audio.src = src;
+        audio.currentTime = t;
+        audio.play().then(function () {
+          appendLog('FORCE_RELOAD_RESUME_OK', 'Restored at ' + t.toFixed(1) + 's');
+        }).catch(function (err) {
+          appendLog('FORCE_RELOAD_RESUME_ERR', err.name + ': ' + err.message);
+        });
+      });
+
+      document.getElementById('btnCopyLogs').addEventListener('click', function () {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(logBox.textContent);
+          appendLog('LOGS_COPIED', 'Copied to clipboard');
+        }
+      });
+
+      document.getElementById('btnClearLogs').addEventListener('click', function () {
+        localStorage.removeItem(STORAGE_KEY);
+        logBox.textContent = '';
+        appendLog('LOGS_CLEARED', 'Started fresh session');
+      });
+
+      appendLog('CONTROL_TEST_INIT', 'Ready on ' + navigator.userAgent);
+    })();
+  </script>
+</body>
+</html>
