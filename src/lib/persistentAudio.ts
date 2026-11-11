@@ -1,10 +1,12 @@
 /**
- * Nooraya Persistent Audio Engine
- * 
- * Provides a persistent singleton HTMLAudioElement instance outside the React
- * component lifecycle to guarantee uninterrupted background playback on iOS Safari,
- * iPadOS, Android Chrome, and mobile PWAs when the screen is locked.
+ * Nooraya Persistent Audio Engine (Phase 1A Hardened)
+ *
+ * Provides persistent singleton HTMLAudioElement instances outside the React
+ * component lifecycle to guarantee uninterrupted background playback and
+ * synchronous lock-screen resume on iOS Safari, iPadOS, Android Chrome, and PWAs.
  */
+
+import { instrumentAudioElement, recordDiagEvent } from './prodDiagnostics';
 
 export interface TrackMetadata {
   title: string;
@@ -16,6 +18,37 @@ export interface TrackMetadata {
 let quranAudioInstance: HTMLAudioElement | null = null;
 let ambientAudioInstance: HTMLAudioElement | null = null;
 let adhanAudioInstance: HTMLAudioElement | null = null;
+
+/**
+ * Tracks whether the user explicitly paused playback (via UI button, lock-screen
+ * MediaSession 'pause' action, or headphone disconnect while hidden) so that
+ * visibilitychange / focus listeners never auto-unpause against the user's will.
+ */
+let deliberatePauseByUser = true;
+let lastKnownPositionSec = 0;
+let lastCanonicalStreamUrl = '';
+
+export function markDeliberateUserPause(isDeliberate: boolean): void {
+  deliberatePauseByUser = isDeliberate;
+}
+
+export function isDeliberatelyPausedByUser(): boolean {
+  return deliberatePauseByUser;
+}
+
+export function setLastCanonicalStreamUrl(url: string): void {
+  if (url && !url.startsWith('data:') && !url.startsWith('blob:')) {
+    lastCanonicalStreamUrl = url;
+  }
+}
+
+export function getLastCanonicalStreamUrl(): string {
+  return lastCanonicalStreamUrl;
+}
+
+export function getLastKnownPositionSec(): number {
+  return lastKnownPositionSec;
+}
 
 function createSafeAudioElement(): HTMLAudioElement {
   if (typeof Audio !== 'undefined') {
@@ -31,10 +64,13 @@ function createSafeAudioElement(): HTMLAudioElement {
     currentTime: 0,
     duration: 0,
     readyState: 4,
+    networkState: 1,
     error: null,
     onended: null,
     onerror: null,
     setAttribute() {},
+    addEventListener() {},
+    removeEventListener() {},
     load() {},
     async play() {
       this.paused = false;
@@ -52,7 +88,18 @@ export function getQuranAudio(): HTMLAudioElement {
     quranAudioInstance.preload = 'auto';
     quranAudioInstance.setAttribute('playsinline', 'true');
     quranAudioInstance.setAttribute('webkit-playsinline', 'true');
+    // Explicitly never set crossorigin="anonymous" on Quran streaming element
+    // so CDN redirects and Range requests are never blocked by CORS preflights.
+    quranAudioInstance.removeAttribute?.('crossorigin');
     (quranAudioInstance as any).x5Playsinline = true;
+
+    quranAudioInstance.addEventListener('timeupdate', () => {
+      if (quranAudioInstance && quranAudioInstance.currentTime > 0) {
+        lastKnownPositionSec = quranAudioInstance.currentTime;
+      }
+    });
+
+    instrumentAudioElement(quranAudioInstance, 'quran');
   }
   return quranAudioInstance;
 }
@@ -64,7 +111,9 @@ export function getAmbientAudio(): HTMLAudioElement {
     ambientAudioInstance.preload = 'auto';
     ambientAudioInstance.setAttribute('playsinline', 'true');
     ambientAudioInstance.setAttribute('webkit-playsinline', 'true');
+    ambientAudioInstance.removeAttribute?.('crossorigin');
     (ambientAudioInstance as any).x5Playsinline = true;
+    instrumentAudioElement(ambientAudioInstance, 'ambient');
   }
   return ambientAudioInstance;
 }
@@ -75,9 +124,83 @@ export function getAdhanAudio(): HTMLAudioElement {
     adhanAudioInstance.preload = 'auto';
     adhanAudioInstance.setAttribute('playsinline', 'true');
     adhanAudioInstance.setAttribute('webkit-playsinline', 'true');
+    adhanAudioInstance.removeAttribute?.('crossorigin');
     (adhanAudioInstance as any).x5Playsinline = true;
+    instrumentAudioElement(adhanAudioInstance, 'adhan');
   }
   return adhanAudioInstance;
+}
+
+/**
+ * Synchronously resumes the singleton Quran `<audio>` element inside a MediaSession
+ * or UI gesture with ZERO `await` before `audio.play()`.
+ *
+ * If the browser evicted the media buffer or closed the HTTP socket while paused
+ * on the lock screen (`readyState === 0`, `error !== null`, or `blob:` revoked),
+ * it synchronously reloads the canonical HTTPS stream URL and restores `currentTime`
+ * before calling `audio.play()`.
+ */
+export function resumeQuranPlaybackSync(options?: {
+  fallbackUrls?: string[];
+  resumePositionSec?: number;
+}): Promise<void> {
+  const audio = getQuranAudio();
+  deliberatePauseByUser = false;
+
+  const targetPos =
+    options?.resumePositionSec !== undefined && options.resumePositionSec > 0
+      ? options.resumePositionSec
+      : audio.currentTime > 0
+      ? audio.currentTime
+      : lastKnownPositionSec;
+
+  const currentSrc = audio.src || '';
+  const isBrokenBlob = currentSrc.startsWith('blob:') && (audio.readyState === 0 || Boolean(audio.error));
+  const needsReload =
+    !currentSrc ||
+    Boolean(audio.error) ||
+    audio.readyState === 0 ||
+    isBrokenBlob;
+
+  if (needsReload) {
+    const recoveryUrl =
+      lastCanonicalStreamUrl ||
+      options?.fallbackUrls?.find((u) => u && !u.startsWith('blob:')) ||
+      options?.fallbackUrls?.[0] ||
+      currentSrc;
+
+    if (recoveryUrl) {
+      recordDiagEvent({
+        category: 'media_session',
+        event: 'SYNC_STREAM_RECOVERY_BEFORE_PLAY',
+        elementId: 'quran',
+        src: recoveryUrl,
+        readyState: audio.readyState,
+        networkState: audio.networkState,
+        errorCode: audio.error ? audio.error.code : null,
+        currentTime: targetPos,
+      });
+
+      audio.src = recoveryUrl;
+      if (targetPos > 0) {
+        try {
+          audio.currentTime = targetPos;
+        } catch {
+          audio.addEventListener(
+            'loadedmetadata',
+            () => {
+              try {
+                audio.currentTime = targetPos;
+              } catch {}
+            },
+            { once: true }
+          );
+        }
+      }
+    }
+  }
+
+  return audio.play();
 }
 
 interface DuckedPlaybackSnapshot {
@@ -142,6 +265,7 @@ export function restoreAfterAdhan(): boolean {
   } catch {}
 
   if (snap.quranWasPlaying && quran.src) {
+    deliberatePauseByUser = false;
     quran.play().catch(() => {});
   }
   if (snap.ambientWasPlaying && ambient.src) {
@@ -153,7 +277,8 @@ export function restoreAfterAdhan(): boolean {
 
 export function isBackgroundAudioDuckedForAdhan(): boolean {
   return Boolean(
-    activeDuckSnapshot && (activeDuckSnapshot.quranWasPlaying || activeDuckSnapshot.ambientWasPlaying)
+    activeDuckSnapshot &&
+      (activeDuckSnapshot.quranWasPlaying || activeDuckSnapshot.ambientWasPlaying)
   );
 }
 
@@ -169,7 +294,8 @@ export function unlockAudio() {
   const quranAudio = getQuranAudio();
   const ambientAudio = getAmbientAudio();
   const adhanAudio = getAdhanAudio();
-  const silentWav = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+  const silentWav =
+    'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
   for (const el of [quranAudio, ambientAudio, adhanAudio]) {
     if (el.paused && !el.src) {
@@ -189,11 +315,11 @@ export function unlockAudio() {
 if (typeof window !== 'undefined') {
   const handleInteraction = () => {
     unlockAudio();
-    ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach(evt => {
+    ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach((evt) => {
       window.removeEventListener(evt, handleInteraction, { capture: true });
     });
   };
-  ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach(evt => {
+  ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach((evt) => {
     window.addEventListener(evt, handleInteraction, { capture: true, passive: true });
   });
 }
@@ -217,9 +343,10 @@ export function syncMediaSession(options: {
     const artwork: MediaImage[] = [];
     for (const url of metadata.artworkUrls) {
       if (!url) continue;
-      const fullUrl = url.startsWith('http') || url.startsWith('blob:')
-        ? url
-        : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+      const fullUrl =
+        url.startsWith('http') || url.startsWith('blob:')
+          ? url
+          : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
 
       artwork.push(
         { src: fullUrl, sizes: '96x96', type: 'image/jpeg' },

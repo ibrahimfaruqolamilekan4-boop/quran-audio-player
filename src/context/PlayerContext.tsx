@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
-import { getQuranAudio, getAmbientAudio } from '../lib/persistentAudio';
+import {
+  getQuranAudio,
+  getAmbientAudio,
+  markDeliberateUserPause,
+  isDeliberatelyPausedByUser,
+  setLastCanonicalStreamUrl,
+  resumeQuranPlaybackSync,
+} from '../lib/persistentAudio';
 import { fetchActiveBackgrounds, subscribeToBackgrounds } from '../lib/supabase';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS } from '../lib/constants';
@@ -18,6 +25,8 @@ import {
 import { mediaStore, uploadMediaToServer } from '../lib/upload';
 import { ALL_SURAHS } from '../lib/surahs';
 import { getOfflineAudioUrl } from '../lib/offlineManager';
+import { recordDiagEvent } from '../lib/prodDiagnostics';
+import { isFeatureEnabled } from '../lib/featureFlags';
 
 interface PlayerContextType {
   currentChapter: Chapter | null;
@@ -119,16 +128,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     loadRecitations().then(list => {
       recitationsRef.current = list;
       setRecitations(list);
-    }).catch(() => { /* storage unavailable â€” streaming still works */ });
+    }).catch(() => { /* storage unavailable — streaming still works */ });
   }, []);
   useEffect(() => { recitationsRef.current = recitations; }, [recitations]);
 
-  // Device-local reciter edits (portrait/bio, incl. curated sheikhs) â€” design.md D6.
+  // Device-local reciter edits (portrait/bio, incl. curated sheikhs) — design.md D6.
   const [reciterOverrides, setReciterOverrides] = useState<Record<string, Partial<Reciter>>>({});
   useEffect(() => {
     localforage.getItem<Record<string, Partial<Reciter>>>('reciterOverrides').then(saved => {
       if (saved && typeof saved === 'object') setReciterOverrides(saved);
-    }).catch(() => { /* storage unavailable â€” curated defaults still show */ });
+    }).catch(() => { /* storage unavailable — curated defaults still show */ });
   }, []);
 
   const updateReciterOverride = useCallback((id: string, patch: Partial<Reciter>) => {
@@ -342,13 +351,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Sync playback state with window so service worker updates never interrupt recitation
+  // Sync playback & loaded track state with window so service worker updates never interrupt recitation or lock-screen pause
   useEffect(() => {
     (window as any).__quranAudioPlaying = isPlaying;
-    if (!isPlaying) {
-      window.dispatchEvent(new CustomEvent('quran-audio-paused'));
+    (window as any).__quranTrackLoaded = Boolean(currentChapter);
+    if (!isPlaying && !currentChapter) {
+      window.dispatchEvent(new CustomEvent('quran-audio-stopped-idle'));
     }
-  }, [isPlaying]);
+  }, [isPlaying, currentChapter]);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -585,8 +595,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Move to the next candidate URL after a failure. Guarded on the element still pointing at the
-   * URL that failed, because a bad source reports itself twice â€” once by rejecting play() and
-   * once through the error event â€” and both must not burn a candidate.
+   * URL that failed, because a bad source reports itself twice — once by rejecting play() and
+   * once through the error event — and both must not burn a candidate.
    */
   const failAndAdvance = useCallback((failedUrl: string, reason: unknown) => {
     const audio = quranAudioRef.current;
@@ -629,7 +639,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
     }
-    if (isObjectUrl(url)) objectUrlRef.current = url;
+    if (isObjectUrl(url)) {
+      objectUrlRef.current = url;
+    } else {
+      setLastCanonicalStreamUrl(url);
+    }
 
     audio.src = url;
     if (attempt.resumeAt > 0) {
@@ -638,10 +652,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!attempt.autoplay) {
+      markDeliberateUserPause(true);
       setIsLoading(false);
       return;
     }
 
+    markDeliberateUserPause(false);
     audio
       .play()
       .catch(error => {
@@ -675,8 +691,41 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const updateTime = () => setCurrentTime(quranAudioRef.current?.currentTime || 0);
     const updateDuration = () => setDuration(quranAudioRef.current?.duration || 0);
     const handleEnded = () => nextChapterRef.current();
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => { if (document.visibilityState === 'hidden') return; setIsPlaying(false); };
+    const handlePlay = () => {
+      markDeliberateUserPause(false);
+      setIsPlaying(true);
+      try {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing';
+        }
+      } catch {}
+    };
+    const handlePause = () => {
+      const qa = quranAudioRef.current;
+      // Do not treat track end transition as a user pause
+      if (qa && qa.ended) return;
+
+      // CRITICAL FIX (Phase 1A): Even when document.visibilityState === 'hidden'
+      // (i.e. phone screen is locked and user pressed Pause on the lock screen or
+      // unplugged headphones), we MUST update isPlaying = false, pause ambient audio,
+      // and set mediaSession.playbackState = 'paused' so the lock screen shows the
+      // Play button and pressing Play resumes synchronously!
+      if (isFeatureEnabled('newAudioResumeEngine')) {
+        markDeliberateUserPause(true);
+        if (ambientAudioRef.current && !ambientAudioRef.current.paused) {
+          ambientAudioRef.current.pause();
+        }
+        setIsPlaying(false);
+        try {
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'paused';
+          }
+        } catch {}
+      } else {
+        if (document.visibilityState === 'hidden') return;
+        setIsPlaying(false);
+      }
+    };
     
     // Buffering and loading indicators
     const handleWaiting = () => setIsLoading(true);
@@ -690,7 +739,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const attempt = attemptRef.current;
       setIsLoading(false);
       setPlaybackError(null);
+      setIsPlaying(true);
       if (!attempt?.playedUrl) return;
+      if (!isObjectUrl(attempt.playedUrl)) {
+        setLastCanonicalStreamUrl(attempt.playedUrl);
+      }
       rememberFormat(attempt.reciterId, attempt.pendingFormat || 'mp3');
       cacheInBackground(attempt.playedUrl, attempt.cacheKey);
     };
@@ -797,14 +850,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentAmbient, isPlaying, ambientVolume]);
 
-  // Auto-resume audio if browser throttled during background or tab-switch
+  // Auto-resume audio ONLY if the browser throttled during tab-switch (never if user paused on lock screen)
   useEffect(() => {
     const handleVisibility = () => {
+      if (isDeliberatelyPausedByUser()) return;
       if (!document.hidden && isPlaying && quranAudioRef.current?.paused) {
-        quranAudioRef.current.play().catch(() => {});
-        if (currentAmbient && ambientAudioRef.current?.paused) {
-          ambientAudioRef.current.play().catch(() => {});
-        }
+        resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
+          .then(() => {
+            if (currentAmbient && ambientAudioRef.current?.paused) {
+              ambientAudioRef.current.play().catch(() => {});
+            }
+          })
+          .catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -813,7 +870,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Load one surah for one reciter: the cached copy if we already have it, otherwise the first
-   * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens â€” the whole file
+   * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens — the whole file
    * is never downloaded up front, which used to make every surah start dead silent.
    */
   const startChapter = useCallback((
@@ -888,15 +945,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     }
 
-    // Check offline cache in background without delaying immediate playback start
-    localforage.getItem<Blob>(cacheKey).then(cached => {
-      if (cached && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.paused) {
-        const blobUrl = URL.createObjectURL(cached);
-        if (attemptRef.current) {
-          attemptRef.current.urls = [blobUrl, ...streamUrls];
-        }
-      }
-    }).catch(() => {});
+    // Check CacheStorage offline URL (/offline-audio/ with 206 Range support) without using revocable Blob URLs
+    if (!useAyahStream) {
+      getOfflineAudioUrl(chapter.id, reciter.id)
+        .then(offlineUrl => {
+          if (offlineUrl && attemptRef.current?.cacheKey === cacheKey) {
+            attemptRef.current.urls = [offlineUrl, ...streamUrls];
+            if (!offlineUrl.startsWith('blob:')) {
+              setLastCanonicalStreamUrl(offlineUrl);
+            }
+          }
+        })
+        .catch(() => {});
+    }
   }, [attemptPlayback]);
 
   const setPlayMode = (mode: 'surah' | 'ayah') => {
@@ -957,10 +1018,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (isPlaying) {
+    const actuallyPlaying = isPlaying && !audio.paused;
+    if (actuallyPlaying) {
+      markDeliberateUserPause(true);
       audio.pause();
       ambientAudioRef.current?.pause();
       setIsPlaying(false);
+      try {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'paused';
+        }
+      } catch {}
       return;
     }
 
@@ -974,24 +1042,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     // Nothing loaded any more (every candidate failed, or the element was reset): retry.
     if (!audio.src || (attempt && attempt.index >= attempt.urls.length)) {
       if (!reciter) return;
-      startChapter(currentChapter, reciter, { autoplay: true });
+      startChapter(currentChapter, reciter, { autoplay: true, resumeAt: currentTime });
       return;
     }
 
     setPlaybackError(null);
+    markDeliberateUserPause(false);
     if (typeof window !== 'undefined') {
       try { window.dispatchEvent(new CustomEvent('quran-play-gesture')); } catch {}
     }
-    audio
-      .play()
+
+    const playPromise = isFeatureEnabled('newAudioResumeEngine')
+      ? resumeQuranPlaybackSync({
+          fallbackUrls: attempt?.urls,
+          resumePositionSec: audio.currentTime || currentTime,
+        })
+      : audio.play();
+
+    playPromise
       .then(() => {
         if (currentAmbient && ambientAudioRef.current && ambientAudioRef.current.src) {
           ambientAudioRef.current.play().catch(e => console.warn(e?.message || String(e)));
         }
         setIsPlaying(true);
+        try {
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+          }
+        } catch {}
       })
       .catch(e => {
-        console.error("Play blocked", e?.message || String(e));
+        console.error('Play blocked', e?.message || String(e));
         if (e?.name === 'NotAllowedError') {
           setPlaybackError('Tap play again - the browser needs a gesture before audio can start.');
         } else {
@@ -1113,11 +1194,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const ayahText = currentAyah ? ` â€¢ Ayah ${currentAyah.ayah}` : '';
+    const ayahText = currentAyah ? ` • Ayah ${currentAyah.ayah}` : '';
     const chapterTitle = `${currentChapter.name_simple} (${currentChapter.name_arabic})${ayahText}`;
     const reciterName = currentReciter.name + (currentReciter.nameArabic ? ` (${currentReciter.nameArabic})` : '');
 
-        const artwork: MediaImage[] = [];
+    const artwork: MediaImage[] = [];
     if (currentReciter.imageUrl) {
       const fullImageUrl = currentReciter.imageUrl.startsWith('http')
         ? currentReciter.imageUrl
@@ -1138,7 +1219,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: chapterTitle,
         artist: reciterName,
-        album: 'The Noble Quran â€¢ ?????? ??????',
+        album: 'The Noble Quran • القرآن الكريم',
         artwork,
       });
     } catch (e) {
@@ -1164,16 +1245,31 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentTime, duration, playbackRate, currentChapter]);
 
-  // MediaSession action handlers (next, prev, play, pause, seek) â€” registered once via refs
+  // MediaSession action handlers (next, prev, play, pause, seek) — 100% synchronous inside gesture
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
     const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
       ['play', () => {
         const audio = quranAudioRef.current;
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_PLAY',
+          elementId: 'quran',
+          readyState: audio?.readyState,
+          networkState: audio?.networkState,
+          currentTime: audio?.currentTime,
+          src: audio?.src,
+        });
         if (!audio) return;
-        audio
-          .play()
+
+        markDeliberateUserPause(false);
+
+        const playPromise = isFeatureEnabled('newAudioResumeEngine')
+          ? resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
+          : audio.play();
+
+        playPromise
           .then(() => {
             setIsPlaying(true);
             if (ambientAudioRef.current && ambientAudioRef.current.src) {
@@ -1186,17 +1282,27 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             window.setTimeout(() => {
               const retry = quranAudioRef.current;
               if (!retry) return;
-              retry
-                .play()
+              resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
                 .then(() => {
                   setIsPlaying(true);
                   try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
                 })
                 .catch(() => {});
-            }, 250);
+            }, 200);
           });
       }],
       ['pause', () => {
+        const audio = quranAudioRef.current;
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_PAUSE',
+          elementId: 'quran',
+          readyState: audio?.readyState,
+          networkState: audio?.networkState,
+          currentTime: audio?.currentTime,
+          src: audio?.src,
+        });
+        markDeliberateUserPause(true);
         if (quranAudioRef.current) {
           quranAudioRef.current.pause();
         }
@@ -1207,25 +1313,61 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
       }],
       ['previoustrack', () => {
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_PREVIOUSTRACK',
+          elementId: 'quran',
+        });
+        markDeliberateUserPause(false);
         prevChapterRef.current();
       }],
       ['nexttrack', () => {
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_NEXTTRACK',
+          elementId: 'quran',
+        });
+        markDeliberateUserPause(false);
         nextChapterRef.current();
       }],
       ['seekbackward', (details) => {
         const skip = details.seekOffset || 10;
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_SEEKBACKWARD',
+          elementId: 'quran',
+          details: { skip },
+        });
         seekRef.current(Math.max((quranAudioRef.current?.currentTime || 0) - skip, 0));
       }],
       ['seekforward', (details) => {
         const skip = details.seekOffset || 10;
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_SEEKFORWARD',
+          elementId: 'quran',
+          details: { skip },
+        });
         seekRef.current(Math.min((quranAudioRef.current?.currentTime || 0) + skip, quranAudioRef.current?.duration || 0));
       }],
       ['seekto', (details) => {
         if (details.seekTime !== undefined && details.seekTime !== null) {
+          recordDiagEvent({
+            category: 'media_session',
+            event: 'MEDIASSESSION_ACTION_SEEKTO',
+            elementId: 'quran',
+            details: { seekTime: details.seekTime },
+          });
           seekRef.current(details.seekTime);
         }
       }],
       ['stop', () => {
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'MEDIASSESSION_ACTION_STOP',
+          elementId: 'quran',
+        });
+        markDeliberateUserPause(true);
         if (quranAudioRef.current) {
           quranAudioRef.current.pause();
         }
