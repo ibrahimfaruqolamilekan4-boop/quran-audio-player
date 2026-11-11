@@ -9,7 +9,7 @@
 import { createClient, type SupabaseClient, type RealtimeChannel } from '@supabase/supabase-js';
 
 export interface VideoRendition {
-  resolution: '720p' | '480p' | '360p' | 'original';
+  resolution: '720p' | '480p' | '360p' | '1080p' | 'portrait-720p' | 'portrait-1080p' | 'original';
   url: string;
   size_bytes?: number;
   width?: number;
@@ -497,20 +497,40 @@ export function selectAdaptiveRendition(bg: {
   video_url?: string;
   video_url_720p?: string | null;
   video_url_480p?: string | null;
+  video_url_1080p?: string | null;
   renditions?: VideoRendition[] | null;
 }): string {
+  if (!bg) return '';
   const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
   const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
   const saveData = conn?.saveData === true;
   const effectiveType = conn?.effectiveType || '';
-  const isSlowConnection = saveData || effectiveType === 'slow-2g' || effectiveType === '2g' || effectiveType === '3g';
-  const isMobileScreen = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  const isExtremelySlow = saveData || effectiveType === 'slow-2g' || effectiveType === '2g';
 
-  const url480p = bg.video_url_480p || bg.renditions?.find((r) => r.resolution === '480p')?.url;
+  const isPortrait = typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false;
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+  // 1. If portrait renditions are available, prefer matching orientation to avoid 3x zoom
+  if (isPortrait && bg.renditions) {
+    const portrait1080 = bg.renditions.find((r) => r.resolution === 'portrait-1080p');
+    const portrait720 = bg.renditions.find((r) => r.resolution === 'portrait-720p');
+    if (!isExtremelySlow && dpr >= 2.5 && portrait1080?.url) return portrait1080.url;
+    if (portrait720?.url) return portrait720.url;
+  }
+
+  // 2. High-DPI Mobile & Desktop Default: 720p or 1080p for crisp OLED/Retina rendering
+  const url1080p = (bg as any).video_url_1080p || bg.renditions?.find((r) => r.resolution === '1080p')?.url;
   const url720p = bg.video_url_720p || bg.renditions?.find((r) => r.resolution === '720p')?.url;
+  const url480p = bg.video_url_480p || bg.renditions?.find((r) => r.resolution === '480p')?.url;
 
-  if ((isSlowConnection || isMobileScreen) && url480p) {
+  // Only step down to 480p on verified cellular save-data or 2G connections
+  if (isExtremelySlow && url480p) {
     return url480p;
+  }
+
+  // High-end screens on fast connection: 1080p if available
+  if (dpr >= 2.5 && !isExtremelySlow && url1080p) {
+    return url1080p;
   }
 
   if (url720p) return url720p;

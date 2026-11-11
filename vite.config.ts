@@ -127,6 +127,14 @@ export default defineConfig(() => {
           navigateFallbackDenylist: [/^\/api\/.*/, /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i],
           runtimeCaching: [
             {
+              urlPattern: /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i,
+              handler: 'NetworkOnly',
+            },
+            {
+              urlPattern: /^https:\/\/.*\.mp3quran\.net\/.*/i,
+              handler: 'NetworkOnly',
+            },
+            {
               urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/,
               handler: 'CacheFirst',
               options: {

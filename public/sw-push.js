@@ -4,7 +4,7 @@ self.addEventListener('push', function (event) {
     title: 'Prayer Time',
     body: 'Time for prayer has arrived.',
     prayer: 'fajr',
-    url: '/prayer-times',
+    url: '/prayer-times?autoPlayAdhan=true',
   };
 
   if (event.data) {
@@ -21,11 +21,11 @@ self.addEventListener('push', function (event) {
     badge: '/icon.svg',
     vibrate: [200, 100, 200, 100, 300],
     data: {
-      url: data.url || '/prayer-times',
+      url: data.url || '/prayer-times?autoPlayAdhan=true',
       prayer: data.prayer,
     },
     actions: [
-      { action: 'open', title: 'Open Nooraya' },
+      { action: 'open', title: 'Open & Listen' },
       { action: 'silence', title: 'Silence' },
     ],
   };
@@ -57,4 +57,27 @@ self.addEventListener('notificationclick', function (event) {
       }
     })
   );
+});
+
+// Test Notification Scheduler via Service Worker
+self.addEventListener('message', function (event) {
+  if (event.data && event.data.type === 'SCHEDULE_TEST_NOTIFICATION') {
+    const delayMs = event.data.delayMs || 10000;
+    setTimeout(function () {
+      self.registration.showNotification('Test Prayer Notification (10s)', {
+        body: 'Allahu Akbar • Time for prayer has arrived. Tap to listen to Adhan.',
+        icon: '/pwa-192x192.png',
+        badge: '/icon.svg',
+        vibrate: [200, 100, 200, 100, 300],
+        data: {
+          url: '/prayer-times?autoPlayAdhan=true',
+          prayer: 'fajr',
+        },
+        actions: [
+          { action: 'open', title: 'Open & Play Adhan' },
+          { action: 'silence', title: 'Dismiss' },
+        ],
+      });
+    }, delayMs);
+  }
 });

@@ -1,3 +1,6 @@
+
+import { instrumentAudioElement, recordDiagnosticEvent } from './diagnostics';
+
 /**
  * Nooraya Persistent Audio Engine
  * 
@@ -23,6 +26,7 @@ export function getQuranAudio(): HTMLAudioElement {
     quranAudioInstance.setAttribute('playsinline', 'true');
     quranAudioInstance.setAttribute('webkit-playsinline', 'true');
     (quranAudioInstance as any).x5Playsinline = true;
+    instrumentAudioElement(quranAudioInstance, 'quranAudio');
   }
   return quranAudioInstance;
 }
@@ -35,9 +39,12 @@ export function getAmbientAudio(): HTMLAudioElement {
     ambientAudioInstance.setAttribute('playsinline', 'true');
     ambientAudioInstance.setAttribute('webkit-playsinline', 'true');
     (ambientAudioInstance as any).x5Playsinline = true;
+    instrumentAudioElement(ambientAudioInstance, 'ambientAudio');
   }
   return ambientAudioInstance;
 }
+
+
 
 /**
  * Updates the Media Session API with high-resolution artwork (96, 256, 512),

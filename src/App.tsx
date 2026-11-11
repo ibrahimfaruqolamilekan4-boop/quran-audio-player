@@ -22,6 +22,7 @@ import { PremiumView } from './views/PremiumView';
 import { PrayerTimesView } from './views/PrayerTimesView';
 import { QiblaView } from './views/QiblaView';
 import { AzkarView } from './views/AzkarView';
+import { DiagnosticsView } from './views/DiagnosticsView';
 import { getChapters } from './lib/api';
 import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
@@ -169,6 +170,8 @@ export default function App() {
                 <Route path="/" element={<LandingView />} />
                 <Route path="/auth" element={<AuthView />} />
                 <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
+                <Route path="/diag" element={<DiagnosticsView />} />
+                <Route path="/dashboard/diag" element={<DiagnosticsView />} />
                 <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
                 <Route path="/premium" element={<Navigate to="/dashboard/premium" replace />} />
                 <Route path="*" element={<Navigate to="/" />} />

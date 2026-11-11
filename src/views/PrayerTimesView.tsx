@@ -48,6 +48,7 @@ import {
   subscribeToPrayerPush,
   unsubscribeFromPrayerPush,
   PushSubscriptionState,
+  scheduleTestNotification,
 } from '../lib/pushNotifications';
 
 const PRAYER_NAMES = [
@@ -860,22 +861,35 @@ export function PrayerTimesView() {
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleTogglePush}
-                    disabled={pushLoading}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap ${
-                      pushState?.isSubscribed
-                        ? 'bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30'
-                        : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                    }`}
-                  >
-                    {pushLoading
-                      ? 'Connecting...'
-                      : pushState?.isSubscribed
-                      ? 'Disable Push Alerts'
-                      : 'Enable Web Push Alerts'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await scheduleTestNotification(10);
+                        setPushFeedback(res.message);
+                      }}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold bg-[#0A261D] border border-emerald-700/60 text-emerald-300 hover:bg-[#12382B] transition-all cursor-pointer whitespace-nowrap shadow-sm"
+                      title="Schedules a real notification in 10s so you can lock your device and test"
+                    >
+                      Test in 10s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTogglePush}
+                      disabled={pushLoading}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap ${
+                        pushState?.isSubscribed
+                          ? 'bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      }`}
+                    >
+                      {pushLoading
+                        ? 'Connecting...'
+                        : pushState?.isSubscribed
+                        ? 'Disable Push Alerts'
+                        : 'Enable Web Push Alerts'}
+                    </button>
+                  </div>
                 </div>
 
                 {pushFeedback && (

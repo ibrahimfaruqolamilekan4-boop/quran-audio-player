@@ -621,7 +621,7 @@ function getVideoPoster(url: string | null | undefined): string {
             backgroundImage: `url(${getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
-            filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+            transform: 'translateZ(0)',
             zIndex: 1,
           }}
         />
@@ -653,7 +653,7 @@ function getVideoPoster(url: string | null | undefined): string {
           minHeight: '100%',
           objectFit: 'cover',
           opacity: slotAOpacity,
-            filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+            transform: 'translateZ(0)', willChange: 'opacity',
           zIndex: 1,
         }}
         onCanPlay={() => playVideoSafe(videoRefA.current)}
@@ -691,7 +691,7 @@ function getVideoPoster(url: string | null | undefined): string {
           minHeight: '100%',
           objectFit: 'cover',
           opacity: slotBOpacity,
-            filter: `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+            transform: 'translateZ(0)', willChange: 'opacity',
           zIndex: 1,
         }}
         onCanPlay={() => playVideoSafe(videoRefB.current)}

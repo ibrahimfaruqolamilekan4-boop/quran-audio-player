@@ -190,3 +190,45 @@ export async function unsubscribeFromPrayerPush(): Promise<{ ok: boolean; messag
     return { ok: false, message: err?.message || 'Failed to unsubscribe.' };
   }
 }
+
+export async function scheduleTestNotification(delaySeconds = 10): Promise<{ ok: boolean; message: string }> {
+  try {
+    if (!('Notification' in window)) {
+      return { ok: false, message: 'Notifications are not supported in this browser.' };
+    }
+    if (Notification.permission !== 'granted') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        return { ok: false, message: 'Notification permission was denied.' };
+      }
+    }
+
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'SCHEDULE_TEST_NOTIFICATION',
+          delayMs: delaySeconds * 1000,
+        });
+        return {
+          ok: true,
+          message: `Test notification scheduled in ${delaySeconds}s! You may now lock your screen or switch apps to test.`,
+        };
+      }
+    }
+
+    setTimeout(() => {
+      new Notification('Test Prayer Notification', {
+        body: 'Time for prayer has arrived. Tap to listen to Adhan.',
+        icon: '/pwa-192x192.png',
+      });
+    }, delaySeconds * 1000);
+
+    return {
+      ok: true,
+      message: `Test notification scheduled in ${delaySeconds}s!`,
+    };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Failed to schedule test notification.' };
+  }
+}

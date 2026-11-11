@@ -261,29 +261,54 @@ ${colors.bold}Guarantees:${colors.reset}
   ];
   await runFFmpegCommand(ffmpegBin, posterArgs, 'Poster Thumbnail (1s frame)');
 
-  // Task 2: 720p Rendition (Desktop / Fast Wi-Fi / Tablets)
-  // Standards: MP4, H.264 Main, yuv420p, no audio (-an), constant 30fps, 2.2M max 2.5M, keyframe every 1s, faststart
+  // Task 2: Landscape 720p Rendition (Desktop / Tablets)
+  // Standards: H.264 High 4.1, yuv420p, 30fps, lanczos scaling, keyframe every 2s, faststart
   const out720pPath = path.join(outDir, '720p.mp4');
   const args720p = [
     '-y',
     ...trimArgs,
     '-i', resolvedInput,
-    '-vf', "scale='min(1280,iw)':-2",
+    '-vf', "scale='min(1280,iw)':-2:flags=lanczos",
     '-c:v', 'libx264',
-    '-profile:v', 'main',
+    '-profile:v', 'high',
+    '-level', '4.1',
     '-pix_fmt', 'yuv420p',
     '-an',
     '-r', '30',
-    '-b:v', '2200k',
-    '-maxrate', '2500k',
-    '-bufsize', '5000k',
-    '-g', '30',
+    '-crf', '22',
+    '-maxrate', '3000k',
+    '-bufsize', '6000k',
+    '-g', '60',
     '-keyint_min', '30',
     '-sc_threshold', '0',
     '-movflags', '+faststart',
     out720pPath,
   ];
-  await runFFmpegCommand(ffmpegBin, args720p, '720p High-Quality Rendition (Main profile, 30fps, faststart)');
+  await runFFmpegCommand(ffmpegBin, args720p, '720p Landscape Rendition (High 4.1, 30fps, lanczos)');
+
+  // Task 2B: Phone Portrait Rendition (720x1280, 9:16 - eliminates 3x zoom blur on mobile)
+  const outPortraitPath = path.join(outDir, 'portrait_720p.mp4');
+  const argsPortrait = [
+    '-y',
+    ...trimArgs,
+    '-i', resolvedInput,
+    '-vf', "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)':(iw-ow)/2:(ih-oh)/2,scale=720:1280:flags=lanczos",
+    '-c:v', 'libx264',
+    '-profile:v', 'high',
+    '-level', '4.1',
+    '-pix_fmt', 'yuv420p',
+    '-an',
+    '-r', '30',
+    '-crf', '21',
+    '-maxrate', '3500k',
+    '-bufsize', '7000k',
+    '-g', '60',
+    '-keyint_min', '30',
+    '-sc_threshold', '0',
+    '-movflags', '+faststart',
+    outPortraitPath,
+  ];
+  await runFFmpegCommand(ffmpegBin, argsPortrait, 'Portrait 720x1280 Rendition (High 4.1, 9:16 crop, crisp mobile OLED)');
 
   // Task 3: 480p Rendition (Mobile Phones / Cellular Data / iOS Low Power Mode)
   // Standards: MP4, H.264 Main, yuv420p, no audio (-an), constant 24fps, 1.0M max 1.2M, keyframe every 1s, faststart

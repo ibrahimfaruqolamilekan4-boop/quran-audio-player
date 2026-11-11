@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { getQuranAudio, getAmbientAudio } from '../lib/persistentAudio';
+import { markUserPaused } from '../lib/backgroundAudio';
 import { fetchActiveBackgrounds, subscribeToBackgrounds } from '../lib/supabase';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS } from '../lib/constants';
@@ -648,7 +649,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const updateDuration = () => setDuration(quranAudioRef.current?.duration || 0);
     const handleEnded = () => nextChapterRef.current();
     const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => { if (document.visibilityState === 'hidden') return; setIsPlaying(false); };
+    const handlePause = () => { setIsPlaying(false); try { navigator.mediaSession.playbackState = 'paused'; } catch {} };
     // 'playing' means real decoded audio is flowing: this is the only place a format is trusted.
     const handlePlaying = () => {
       const attempt = attemptRef.current;
@@ -686,9 +687,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       quranAudio.removeEventListener('pause', handlePause);
       quranAudio.removeEventListener('playing', handlePlaying);
       quranAudio.removeEventListener('error', handleError);
-
-      quranAudio.pause();
-      ambientAudioRef.current?.pause();
+      // NOTE: Persistent singleton audio element must NOT be paused on React hook unmount
     };
   }, [attemptPlayback, failAndAdvance, cacheInBackground]);
 
@@ -910,11 +909,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (isPlaying) {
+      markUserPaused(true);
       audio.pause();
       ambientAudioRef.current?.pause();
       setIsPlaying(false);
+      try { navigator.mediaSession.playbackState = 'paused'; } catch {}
       return;
     }
+    markUserPaused(false);
 
     const attempt = attemptRef.current;
     // Nothing loaded any more (every candidate failed, or the element was reset): retry.
@@ -1113,33 +1115,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
       ['play', () => {
+        markUserPaused(false);
         const audio = quranAudioRef.current;
         if (!audio) return;
-        audio
-          .play()
-          .then(() => {
+
+        // Recover src if lost during iOS background memory purge
+        if (!audio.src && attemptRef.current?.playedUrl) {
+          audio.src = attemptRef.current.playedUrl;
+          if (currentTime > 0) audio.currentTime = currentTime;
+        }
+
+        if (audio.readyState === 0 && audio.src) {
+          const resumeTime = audio.currentTime || currentTime || 0;
+          audio.load();
+          if (resumeTime > 0) audio.currentTime = resumeTime;
+        }
+
+        const p = audio.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => {
             setIsPlaying(true);
-            if (ambientAudioRef.current && ambientAudioRef.current.src) {
+            try { navigator.mediaSession.playbackState = 'playing'; } catch {}
+            if (ambientAudioRef.current && ambientAudioRef.current.src && ambientVolume > 0) {
               ambientAudioRef.current.play().catch(() => {});
             }
-            try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-          })
-          .catch(() => {
-            try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
-            window.setTimeout(() => {
-              const retry = quranAudioRef.current;
-              if (!retry) return;
-              retry
-                .play()
-                .then(() => {
-                  setIsPlaying(true);
-                  try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-                })
-                .catch(() => {});
-            }, 250);
+          }).catch(() => {
+            try { navigator.mediaSession.playbackState = 'paused'; } catch {}
           });
+        }
       }],
       ['pause', () => {
+        markUserPaused(true);
         if (quranAudioRef.current) {
           quranAudioRef.current.pause();
         }

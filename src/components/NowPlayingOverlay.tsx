@@ -227,7 +227,7 @@ export function NowPlayingOverlay() {
           aria-modal="true"
           aria-label="Now playing"
           tabIndex={-1}
-          className="fixed inset-0 z-[90] flex flex-col justify-between overflow-hidden outline-none select-none"
+          className="fixed inset-0 z-[90] flex flex-col justify-between overflow-hidden outline-none select-none bg-[#06150F]"
           initial={reduceMotion ? { opacity: 0 } : { y: '100%' }}
           animate={reduceMotion ? { opacity: 1 } : { y: 0 }}
           exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
@@ -245,7 +245,7 @@ export function NowPlayingOverlay() {
            * directly behind this transparent container. We apply a soft protective gradient
            * at the top and bottom so text is 100% readable while the video remains vivid & visible!
            */}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/85 via-black/40 to-black/90 z-10" />
 
           {/* =========================================================================
               TOP BAR: Minimize Chevron, Soundscape Pill, Options

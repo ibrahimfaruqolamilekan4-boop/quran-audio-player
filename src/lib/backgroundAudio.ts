@@ -1,38 +1,55 @@
 /**
  * Background playback guard for the Quran player.
  *
- * Mobile browsers and the OS (battery savers, hidden-tab freezing, audio-focus
- * loss) pause or suspend page audio the moment the app leaves the foreground.
- * While hidden the page is not allowed to run code, so the only reliable moment
- * to recover playback is the instant it becomes visible again.
- *
- * This module patches the global `Audio` constructor so it can keep a registry
- * of every audio element the player creates (they are detached instances, so
- * they cannot be reached through the DOM). When the page returns to the
- * foreground it resumes anything that was playing before it was suspended and
- * re-asserts the MediaSession playback state so the lock-screen and notification
- * controls stay in sync with what is actually audibly playing.
+ * Coordinates foreground/background transitions, prevents fighting deliberate user pauses,
+ * and maintains MediaSession state synchronization.
  */
+
+import { recordDiagnosticEvent } from './diagnostics';
 
 type TrackedEntry = { wasPlaying: boolean };
 
 const tracked = new Map<HTMLAudioElement, TrackedEntry>();
 
+export function markUserPaused(paused: boolean) {
+  if (typeof window !== 'undefined') {
+    (window as any).__noorayaUserPaused = paused;
+    if (paused) {
+      tracked.forEach((entry) => {
+        entry.wasPlaying = false;
+      });
+    }
+  }
+}
+
 function track(el: HTMLAudioElement, entry: TrackedEntry) {
   if (tracked.has(el)) return;
   tracked.set(el, entry);
 
-  // `playing` is the trustworthy "audio is really flowing" signal.
-  el.addEventListener('playing', () => { entry.wasPlaying = true; });
-  el.addEventListener('play', () => { entry.wasPlaying = true; });
-  el.addEventListener('ended', () => { entry.wasPlaying = false; });
-  el.addEventListener('pause', () => {
-    // A pause while the page is hidden is almost always the browser or OS
-    // suspending us, not the listener stopping the recitation. Remember the
-    // intent to play so we can resume on return instead of fighting the user.
-    // When the page is visible a pause is a real, deliberate user action.
-    if (document.visibilityState === 'hidden') return;
+  el.addEventListener('playing', () => {
+    entry.wasPlaying = true;
+    (window as any).__noorayaUserPaused = false;
+    recordDiagnosticEvent('audio', 'guard:playing', { src: el.src ? el.src.slice(0, 100) : '' });
+  });
+
+  el.addEventListener('play', () => {
+    entry.wasPlaying = true;
+    (window as any).__noorayaUserPaused = false;
+  });
+
+  el.addEventListener('ended', () => {
     entry.wasPlaying = false;
+    recordDiagnosticEvent('audio', 'guard:ended');
+  });
+
+  el.addEventListener('pause', () => {
+    // If user explicitly triggered pause or if visible, update wasPlaying to false
+    if ((window as any).__noorayaUserPaused || document.visibilityState === 'visible') {
+      entry.wasPlaying = false;
+      recordDiagnosticEvent('audio', 'guard:user_pause');
+    } else {
+      recordDiagnosticEvent('audio', 'guard:background_os_pause');
+    }
   });
 }
 
@@ -55,6 +72,9 @@ if (typeof window !== 'undefined' && !(window as any).__noorayaAudioGuard) {
   const resumeSuspended = () => {
     if (document.visibilityState !== 'visible') return;
 
+    // Never auto-resume if the user intentionally paused!
+    if ((window as any).__noorayaUserPaused) return;
+
     const toResume: HTMLAudioElement[] = [];
     tracked.forEach((entry, el) => {
       if (entry.wasPlaying && el.paused && (el.src || el.currentSrc)) {
@@ -63,12 +83,18 @@ if (typeof window !== 'undefined' && !(window as any).__noorayaAudioGuard) {
     });
     if (toResume.length === 0) return;
 
-    // Best effort: succeeds while the media session is still valid and is
-    // harmlessly rejected (caught below) when a fresh gesture is required.
-    toResume.forEach(el => { el.play().catch(() => { /* needs a user gesture */ }); });
+    recordDiagnosticEvent('audio', 'guard:auto_resuming_interrupted_tracks', { count: toResume.length });
+
+    toResume.forEach((el) => {
+      el.play().catch((err) => {
+        recordDiagnosticEvent('audio', 'guard:auto_resume_failed', { message: err?.message });
+      });
+    });
 
     if ('mediaSession' in navigator) {
-      try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+      try {
+        navigator.mediaSession.playbackState = 'playing';
+      } catch {}
     }
   };
 
