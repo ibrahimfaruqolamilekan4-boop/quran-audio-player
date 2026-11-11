@@ -1,3 +1,4 @@
+import { DiagnosticsView } from './views/DiagnosticsView';
 import React, { useState, useEffect, useRef } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
@@ -22,13 +23,12 @@ import { PremiumView } from './views/PremiumView';
 import { PrayerTimesView } from './views/PrayerTimesView';
 import { QiblaView } from './views/QiblaView';
 import { AzkarView } from './views/AzkarView';
-import { DiagnosticsView } from './views/DiagnosticsView';
 import { getChapters } from './lib/api';
 import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
 import { PWAInstallHeader } from './components/PWAInstallHeader';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { AdhanBanner } from './components/AdhanBanner';
+import { AdhanSchedulerOverlay } from './components/AdhanSchedulerOverlay';
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
   const { user, role, loading } = useAuth();
@@ -111,12 +111,12 @@ function DashboardLayout() {
       <NowPlayingOverlay />
 
       {/* Theme Switcher Toggle */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-2">
+      <div className="fixed top-[calc(66px+env(safe-area-inset-top,0px))] right-3 md:top-3 md:right-4 z-30 flex flex-col items-end gap-2">
         <button 
           onClick={() => setShowThemeSwitcher(!showThemeSwitcher)}
-          className="w-12 h-12 bg-[#0F172A]/80 hover:bg-[#1E293B] backdrop-blur-xl border border-teal-900/30 rounded-full flex items-center justify-center text-teal-400 shadow-lg transition-all"
+          className="w-10 h-10 md:w-11 md:h-11 bg-[#0F172A]/80 hover:bg-[#1E293B] backdrop-blur-xl border border-teal-900/30 rounded-full flex items-center justify-center text-teal-400 shadow-lg transition-all cursor-pointer"
         >
-          <Palette size={20} />
+          <Palette size={18} />
         </button>
 
         {showThemeSwitcher && (
@@ -164,7 +164,7 @@ export default function App() {
           <div className="flex flex-col min-h-screen relative selection:bg-teal-500/30 selection:text-teal-200">
             <QuranicPremiumBackground />
             <PWAInstallHeader />
-            <AdhanBanner />
+            <AdhanSchedulerOverlay />
             <div className="flex-1 flex flex-col relative z-10">
               <Routes>
                 <Route path="/" element={<LandingView />} />
