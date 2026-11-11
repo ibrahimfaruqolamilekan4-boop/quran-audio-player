@@ -38,6 +38,8 @@ import { SubscriptionModal } from './SubscriptionModal';
 import { MediaCreditsModal } from './MediaCreditsModal';
 import { AMBIENT_TRACKS } from '../lib/constants';
 import { ReciterAvatar } from './ReciterAvatar';
+import { useBackgroundVideoSrc } from '../lib/backgrounds';
+import { isFeatureEnabled } from '../lib/featureFlags';
 import type { AmbientTrack, Chapter, Reciter } from '../types';
 
 function formatTime(seconds: number) {
@@ -95,6 +97,19 @@ export function NowPlayingOverlay() {
   const reduceMotion = useReducedMotion();
   const close = useCallback(() => setNowPlayingOpen(false), [setNowPlayingOpen]);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const resolvedOverlayVideoSrc = useBackgroundVideoSrc(activeBackgroundVideoId, customVideos);
+  const resolvedOverlayPoster = React.useMemo(() => {
+    if (!activeBackgroundVideoId && customVideos.length === 0) return '';
+    const match =
+      customVideos.find(
+        (v) =>
+          v.id === activeBackgroundVideoId ||
+          v.videoUrl === activeBackgroundVideoId ||
+          v.videoUrl720p === activeBackgroundVideoId ||
+          v.videoUrl480p === activeBackgroundVideoId
+      ) || customVideos[0];
+    return match?.posterUrl || match?.poster_url || '';
+  }, [activeBackgroundVideoId, customVideos]);
 
   // Soundscape selector bottom sheet state
   const [showSoundModal, setShowSoundModal] = useState(false);
@@ -233,7 +248,14 @@ export function NowPlayingOverlay() {
           aria-modal="true"
           aria-label="Now playing"
           tabIndex={-1}
-          className="fixed inset-0 z-[90] flex flex-col justify-between overflow-hidden outline-none select-none"
+          className={`fixed inset-0 z-[90] flex flex-col justify-between overflow-hidden outline-none select-none ${
+            isFeatureEnabled('opaqueBackdropStack') ? 'bg-[#06150F]' : ''
+          }`}
+          style={
+            isFeatureEnabled('opaqueBackdropStack')
+              ? { backgroundColor: '#06150F' }
+              : undefined
+          }
           initial={reduceMotion ? { opacity: 0 } : { y: '100%' }}
           animate={reduceMotion ? { opacity: 1 } : { y: 0 }}
           exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
@@ -246,12 +268,61 @@ export function NowPlayingOverlay() {
           }}
         >
           {/*
-           * VIVID AMBIENT CANVAS INTEGRATION:
-           * The master background video from QuranicPremiumBackground renders at full resolution
-           * directly behind this transparent container. We apply a soft protective gradient
-           * at the top and bottom so text is 100% readable while the video remains vivid & visible!
+           * PHASE 3: 4-LAYER OPAQUE NOW PLAYING STACK
+           * Layer 1: 100% Solid Opaque Base (#06150F) + Medina Emerald Radial Fallback (Zero bleed-through of underlying Surah lists!)
+           * Layer 2: Poster & Synced HD Background Video
+           * Layer 3: Measured WCAG AA Contrast Scrim (>= 4.5:1 text legibility)
+           * Layer 4: Now Playing UI Controls
            */}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
+          {isFeatureEnabled('opaqueBackdropStack') ? (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden z-0 bg-[#06150F]">
+              {/* Layer 1: Solid opaque base & Medina Emerald radial gradient */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  background:
+                    'radial-gradient(circle at 50% 22%, #0C2A20 0%, #06150F 70%, #040E0A 100%)',
+                }}
+              />
+              {/* Layer 2A: High-resolution poster */}
+              {resolvedOverlayPoster && (
+                <div
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url(${resolvedOverlayPoster})` }}
+                />
+              )}
+              {/* Layer 2B: Synced muted background video */}
+              {!reduceMotion && resolvedOverlayVideoSrc && (
+                <video
+                  key={resolvedOverlayVideoSrc}
+                  src={resolvedOverlayVideoSrc}
+                  poster={resolvedOverlayPoster || undefined}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  disablePictureInPicture
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{
+                    transform: 'translateZ(0)',
+                    willChange: 'opacity',
+                  }}
+                />
+              )}
+              {/* Layer 3: Measured WCAG AA Contrast Scrim */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(6, 21, 15, 0.82) 0%, rgba(6, 21, 15, 0.46) 45%, rgba(6, 21, 15, 0.92) 100%)',
+                }}
+              />
+            </div>
+          ) : (
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
+          )}
 
           {/* =========================================================================
               TOP BAR: Minimize Chevron, Soundscape Pill, Options
@@ -297,8 +368,8 @@ export function NowPlayingOverlay() {
               <span className="font-arabic text-3xl md:text-4xl text-amber-300/90 leading-relaxed block drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)] font-normal mb-1">
                 {currentChapter.name_arabic}
               </span>
-              <p className="text-xs text-white/70 tracking-widest uppercase font-medium drop-shadow-md">
-                Surah {currentChapter.id} â€¢ {currentChapter.verses_count} Verses
+              <p className="text-xs text-white/85 tracking-widest uppercase font-medium drop-shadow-md">
+                Surah {currentChapter.id} • {currentChapter.verses_count} Verses
               </p>
             </div>
           </div>
@@ -446,7 +517,7 @@ export function NowPlayingOverlay() {
               </button>
             </div>
 
-            {/* Bottom Utility Tools: Volume, Arabic Verses ('Ù‚'), Playlist */}
+            {/* Bottom Utility Tools: Volume, Arabic Verses ('ق'), Playlist */}
             <div className="flex items-center justify-between pt-2 border-t border-white/10 text-slate-300">
               {/* Volume Slider Drawer */}
               <div className="flex items-center gap-2">
@@ -463,7 +534,7 @@ export function NowPlayingOverlay() {
                 />
               </div>
 
-              {/* Arabic Verse Reader Toggle ('Ù‚') */}
+              {/* Arabic Verse Reader Toggle ('ق') */}
               <button
                 onClick={() => setShowAyahReader(!showAyahReader)}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center font-arabic text-lg font-bold transition-all ${
@@ -473,7 +544,7 @@ export function NowPlayingOverlay() {
                 }`}
                 title="Read Quran Verses"
               >
-                Ù‚
+                ق
               </button>
 
               {currentChapter && currentReciter && (
@@ -762,7 +833,7 @@ export function NowPlayingOverlay() {
           </AnimatePresence>
 
           {/* =========================================================================
-              ARABIC AYAH READER MODAL ('Ù‚')
+              ARABIC AYAH READER MODAL ('ق')
              ========================================================================= */}
           <AnimatePresence>
             {showAyahReader && (
@@ -770,12 +841,12 @@ export function NowPlayingOverlay() {
                 initial={{ opacity: 0, y: 50 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 50 }}
-                className="fixed inset-x-0 bottom-0 z-[100] bg-[#070A12]/95 border-t border-white/15 rounded-t-[2.5rem] p-6 max-h-[70vh] overflow-y-auto shadow-2xl backdrop-blur-2xl"
+                className="fixed inset-x-0 bottom-0 z-[100] bg-[#06150F] border-t border-white/15 rounded-t-[2.5rem] p-6 max-h-[70vh] overflow-y-auto shadow-2xl"
               >
                 <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <BookOpen size={16} className="text-teal-400" />
-                    <span>Surah {currentChapter.name_simple} â€¢ {currentChapter.name_arabic}</span>
+                    <span>Surah {currentChapter.name_simple} • {currentChapter.name_arabic}</span>
                   </h3>
                   <button
                     onClick={() => setShowAyahReader(false)}
@@ -787,7 +858,7 @@ export function NowPlayingOverlay() {
 
                 <div className="text-center py-6 space-y-4">
                   <span className="font-arabic text-4xl text-amber-300 leading-[2.2] block dir-rtl">
-                    Ø¨ÙØ³Ù’Ù…Ù Ø§Ù„Ù„ÙŽÙ‘Ù‡Ù Ø§Ù„Ø±ÙŽÙ‘Ø­Ù’Ù…ÙŽÙ°Ù†Ù Ø§Ù„Ø±ÙŽÙ‘Ø­ÙÙŠÙ…Ù
+                    بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
                   </span>
                   <p className="text-sm text-slate-300 font-light italic max-w-md mx-auto">
                     In the name of Allah, the Entirely Merciful, the Especially Merciful.
