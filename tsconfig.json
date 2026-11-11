@@ -26,5 +26,12 @@
       "vite/client",
       "vite-plugin-pwa/client"
     ]
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
 }
+
