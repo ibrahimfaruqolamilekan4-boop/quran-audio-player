@@ -1,80 +1,95 @@
 /**
- * Background playback guard for the Quran player.
+ * Background Audio & Wake Lock Coordinator (Phase 1A Fixed)
  *
- * Mobile browsers and the OS (battery savers, hidden-tab freezing, audio-focus
- * loss) pause or suspend page audio the moment the app leaves the foreground.
- * While hidden the page is not allowed to run code, so the only reliable moment
- * to recover playback is the instant it becomes visible again.
- *
- * This module patches the global `Audio` constructor so it can keep a registry
- * of every audio element the player creates (they are detached instances, so
- * they cannot be reached through the DOM). When the page returns to the
- * foreground it resumes anything that was playing before it was suspended and
- * re-asserts the MediaSession playback state so the lock-screen and notification
- * controls stay in sync with what is actually audibly playing.
+ * Manages Screen Wake Lock while visible and playing, without monkey-patching
+ * `window.Audio`, ignoring lock-screen `pause` events when hidden, or overwriting
+ * `PlayerContext`'s authoritative `navigator.mediaSession` action handlers.
  */
 
-type TrackedEntry = { wasPlaying: boolean };
+import {
+  getQuranAudio,
+  getAmbientAudio,
+  isDeliberatelyPausedByUser,
+  resumeQuranPlaybackSync,
+} from './persistentAudio';
+import { isFeatureEnabled } from './featureFlags';
+import { recordDiagEvent } from './prodDiagnostics';
 
-const tracked = new Map<HTMLAudioElement, TrackedEntry>();
+let wakeLock: any = null;
+let installed = false;
 
-function track(el: HTMLAudioElement, entry: TrackedEntry) {
-  if (tracked.has(el)) return;
-  tracked.set(el, entry);
-
-  // `playing` is the trustworthy "audio is really flowing" signal.
-  el.addEventListener('playing', () => { entry.wasPlaying = true; });
-  el.addEventListener('play', () => { entry.wasPlaying = true; });
-  el.addEventListener('ended', () => { entry.wasPlaying = false; });
-  el.addEventListener('pause', () => {
-    // A pause while the page is hidden is almost always the browser or OS
-    // suspending us, not the listener stopping the recitation. Remember the
-    // intent to play so we can resume on return instead of fighting the user.
-    // When the page is visible a pause is a real, deliberate user action.
-    if (document.visibilityState === 'hidden') return;
-    entry.wasPlaying = false;
-  });
+async function acquireWakeLock(): Promise<void> {
+  if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+  if (document.visibilityState !== 'visible') return;
+  if (wakeLock) return;
+  try {
+    wakeLock = await (navigator as any).wakeLock.request('screen');
+    wakeLock.addEventListener?.('release', () => {
+      wakeLock = null;
+    });
+  } catch {
+    // Wake lock is optional and can be denied in low-power mode
+  }
 }
 
-if (typeof window !== 'undefined' && !(window as any).__noorayaAudioGuard) {
-  (window as any).__noorayaAudioGuard = true;
-
-  const NativeAudio = window.Audio;
-  const GuardedAudio = function (this: unknown, src?: string) {
-    const el = src === undefined ? new NativeAudio() : new NativeAudio(src);
-    track(el, { wasPlaying: false });
-    return el;
-  } as unknown as typeof Audio;
-  GuardedAudio.prototype = NativeAudio.prototype;
+function releaseWakeLock(): void {
+  if (!wakeLock) return;
   try {
-    window.Audio = GuardedAudio;
-  } catch {
-    /* Some embedded webviews freeze window.Audio; degrade to best effort. */
-  }
+    wakeLock.release?.();
+  } catch {}
+  wakeLock = null;
+}
 
-  const resumeSuspended = () => {
+export function installBackgroundAudioKeepAlive(): void {
+  if (typeof window === 'undefined' || installed) return;
+  installed = true;
+
+  const quran = getQuranAudio();
+  const ambient = getAmbientAudio();
+
+  quran.addEventListener('play', () => {
+    void acquireWakeLock();
+  });
+
+  quran.addEventListener('pause', () => {
+    releaseWakeLock();
+  });
+
+  quran.addEventListener('ended', () => {
+    releaseWakeLock();
+  });
+
+  // When returning to foreground, only re-acquire wakeLock if already playing,
+  // or recover if the OS suspended playback WITHOUT a deliberate user/lock-screen pause.
+  const handleForeground = () => {
     if (document.visibilityState !== 'visible') return;
 
-    const toResume: HTMLAudioElement[] = [];
-    tracked.forEach((entry, el) => {
-      if (entry.wasPlaying && el.paused && (el.src || el.currentSrc)) {
-        toResume.push(el);
-      }
-    });
-    if (toResume.length === 0) return;
+    if (!quran.paused) {
+      void acquireWakeLock();
+      return;
+    }
 
-    // Best effort: succeeds while the media session is still valid and is
-    // harmlessly rejected (caught below) when a fresh gesture is required.
-    toResume.forEach(el => { el.play().catch(() => { /* needs a user gesture */ }); });
-
-    if ('mediaSession' in navigator) {
-      try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+    if (
+      isFeatureEnabled('newAudioResumeEngine') &&
+      !isDeliberatelyPausedByUser() &&
+      Boolean(quran.src) &&
+      !quran.ended
+    ) {
+      recordDiagEvent({
+        category: 'lifecycle',
+        event: 'FOREGROUND_AUTO_RECOVER_AFTER_OS_INTERRUPT',
+        elementId: 'quran',
+      });
+      resumeQuranPlaybackSync()
+        .then(() => {
+          if (ambient.src && ambient.paused) {
+            ambient.play().catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
   };
 
-  window.addEventListener('visibilitychange', resumeSuspended);
-  window.addEventListener('pageshow', resumeSuspended);
-  window.addEventListener('focus', resumeSuspended);
+  document.addEventListener('visibilitychange', handleForeground);
+  window.addEventListener('pageshow', handleForeground);
 }
-
-export {};
