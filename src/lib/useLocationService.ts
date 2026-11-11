@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  UserLocation,
+  type UserLocation,
   DEFAULT_LOCATION,
   POPULAR_GLOBAL_CITIES,
-  CityPreset,
+  type CityPreset,
   getSavedLocation,
   saveLocation,
   reverseGeocodeCoords,

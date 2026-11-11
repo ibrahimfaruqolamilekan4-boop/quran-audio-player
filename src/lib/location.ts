@@ -17,6 +17,7 @@ export interface UserLocation {
   accuracy?: number;
   updatedAt: number;
 }
+export const UserLocation = {};
 
 export interface CityPreset {
   name: string;

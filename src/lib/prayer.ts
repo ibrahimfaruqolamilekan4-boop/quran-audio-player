@@ -7,7 +7,7 @@ import {
   HighLatitudeRule,
 } from 'adhan';
 import {
-  UserLocation,
+  type UserLocation,
   POPULAR_GLOBAL_CITIES,
   DEFAULT_LOCATION,
   getDefaultCalculationMethod,
@@ -15,12 +15,12 @@ import {
 } from './location';
 
 export {
-  UserLocation,
   POPULAR_GLOBAL_CITIES,
   DEFAULT_LOCATION,
   getDefaultCalculationMethod,
   calculateDistanceKm,
 };
+export type { UserLocation };
 
 // Backward-compatible type and list for existing consumers
 export interface CityLocation {
