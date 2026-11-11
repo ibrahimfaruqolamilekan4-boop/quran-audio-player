@@ -250,30 +250,16 @@ async function renderRendition(
         if (mediaRecorder && mediaRecorder.state === 'inactive') {
           mediaRecorder.start(200); // 200ms slices
           encodeStartTime = Date.now();
-          // Speed up real-time playback slightly (1.5x) while keeping frame cadence smooth
-          try {
-            video.playbackRate = 1.5;
-          } catch {}
           video.play().catch((e) => {
             console.warn('Video play notice in transcoder:', e);
-            // If autoplay is blocked in headless/background tab, step frames manually
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-              ctx.drawImage(video, 0, 0, finalW, finalH);
-              setTimeout(() => {
-                if (mediaRecorder && mediaRecorder.state === 'recording') {
-                  mediaRecorder.stop();
-                }
-              }, 600);
-            }
           });
 
-          // Safeguard: stop after max 25s per rendition so large files never hang the browser
-          const capDurationSec = Math.min(duration, 25);
+          // Safeguard: stop after 1.5x duration or max 45s so tab never hangs
           safetyTimer = setTimeout(() => {
             if (mediaRecorder && mediaRecorder.state === 'recording') {
               mediaRecorder.stop();
             }
-          }, Math.min(25000, Math.max(2500, (capDurationSec / 1.5) * 1000)));
+          }, Math.min(45000, Math.max(10000, duration * 1500)));
 
           drawLoop();
         }
@@ -282,8 +268,7 @@ async function renderRendition(
 
     video.onerror = () => {
       cleanup();
-      // Resilient fallback: return original slice if browser cannot decode proprietary container locally
-      resolve(file.slice(0, Math.min(file.size, 40 * 1024 * 1024), 'video/mp4'));
+      reject(new Error('Failed to decode video in browser.'));
     };
   });
 }
@@ -294,8 +279,7 @@ export interface InBrowserTranscoderController {
 }
 
 /**
- * Transcodes any non-standard or large video (including 130 MB+ files) in the browser
- * into phone-ready 720p, 480p, and poster blobs without modifying the user's original file.
+ * Transcodes large video in browser into phone-ready 720p, 480p, and poster blobs.
  */
 export function transcodeInBrowser(
   file: File,
@@ -308,6 +292,12 @@ export function transcodeInBrowser(
   };
 
   const execute = async (): Promise<TranscodeResult> => {
+    if (isMobileDevice()) {
+      throw new Error(
+        'In-browser transcoding is disabled on mobile devices to prevent browser tab termination. Please use the desktop admin panel or the local script (npm run process-video).'
+      );
+    }
+
     options.onProgress?.({
       stage: 'analyzing',
       percentage: 5,
@@ -315,78 +305,50 @@ export function transcodeInBrowser(
       etaSeconds: 0,
     });
 
-    // 1. Generate Poster Frame (at trimStart + 1s) with automatic gradient fallback
+    // 1. Generate Poster Frame (at trimStart + 1s)
     options.onProgress?.({
       stage: 'poster',
       percentage: 12,
-      stageLabel: 'Extracting poster thumbnail...',
+      stageLabel: 'Extracting 1s poster thumbnail...',
       etaSeconds: 0,
     });
-    let posterBlob: Blob;
-    try {
-      posterBlob = await extractPosterFrame(file, (options.trimStart || 0) + 0.5);
-    } catch {
-      const canvas = document.createElement('canvas');
-      canvas.width = 720;
-      canvas.height = 1280;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        const grad = ctx.createLinearGradient(0, 0, 720, 1280);
-        grad.addColorStop(0, '#04140E');
-        grad.addColorStop(0.5, '#0A291E');
-        grad.addColorStop(1, '#020B08');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, 720, 1280);
-      }
-      posterBlob = await new Promise<Blob>((r) =>
-        canvas.toBlob((b) => r(b || new Blob([], { type: 'image/jpeg' })), 'image/jpeg', 0.82)
-      );
-    }
+    const posterBlob = await extractPosterFrame(file, (options.trimStart || 0) + 1.0);
 
-    // 2. Determine bitrates (auto-select economy bitrate for 100MB+ source files so output stays well under 45MB)
-    const isLargeSource = file.size > 80 * 1024 * 1024;
-    const isEconomy = options.bitrateMode === 'economy' || isLargeSource;
-    const bps720p = isEconomy ? 1_400_000 : 2_000_000;
-    const bps480p = isEconomy ? 650_000 : 950_000;
-
-    // Cap loop duration to 30s for huge source files so output is a clean 15-30s loop under 45 MB
-    const effectiveOptions: TranscodeOptions = {
-      ...options,
-      trimDuration: options.trimDuration || (isLargeSource ? 25 : undefined),
-    };
+    // 2. Determine bitrates
+    const isEconomy = options.bitrateMode === 'economy';
+    const bps720p = isEconomy ? 1_400_000 : 2_200_000;
+    const bps480p = isEconomy ? 600_000 : 1_000_000;
 
     // 3. Render 480p rendition (15% to 55%)
-    const raw480p = await renderRendition(
+    const blob480p = await renderRendition(
       file,
       854,
       24,
       bps480p,
-      effectiveOptions,
+      options,
       'encoding_480p',
       15,
       40,
       isCancelledRef
     );
-    const blob480p = raw480p.size > 0 ? raw480p : file;
 
     // 4. Render 720p rendition (55% to 95%)
-    const raw720p = await renderRendition(
+    const blob720p = await renderRendition(
       file,
       1280,
       30,
       bps720p,
-      effectiveOptions,
+      options,
       'encoding_720p',
       55,
       40,
       isCancelledRef
     );
-    const blob720p = raw720p.size > 0 ? raw720p : blob480p;
 
     options.onProgress?.({
       stage: 'finalizing',
       percentage: 100,
-      stageLabel: 'Finalizing phone-ready 720p & 480p renditions...',
+      stageLabel: 'Finalizing phone-ready renditions...',
       etaSeconds: 0,
     });
 
@@ -394,7 +356,7 @@ export function transcodeInBrowser(
       blob720p,
       blob480p,
       posterBlob,
-      durationSeconds: effectiveOptions.trimDuration || 25,
+      durationSeconds: options.trimDuration || 30,
       width: 1280,
       height: 720,
       size720p: blob720p.size,
@@ -407,4 +369,3 @@ export function transcodeInBrowser(
     cancel,
   };
 }
-

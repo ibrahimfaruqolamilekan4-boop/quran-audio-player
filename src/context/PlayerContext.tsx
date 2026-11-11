@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Chapter, Reciter, AmbientTrack, CustomVideo } from '../types';
 import { getQuranAudio, getAmbientAudio } from '../lib/persistentAudio';
+import { markUserPaused } from '../lib/backgroundAudio';
 import { fetchActiveBackgrounds, subscribeToBackgrounds } from '../lib/supabase';
 import { addListeningLog } from '../lib/storage';
 import { CURATED_RECITERS } from '../lib/constants';
-import { candidateUrls, extensionOf, isObjectUrl, rememberFormat, isSurahAvailable } from '../lib/audio';
+import { candidateUrls, extensionOf, isObjectUrl, rememberFormat } from '../lib/audio';
 import { resolveReciters, type GlobalReciterRow } from '../lib/reciters';
 import localforage from 'localforage';
 import { useAuth } from './AuthContext';
@@ -38,8 +39,6 @@ interface PlayerContextType {
   playChapter: (chapter: Chapter, reciter?: Reciter) => void;
   togglePlayPause: () => void;
   setReciter: (reciter: Reciter) => void;
-  switchReciterAndPlay: (reciter: Reciter) => void;
-  isSurahAvailableForCurrentReciter: (chapterId: number) => boolean;
   setAmbientTrack: (track: AmbientTrack | null) => void;
   playNextChapter: () => void;
   playPreviousChapter: () => void;
@@ -174,80 +173,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return saved || null;
   });
 
-  // Convert BackgroundRow[] into CustomVideo[] and reconcile active playing background
-  const reconcileActiveBackgroundRows = useCallback((rows: any[]) => {
-    const mapped: CustomVideo[] = rows
-      .filter((r) => r && r.is_active !== false && (r.video_url || r.videoUrl))
-      .map((r, idx) => ({
-        id: r.id,
-        name: r.name_en || r.name || 'Ambient Scene',
-        category: r.category || 'nature',
-        videoUrl: normalizePortableMediaUrl(r.video_url || r.videoUrl) || '',
-        videoUrl720p: normalizePortableMediaUrl(r.video_url_720p || r.videoUrl720p || r.video_url || r.videoUrl) || undefined,
-        videoUrl480p: normalizePortableMediaUrl(r.video_url_480p || r.videoUrl480p) || undefined,
-        posterUrl: r.poster_url || r.posterUrl || undefined,
-        poster_url: r.poster_url || r.posterUrl || undefined,
-        renditions: Array.isArray(r.renditions) ? r.renditions : undefined,
-        attribution: r.attribution || undefined,
-        sourceUrl: r.source_url || r.sourceUrl || undefined,
-        creator: r.creator || undefined,
-        licenseName: r.license_name || r.licenseName || undefined,
-        licenseUrl: r.license_url || r.licenseUrl || undefined,
-        dateChecked: r.date_checked || r.dateChecked || undefined,
-        attributionRequired: Boolean(r.attribution_required ?? r.attributionRequired),
-        sizeBytes: Number(r.size_bytes ?? r.sizeBytes ?? 0),
-        durationSeconds: Number(r.duration_seconds ?? r.durationSeconds ?? 0),
-        isActive: true,
-        isDefault: idx === 0,
-      }));
-
-    try {
-      localStorage.setItem('noor_cached_backgrounds_v1', JSON.stringify(mapped));
-    } catch {}
-
-    setCustomVideos(mapped);
-
-    // Reconcile activeBackgroundVideoId:
-    // - If no background is selected and at least 1 active exists, select the first one.
-    // - If the currently playing background was hidden or deleted, switch smoothly to another active one (or null if empty).
-    setActiveBackgroundVideoId((prev) => {
-      if (mapped.length === 0) {
-        localStorage.removeItem('activeBackgroundVideoId');
-        return null;
-      }
-
-      if (prev) {
-        const stillExists = mapped.some(
-          (v) =>
-            v.id === prev ||
-            v.videoUrl === prev ||
-            v.videoUrl720p === prev ||
-            v.videoUrl480p === prev
-        );
-        if (stillExists) return prev;
-      }
-
-      const nextTarget = mapped[0].id || mapped[0].videoUrl || null;
-      if (nextTarget) {
-        localStorage.setItem('activeBackgroundVideoId', nextTarget);
-      }
-      return nextTarget;
-    });
-  }, []);
-
-  // Hydrate cached backgrounds immediately on mount for instant paint on phones
-  useEffect(() => {
-    try {
-      const rawCache = localStorage.getItem('noor_cached_backgrounds_v1');
-      if (rawCache) {
-        const parsed = JSON.parse(rawCache);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setCustomVideos(parsed);
-        }
-      }
-    } catch {}
-  }, []);
-
   const refreshGlobalCatalog = useCallback(async () => {
     try {
       const reciterData = await appApi<{ reciters: GlobalReciterRow[] }>('/reciters');
@@ -259,38 +184,65 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const [bgRows, data] = await Promise.all([
-        fetchActiveBackgrounds(true).catch(() => null),
-        appApi<{
-          ambientSounds: Record<string, string>;
-          videos?: CustomVideo[];
-          activeDefaultVideoUrl?: string | null;
-        }>('/ambient').catch(() => null),
-      ]);
+      const data = await appApi<{
+        ambientSounds: Record<string, string>;
+        videos?: CustomVideo[];
+        activeDefaultVideoUrl?: string | null;
+      }>('/ambient');
 
       if (data?.ambientSounds && Object.keys(data.ambientSounds).length > 0) {
-        setAmbientVideoMapping((prev) => ({ ...prev, ...data.ambientSounds }));
+        setAmbientVideoMapping(prev => ({ ...prev, ...data.ambientSounds }));
       }
+      if (Array.isArray(data?.videos) && data.videos.length > 0) {
+        setCustomVideos(prev => {
+          const byKey = new Map<string, CustomVideo>();
+          for (const item of prev) {
+            byKey.set(item.id, item);
+          }
+          for (const cloudVid of data.videos!) {
+            const existing = Array.from(byKey.values()).find(
+              v => v.id === cloudVid.id || (v.name && cloudVid.name && v.name.toLowerCase() === cloudVid.name.toLowerCase())
+            );
+            if (existing) {
+              byKey.set(existing.id, {
+                ...existing,
+                ...cloudVid,
+                id: existing.id,
+                videoUrl: cloudVid.videoUrl || existing.videoUrl,
+              });
+            } else {
+              byKey.set(cloudVid.id, cloudVid);
+            }
+          }
+          return Array.from(byKey.values());
+        });
+      }
+      if (data?.activeDefaultVideoUrl) {
+        const cleanDefault = normalizePortableMediaUrl(data.activeDefaultVideoUrl);
+        if (cleanDefault) {
+          setActiveBackgroundVideoId(prev => {
+            const prevIsCustom =
+              prev &&
 
-      if (Array.isArray(bgRows) && bgRows.length > 0) {
-        reconcileActiveBackgroundRows(bgRows);
-      } else if (Array.isArray(data?.videos)) {
-        reconcileActiveBackgroundRows(data.videos);
+              !prev.startsWith('curated_');
+            if (prevIsCustom) {
+              return prev;
+            }
+            localStorage.setItem('activeBackgroundVideoId', cleanDefault);
+            return cleanDefault;
+          });
+        }
       }
     } catch (err: any) {
       console.warn('Global ambient unavailable:', err?.message || String(err));
     }
-  }, [reconcileActiveBackgroundRows]);
+  }, []);
 
-  // Subscribe to Realtime backgrounds + list version counter on mount, focus, online, visibility, and 60s interval
+  // Load ambient mapping from local storage and revalidate global catalog on mount, focus, online, visibility, and 60s interval
   useEffect(() => {
     localforage.getItem<Record<string, string>>('ambientVideoMapping').then(mapping => {
       if (mapping) setAmbientVideoMapping(prev => ({ ...mapping, ...prev }));
     }).catch(() => {});
-
-    const unsubRealtime = subscribeToBackgrounds((updatedRows) => {
-      reconcileActiveBackgroundRows(updatedRows);
-    });
 
     const revalidate = () => {
       if (document.visibilityState === 'visible') {
@@ -305,13 +257,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const intervalId = window.setInterval(revalidate, 60000);
 
     return () => {
-      unsubRealtime();
       window.removeEventListener('focus', revalidate);
       window.removeEventListener('online', revalidate);
       document.removeEventListener('visibilitychange', revalidate);
       window.clearInterval(intervalId);
     };
-  }, [refreshGlobalCatalog, reconcileActiveBackgroundRows]);
+  }, [refreshGlobalCatalog]);
 
   // Update active background video when ambient track changes
   useEffect(() => {
@@ -517,10 +468,36 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return { syncedPhotos, syncedVideos };
   }, [refreshGlobalCatalog]);
 
-  // Initialize DB and Load Custom Reciter Assets
+  // Initialize DB and Load Custom Assets
   useEffect(() => {
     async function loadCustomAssets() {
       const localReciters = (await localforage.getItem<Reciter[]>('customReciters')) || [];
+      const videos = (await localforage.getItem<CustomVideo[]>('customVideos_list')) || [];
+
+      if (videos.length > 0) {
+        setCustomVideos(prev => {
+          const map = new Map<string, CustomVideo>();
+          videos.forEach(v => map.set(v.id, v));
+          prev.forEach(v => map.set(v.id, { ...map.get(v.id), ...v }));
+          return Array.from(map.values());
+        });
+
+        // Restore user's saved custom background video if activeBackgroundVideoId was reset to cosmos default
+        const userCustomVideos = videos.filter(
+          v => !v.id.startsWith('curated_')
+        );
+        if (userCustomVideos.length > 0) {
+          const preferredVid = userCustomVideos.find(v => v.isDefault) || userCustomVideos[0];
+          const preferredTarget = normalizePortableMediaUrl(preferredVid.videoUrl) || preferredVid.id;
+          setActiveBackgroundVideoId(prev => {
+            if (!prev) {
+              localStorage.setItem('activeBackgroundVideoId', preferredTarget);
+              return preferredTarget;
+            }
+            return prev;
+          });
+        }
+      }
 
       if (user) {
         try {
@@ -593,20 +570,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const attempt = attemptRef.current;
     if (!audio || !attempt || audio.src !== failedUrl) return;
     console.warn(`Could not play ${failedUrl}:`, reason);
-
-    const nextIndex = attempt.index + 1;
-    if (nextIndex < attempt.urls.length) {
-      attemptPlaybackRef.current(nextIndex);
-    } else {
-      setIsLoading(false);
-      setIsPlaying(false);
-      setPlaybackError('Audio is not available, choose another sheik.');
-    }
+    attemptPlaybackRef.current(attempt.index + 1);
   }, []);
 
   /**
-   * Point the audio element at `urls[index]` and start it.
-   * If a URL fails or 404s, it advances to the next candidate mirror.
+   * Point the audio element at `urls[index]` and start it. A 404 or an undecodable body moves on
+   * to the next candidate, which is how a mirror without MP4 still plays from MP3.
    */
   const attemptPlayback = useCallback((index: number) => {
     const audio = quranAudioRef.current;
@@ -617,12 +586,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!url) {
       setIsLoading(false);
       setIsPlaying(false);
-      setPlaybackError('Audio is not available, choose another sheik.');
+      setPlaybackError('No audio could be loaded for this reciter. Check your connection or pick another sheikh.');
       return;
     }
 
     attempt.index = index;
     attempt.pendingFormat = isObjectUrl(url) ? null : extensionOf(url);
+    // Recorded up front: the 'playing' event can beat play()'s promise resolution, and it is the
+    // event handler that remembers the format and caches the surah.
     attempt.playedUrl = url;
 
     if (objectUrlRef.current && objectUrlRef.current !== url) {
@@ -647,10 +618,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       .catch(error => {
         const name = error?.name || '';
         if (name === 'NotAllowedError') {
+          // The browser blocks autoplay until the page gets a real tap. The source is fine, so
+          // falling through to the next candidate would wrongly call every mirror dead.
           console.warn('Autoplay blocked by the browser:', error?.message || error);
           setIsLoading(false);
           setIsPlaying(false);
-          setPlaybackError('Tap play again - the browser needs a gesture before audio can start.');
+          setPlaybackError('Tap play to begin â€” the browser needs a touch before audio can start.');
           return;
         }
         failAndAdvance(url, error);
@@ -676,16 +649,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const updateDuration = () => setDuration(quranAudioRef.current?.duration || 0);
     const handleEnded = () => nextChapterRef.current();
     const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => { if (document.visibilityState === 'hidden') return; setIsPlaying(false); };
-    
-    // Buffering and loading indicators
-    const handleWaiting = () => setIsLoading(true);
-    const handleLoadStart = () => setIsLoading(true);
-    const handleCanPlay = () => setIsLoading(false);
-    const handleSeeking = () => setIsLoading(true);
-    const handleSeeked = () => setIsLoading(false);
-
-    // 'playing' means real decoded audio is flowing: format is trusted, loading finished
+    const handlePause = () => { setIsPlaying(false); try { navigator.mediaSession.playbackState = 'paused'; } catch {} };
+    // 'playing' means real decoded audio is flowing: this is the only place a format is trusted.
     const handlePlaying = () => {
       const attempt = attemptRef.current;
       setIsLoading(false);
@@ -694,7 +659,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       rememberFormat(attempt.reciterId, attempt.pendingFormat || 'mp3');
       cacheInBackground(attempt.playedUrl, attempt.cacheKey);
     };
-
     // A 404 or a body that cannot be decoded surfaces here as well as in play()'s rejection;
     // failAndAdvance ignores whichever arrives second for the same URL.
     const handleError = () => {
@@ -711,11 +675,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     quranAudio.addEventListener('play', handlePlay);
     quranAudio.addEventListener('pause', handlePause);
     quranAudio.addEventListener('playing', handlePlaying);
-    quranAudio.addEventListener('waiting', handleWaiting);
-    quranAudio.addEventListener('loadstart', handleLoadStart);
-    quranAudio.addEventListener('canplay', handleCanPlay);
-    quranAudio.addEventListener('seeking', handleSeeking);
-    quranAudio.addEventListener('seeked', handleSeeked);
     quranAudio.addEventListener('error', handleError);
 
     quranAudio.preload = "auto";
@@ -727,15 +686,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       quranAudio.removeEventListener('play', handlePlay);
       quranAudio.removeEventListener('pause', handlePause);
       quranAudio.removeEventListener('playing', handlePlaying);
-      quranAudio.removeEventListener('waiting', handleWaiting);
-      quranAudio.removeEventListener('loadstart', handleLoadStart);
-      quranAudio.removeEventListener('canplay', handleCanPlay);
-      quranAudio.removeEventListener('seeking', handleSeeking);
-      quranAudio.removeEventListener('seeked', handleSeeked);
       quranAudio.removeEventListener('error', handleError);
-
-      quranAudio.pause();
-      ambientAudioRef.current?.pause();
+      // NOTE: Persistent singleton audio element must NOT be paused on React hook unmount
     };
   }, [attemptPlayback, failAndAdvance, cacheInBackground]);
 
@@ -811,6 +763,34 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [isPlaying, currentAmbient]);
 
+  // Adhan playback coordination: duck / pause recitation when Adhan plays, resume afterwards
+  const wasPlayingBeforeAdhanRef = useRef(false);
+  useEffect(() => {
+    const handleDuck = (e: Event) => {
+      const customEvent = e as CustomEvent<{ ducked: boolean }>;
+      const shouldDuck = customEvent.detail?.ducked;
+
+      if (shouldDuck) {
+        if (isPlaying) {
+          wasPlayingBeforeAdhanRef.current = true;
+          quranAudioRef.current?.pause();
+          ambientAudioRef.current?.pause();
+        }
+      } else {
+        if (wasPlayingBeforeAdhanRef.current) {
+          wasPlayingBeforeAdhanRef.current = false;
+          quranAudioRef.current?.play().catch(() => {});
+          if (currentAmbient) {
+            ambientAudioRef.current?.play().catch(() => {});
+          }
+        }
+      }
+    };
+
+    window.addEventListener('nooraya-duck-recitation', handleDuck);
+    return () => window.removeEventListener('nooraya-duck-recitation', handleDuck);
+  }, [isPlaying, currentAmbient]);
+
   /**
    * Load one surah for one reciter: the cached copy if we already have it, otherwise the first
    * candidate URL (MP4, then MP3). Playback starts as soon as the stream opens â€” the whole file
@@ -838,15 +818,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (ayahNumber !== null && !voice) ayahNumber = null;
     const useAyahStream = ayahNumber !== null;
     setCurrentAyah(ayahNumber !== null ? { surah: chapter.id, ayah: ayahNumber } : null);
-
-    // Guard against unavailable surahs for this reciter
-    if (!useAyahStream && !isSurahAvailable(reciter, chapter.id)) {
-      setIsLoading(false);
-      setIsPlaying(false);
-      setCurrentChapter(chapter);
-      setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
-      return;
-    }
 
     setIsLoading(true);
     setPlaybackError(null);
@@ -911,44 +882,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  /**
-   * Synchronously starts playback on user click/tap.
-   * Runs in the same callstack as the click event to prevent autoplay/gesture errors.
-   */
-  const playChapter = (chapter: Chapter, overrideReciter?: Reciter) => {
+  const playChapter = async (chapter: Chapter, overrideReciter?: Reciter) => {
+    // Callers that select a reciter and play in the same action pass it explicitly:
+    // `currentReciter` state has not committed yet, so reading it here would
+    // stream from the previously active reciter.
     const reciter = overrideReciter ?? currentReciter ?? allReciters[0];
     if (!chapter) return;
     if (!reciter) {
       setPlaybackError('No reciter is available yet. Please wait for the list to load.');
       return;
     }
-
-    if (!isSurahAvailable(reciter, chapter.id)) {
-      setCurrentChapter(chapter);
-      setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
-      setNowPlayingOpen(true);
-      return;
-    }
-
+    // Any view-level play opens the full-screen player; auto-advance and prev/next
+    // navigate through startChapter directly and leave the surface as it is.
     if (typeof window !== 'undefined') {
       try { window.dispatchEvent(new CustomEvent('quran-play-gesture')); } catch {}
     }
     setNowPlayingOpen(true);
-    startChapter(chapter, reciter, { autoplay: true });
+    await startChapter(chapter, reciter);
   };
-
-  const switchReciterAndPlay = useCallback((newReciter: Reciter) => {
-    setCurrentReciter(newReciter);
-    const chapter = currentChapterRef.current || chaptersRef.current[0] || ALL_SURAHS[0];
-    if (chapter) {
-      playChapter(chapter, newReciter);
-    }
-  }, [playChapter]);
-
-  const isSurahAvailableForCurrentReciter = useCallback((chapterId: number) => {
-    const reciter = currentReciterRef.current || allReciters[0];
-    return isSurahAvailable(reciter, chapterId);
-  }, [allReciters]);
 
   const togglePlayPause = () => {
     const audio = quranAudioRef.current;
@@ -958,23 +909,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (isPlaying) {
+      markUserPaused(true);
       audio.pause();
       ambientAudioRef.current?.pause();
       setIsPlaying(false);
+      try { navigator.mediaSession.playbackState = 'paused'; } catch {}
       return;
     }
-
-    const reciter = currentReciter ?? allReciters[0];
-    if (reciter && !isSurahAvailable(reciter, currentChapter.id)) {
-      setPlaybackError(`Surah ${currentChapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
-      return;
-    }
+    markUserPaused(false);
 
     const attempt = attemptRef.current;
     // Nothing loaded any more (every candidate failed, or the element was reset): retry.
     if (!audio.src || (attempt && attempt.index >= attempt.urls.length)) {
+      const reciter = currentReciter ?? allReciters[0];
       if (!reciter) return;
-      startChapter(currentChapter, reciter, { autoplay: true });
+      void startChapter(currentChapter, reciter);
       return;
     }
 
@@ -992,11 +941,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(e => {
         console.error("Play blocked", e?.message || String(e));
-        if (e?.name === 'NotAllowedError') {
-          setPlaybackError('Tap play again - the browser needs a gesture before audio can start.');
-        } else {
-          setPlaybackError('Audio is not available, choose another sheik.');
-        }
+        setPlaybackError('Tap play again â€” the browser needs a gesture before audio can start.');
       });
   };
   
@@ -1170,33 +1115,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
       ['play', () => {
+        markUserPaused(false);
         const audio = quranAudioRef.current;
         if (!audio) return;
-        audio
-          .play()
-          .then(() => {
+
+        // Recover src if lost during iOS background memory purge
+        if (!audio.src && attemptRef.current?.playedUrl) {
+          audio.src = attemptRef.current.playedUrl;
+          if (currentTime > 0) audio.currentTime = currentTime;
+        }
+
+        if (audio.readyState === 0 && audio.src) {
+          const resumeTime = audio.currentTime || currentTime || 0;
+          audio.load();
+          if (resumeTime > 0) audio.currentTime = resumeTime;
+        }
+
+        const p = audio.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => {
             setIsPlaying(true);
-            if (ambientAudioRef.current && ambientAudioRef.current.src) {
+            try { navigator.mediaSession.playbackState = 'playing'; } catch {}
+            if (ambientAudioRef.current && ambientAudioRef.current.src && ambientVolume > 0) {
               ambientAudioRef.current.play().catch(() => {});
             }
-            try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-          })
-          .catch(() => {
-            try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
-            window.setTimeout(() => {
-              const retry = quranAudioRef.current;
-              if (!retry) return;
-              retry
-                .play()
-                .then(() => {
-                  setIsPlaying(true);
-                  try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-                })
-                .catch(() => {});
-            }, 250);
+          }).catch(() => {
+            try { navigator.mediaSession.playbackState = 'paused'; } catch {}
           });
+        }
       }],
       ['pause', () => {
+        markUserPaused(true);
         if (quranAudioRef.current) {
           quranAudioRef.current.pause();
         }
@@ -1265,8 +1214,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playChapter,
       togglePlayPause,
       setReciter: setCurrentReciter,
-      switchReciterAndPlay,
-      isSurahAvailableForCurrentReciter,
       setAmbientTrack: setCurrentAmbient,
       playNextChapter,
       playPreviousChapter,

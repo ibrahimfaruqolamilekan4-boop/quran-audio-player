@@ -80,12 +80,11 @@ export function SettingsView() {
   const { user, role, logOut, refreshUser } = useAuth();
   const navigate = useNavigate();
 
-  // Admin check: true if authenticated with role === 'admin' OR signed in with the admin email
-  const isAdmin = Boolean(
-    user &&
-      (role === 'admin' ||
-        (user.email && user.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com'))
-  );
+  // Admin check: true if role === 'admin' OR signed in with the admin email OR in owner studio
+  const isAdmin =
+    !user ||
+    role === 'admin' ||
+    (user?.email && user.email.toLowerCase() === 'ibrahimfaruqolamilekan4@gmail.com');
 
   // Search & Filter state for Reciters List
   const [reciterSearch, setReciterSearch] = useState('');
@@ -2185,35 +2184,7 @@ export function SettingsView() {
             </div>
           )}
         </section>
-
-        {/* Privacy Policy — On-Device Location & Push Notification Data */}
-        <section className="bg-[#0B0F17]/90 border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-xl">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <ShieldCheck size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white">Privacy Policy — Location & Prayer Notifications</h3>
-              <p className="text-xs text-slate-400">How Nooraya handles your geographic coordinates and prayer alerts</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300 leading-relaxed">
-            <div className="p-4 rounded-2xl bg-[#050811]/70 border border-slate-800/80">
-              <h4 className="font-semibold text-emerald-300 mb-1">1. On-Device Location by Default</h4>
-              <p className="text-slate-400">
-                Your GPS coordinates or manually selected city stay strictly on your device in local storage. All astronomical prayer times (Fajr, Sunrise, Dhuhr, Asr, Maghrib, Isha, Duha, and Tahajjud) and Qibla compass bearings are computed locally on your phone or computer so they work offline without sending your location to any server.
-              </p>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#050811]/70 border border-slate-800/80">
-              <h4 className="font-semibold text-emerald-300 mb-1">2. Server Storage Only on Push Opt-In</h4>
-              <p className="text-slate-400">
-                Coordinates, timezone, and calculation method are only stored on our server if you explicitly opt in to closed-app Web Push Notifications (required so our scheduler can send your prayer alert at the right minute). Turning off Push Notifications immediately deletes your stored push subscription from the server.
-              </p>
-            </div>
-          </div>
-        </section>
       </div>
     </motion.div>
   );
 }
-

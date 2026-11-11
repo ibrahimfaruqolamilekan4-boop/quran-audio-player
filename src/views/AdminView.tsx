@@ -39,12 +39,11 @@ import { RecitationsAdmin } from './admin/RecitationsAdmin';
 import { BackgroundsAdmin } from './admin/BackgroundsAdmin';
 import { PlansAdmin } from './admin/PlansAdmin';
 import { PaymentsAdmin } from './admin/PaymentsAdmin';
-import { AdhanVoicesAdmin } from './admin/AdhanVoicesAdmin';
-import { Coins, CreditCard, Volume2 } from 'lucide-react';
+import { Coins, CreditCard } from 'lucide-react';
 import localforage from 'localforage';
 import type { Reciter } from '../types';
 
-type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'adhan' | 'media' | 'users' | 'plans' | 'payments';
+type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'media' | 'users' | 'plans' | 'payments';
 
 type Toast = (message: string, type?: 'success' | 'error') => void;
 type AskConfirm = (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
@@ -564,7 +563,6 @@ export function AdminView() {
             ['reciters', 'Reciters', Users],
             ['recitations', 'Recitations', Music],
             ['backgrounds', 'Backgrounds', Video],
-            ['adhan', 'Adhan Voices', Volume2],
             ['media', 'File Library', Upload],
             ['users', 'Community & Users', Shield],
             ['plans', 'Pricing Plans', Coins],
@@ -679,11 +677,6 @@ export function AdminView() {
           onSaveAmbient={handleSaveAmbient}
           savingAmbient={saving}
         />
-      )}
-
-      {/* TAB: ADHAN VOICES */}
-      {activeTab === 'adhan' && (
-        <AdhanVoicesAdmin showToast={showToast} askConfirm={askConfirm} />
       )}
 
       {/* TAB: MEDIA LIBRARY */}

@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { Background } from "../types";
 
 /**
- * Full‑viewport background video layer with optional ambient audio.
+ * Full‑viewport background video layer with solid opaque foundation.
  * Handles cross‑fade between videos and battery-saving visibility decoupling.
+ * (Ambient audio is managed centrally by PlayerContext/persistentAudio to avoid iOS audio conflicts).
  */
 export interface BackgroundLayerProps {
   /** List of available backgrounds */
@@ -19,7 +20,6 @@ export interface BackgroundLayerProps {
 export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
   backgrounds,
   activeId,
-  onSelect,
 }) => {
   const active = useMemo(
     () => backgrounds.find((b) => b.id === activeId) ?? backgrounds[0],
@@ -55,25 +55,8 @@ export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
     return () => document.removeEventListener("visibilitychange", handleVis);
   }, []);
 
-  // Ambient audio – play only when volume > 0 (controlled by parent hook)
-  const ambientRef = useRef<HTMLAudioElement>(null);
-  useEffect(() => {
-    const audio = ambientRef.current;
-    if (!audio) return;
-    if (active?.ambientUrl) {
-      audio.src = active.ambientUrl;
-      audio.loop = true;
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
-    }
-    return () => {
-      audio.pause();
-    };
-  }, [active?.ambientUrl]);
-
   return (
-    <div className="fixed inset-0 z-0 overflow-hidden">
+    <div className="fixed inset-0 z-0 overflow-hidden bg-[#06150F]">
       {/* Current video */}
       <AnimatePresence initial={false}>
         {active?.videoUrl && (
@@ -107,10 +90,7 @@ export const BackgroundLayer: React.FC<BackgroundLayerProps> = ({
       </AnimatePresence>
 
       {/* Dark scrim gradient for readability */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
-
-      {/* Hidden audio element for ambient sound */}
-      <audio ref={ambientRef} />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/30 pointer-events-none" />
     </div>
   );
 };

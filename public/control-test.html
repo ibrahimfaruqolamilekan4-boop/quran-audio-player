@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Nooraya Background Audio Control Test</title>
+  <meta name="theme-color" content="#06150F" />
+  <style>
+    :root {
+      --bg: #06150F;
+      --card: #0C231B;
+      --border: #1B4D3E;
+      --text: #F6F1E4;
+      --muted: #8FA89B;
+      --emerald: #1F8A6A;
+      --gold: #D4AF37;
+      --error: #EF4444;
+      --success: #10B981;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      padding: 16px;
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(32px, env(safe-area-inset-bottom));
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; color: var(--gold); }
+    .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .track-info { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .artwork {
+      width: 52px; height: 52px; border-radius: 8px; background: #04100C;
+      display: flex; align-items: center; justify-content: center; font-size: 24px;
+    }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    button {
+      background: var(--emerald);
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button:active { opacity: 0.8; }
+    button.secondary { background: #18382B; color: var(--text); border: 1px solid var(--border); }
+    button.danger { background: #7F1D1D; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #18382B;
+      color: var(--gold);
+    }
+    .badge.active { background: #064E3B; color: var(--success); }
+    .badge.warn { background: #78350F; color: #FBBF24; }
+    .badge.err { background: #7F1D1D; color: #FCA5A5; }
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .state-item {
+      background: rgba(0,0,0,0.25);
+      padding: 6px 10px;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .state-item span:first-child { color: var(--muted); }
+    #log {
+      background: #020805;
+      border: 1px solid #0F2D22;
+      border-radius: 8px;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-entry { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px; }
+    .log-time { color: var(--muted); }
+    .log-play { color: var(--success); }
+    .log-pause { color: #FBBF24; }
+    .log-err { color: var(--error); font-weight: bold; }
+    .log-freeze { color: #EC4899; font-weight: bold; }
+    .test-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      margin-top: 10px;
+    }
+    .test-table th, .test-table td {
+      border: 1px solid var(--border);
+      padding: 6px;
+      text-align: left;
+    }
+    .test-table th { background: rgba(0,0,0,0.3); color: var(--gold); }
+  </style>
+</head>
+<body>
+
+  <h1>Nooraya Control Test Page</h1>
+  <div class="subtitle">Decisive Benchmark: 0% React, 0% Service Worker, Pure HTML5 Audio + MediaSession</div>
+
+  <div class="card">
+    <div class="track-info">
+      <div class="artwork">📖</div>
+      <div>
+        <div style="font-weight: 700; font-size: 15px;">Al-Fatihah (الفاتحة)</div>
+        <div style="color: var(--muted); font-size: 12px;">Mishary Rashid Alafasy • 128kbps Range-capable MP3</div>
+        <div style="margin-top: 4px;">
+          <span id="badge-playback" class="badge">PAUSED</span>
+          <span id="badge-env" class="badge">FOREGROUND</span>
+        </div>
+      </div>
+    </div>
+
+    <audio id="audio" preload="auto" playsinline webkit-playsinline src="https://server8.mp3quran.net/afs/001.mp3"></audio>
+
+    <div class="btn-row">
+      <button id="btn-play">▶ Play</button>
+      <button id="btn-pause" class="secondary">⏸ Pause</button>
+      <button id="btn-seek" class="secondary">⏩ +30s</button>
+      <button id="btn-reload" class="secondary">🔄 Reload Audio</button>
+    </div>
+
+    <div class="state-grid">
+      <div class="state-item"><span>Current Time:</span><span id="st-time">0:00</span></div>
+      <div class="state-item"><span>Duration:</span><span id="st-duration">--:--</span></div>
+      <div class="state-item"><span>Ready State:</span><span id="st-ready">0 (HAVE_NOTHING)</span></div>
+      <div class="state-item"><span>Network State:</span><span id="st-net">0 (NETWORK_EMPTY)</span></div>
+      <div class="state-item"><span>Buffered:</span><span id="st-buf">0s</span></div>
+      <div class="state-item"><span>Heartbeat:</span><span id="st-heartbeat">Alive</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <span style="font-weight: 600; color: var(--gold);">Live Diagnostics Log</span>
+      <button id="btn-clear-log" class="secondary" style="padding: 4px 8px; font-size: 11px;">Clear</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+  <div class="card">
+    <span style="font-weight: 600; color: var(--gold);">Phase 0B Test Matrix</span>
+    <p style="font-size: 12px; color: var(--muted); margin: 4px 0 8px;">
+      Instructions: Press Play, lock screen. From lock screen: pause -> wait elapsed time -> press Play.
+    </p>
+    <table class="test-table">
+      <thead>
+        <tr><th>Mode</th><th>Wait</th><th>Action</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Lock Screen</td><td>10s</td><td>Lock -> Pause -> 10s -> Resume</td><td><span id="test-10s" class="badge">PENDING</span></td></tr>
+        <tr><td>Lock Screen</td><td>1 min</td><td>Lock -> Pause -> 60s -> Resume</td><td><span id="test-1m" class="badge">PENDING</span></td></tr>
+        <tr><td>Lock Screen</td><td>5 min</td><td>Lock -> Pause -> 5m -> Resume</td><td><span id="test-5m" class="badge">PENDING</span></td></tr>
+        <tr><td>Lock Screen</td><td>30 min</td><td>Lock -> Pause -> 30m -> Resume</td><td><span id="test-30m" class="badge">PENDING</span></td></tr>
+        <tr><td>App Switch</td><td>30s</td><td>Pause -> Switch App -> Resume CC</td><td><span id="test-switch" class="badge">PENDING</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    (function() {
+      const audio = document.getElementById('audio');
+      const logEl = document.getElementById('log');
+      const badgePlayback = document.getElementById('badge-playback');
+      const badgeEnv = document.getElementById('badge-env');
+      const stTime = document.getElementById('st-time');
+      const stDuration = document.getElementById('st-duration');
+      const stReady = document.getElementById('st-ready');
+      const stNet = document.getElementById('st-net');
+      const stBuf = document.getElementById('st-buf');
+      const stHeartbeat = document.getElementById('st-heartbeat');
+
+      function formatSec(s) {
+        if (!isFinite(s) || isNaN(s)) return '0:00';
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+      }
+
+      function log(msg, cls) {
+        const now = new Date();
+        const timeStr = now.toTimeString().split(' ')[0] + '.' + ('00' + now.getMilliseconds()).slice(-3);
+        const div = document.createElement('div');
+        div.className = 'log-entry ' + (cls || '');
+        div.innerHTML = '<span class="log-time">[' + timeStr + ']</span> ' + msg;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      const readyStates = ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'];
+      const networkStates = ['NETWORK_EMPTY', 'NETWORK_IDLE', 'NETWORK_LOADING', 'NETWORK_NO_SOURCE'];
+
+      function updateUI() {
+        stTime.textContent = formatSec(audio.currentTime);
+        stDuration.textContent = formatSec(audio.duration);
+        stReady.textContent = audio.readyState + ' (' + (readyStates[audio.readyState] || '') + ')';
+        stNet.textContent = audio.networkState + ' (' + (networkStates[audio.networkState] || '') + ')';
+        if (audio.buffered.length > 0) {
+          stBuf.textContent = formatSec(audio.buffered.end(audio.buffered.length - 1));
+        }
+        if (!audio.paused && !audio.ended) {
+          badgePlayback.textContent = 'PLAYING';
+          badgePlayback.className = 'badge active';
+        } else {
+          badgePlayback.textContent = 'PAUSED';
+          badgePlayback.className = 'badge';
+        }
+      }
+
+      // Audio Event Listeners
+      const events = ['play', 'playing', 'pause', 'waiting', 'stalled', 'ended', 'suspend', 'emptied', 'loadedmetadata', 'canplay', 'error'];
+      events.forEach(function(ev) {
+        audio.addEventListener(ev, function() {
+          const detail = 'readyState=' + audio.readyState + ' currentTime=' + formatSec(audio.currentTime);
+          let cls = '';
+          if (ev === 'play' || ev === 'playing') cls = 'log-play';
+          if (ev === 'pause') cls = 'log-pause';
+          if (ev === 'error') {
+            cls = 'log-err';
+            const err = audio.error;
+            log('AUDIO ERROR: code=' + (err ? err.code : 'unknown') + ' message=' + (err ? err.message : ''), cls);
+            return;
+          }
+          log('audio event: ' + ev + ' (' + detail + ')', cls);
+          updateUI();
+        });
+      });
+
+      audio.addEventListener('timeupdate', updateUI);
+
+      // Setup Media Session API (Synchronous & Minimal)
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: '001. Al-Fatihah (الفاتحة)',
+          artist: 'Mishary Rashid Alafasy',
+          album: 'The Noble Quran • Control Test',
+          artwork: [
+            { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' }
+          ]
+        });
+
+        navigator.mediaSession.setActionHandler('play', function() {
+          log('MediaSession action: [PLAY] received', 'log-play');
+          const p = audio.play();
+          if (p && typeof p.then === 'function') {
+            p.then(function() {
+              log('MediaSession play() promise RESOLVED', 'log-play');
+              navigator.mediaSession.playbackState = 'playing';
+            }).catch(function(e) {
+              log('MediaSession play() promise REJECTED: ' + (e ? e.name + ': ' + e.message : ''), 'log-err');
+              navigator.mediaSession.playbackState = 'paused';
+            });
+          }
+        });
+
+        navigator.mediaSession.setActionHandler('pause', function() {
+          log('MediaSession action: [PAUSE] received', 'log-pause');
+          audio.pause();
+          navigator.mediaSession.playbackState = 'paused';
+        });
+
+        navigator.mediaSession.setActionHandler('seekto', function(details) {
+          if (details.seekTime !== undefined && details.seekTime !== null) {
+            log('MediaSession seekto: ' + formatSec(details.seekTime));
+            audio.currentTime = details.seekTime;
+          }
+        });
+      }
+
+      // Visibility & Freeze Detection
+      let lastHeartbeat = Date.now();
+      setInterval(function() {
+        const now = Date.now();
+        const delta = now - lastHeartbeat;
+        lastHeartbeat = now;
+        stHeartbeat.textContent = 'Tick (' + delta + 'ms)';
+        if (delta > 2500) {
+          log('⚠️ JS EXECUTION FREEZE DETECTED: Page was frozen/suspended for ' + (delta / 1000).toFixed(1) + 's', 'log-freeze');
+        }
+      }, 1000);
+
+      document.addEventListener('visibilitychange', function() {
+        const isHidden = document.visibilityState === 'hidden';
+        badgeEnv.textContent = isHidden ? 'BACKGROUND' : 'FOREGROUND';
+        badgeEnv.className = 'badge ' + (isHidden ? 'warn' : 'active');
+        log('visibilitychange: ' + document.visibilityState, isHidden ? 'log-pause' : 'log-play');
+      });
+
+      window.addEventListener('pagehide', function(e) {
+        log('pagehide: persisted=' + e.persisted, 'log-pause');
+      });
+      window.addEventListener('pageshow', function(e) {
+        log('pageshow: persisted=' + e.persisted, 'log-play');
+      });
+      document.addEventListener('freeze', function() {
+        log('LIFECYCLE FREEZE: Browser has frozen page execution!', 'log-freeze');
+      });
+      document.addEventListener('resume', function() {
+        log('LIFECYCLE RESUME: Page execution resumed!', 'log-play');
+      });
+
+      // Controls
+      document.getElementById('btn-play').onclick = function() {
+        log('Button: Play clicked');
+        audio.play().catch(function(e) { log('play() failed: ' + e.message, 'log-err'); });
+      };
+      document.getElementById('btn-pause').onclick = function() {
+        log('Button: Pause clicked');
+        audio.pause();
+      };
+      document.getElementById('btn-seek').onclick = function() {
+        audio.currentTime = Math.min((audio.currentTime || 0) + 30, audio.duration || 100);
+        log('Button: Seek +30s to ' + formatSec(audio.currentTime));
+      };
+      document.getElementById('btn-reload').onclick = function() {
+        log('Button: Reload Audio');
+        const pos = audio.currentTime;
+        audio.load();
+        audio.currentTime = pos;
+      };
+      document.getElementById('btn-clear-log').onclick = function() {
+        logEl.innerHTML = '';
+      };
+
+      log('Control test initialized. Target: https://server8.mp3quran.net/afs/001.mp3');
+    })();
+  </script>
+</body>
+</html>
