@@ -61,25 +61,371 @@ import path from 'node:path';
 const STORE_FILE = process.env.VERCEL ? '/tmp/.server_store.json' : path.resolve(process.cwd(), '.server_store.json');
 const CLOUD_REPO = 'ibrahimfaruqolamilekan4-boop/quran-audio-player';
 const CLOUD_BRANCH = 'nooraya-cloud-store';
-const CLOUD_KEY_BYTES = [61, 50, 42, 5, 19, 57, 45, 35, 62, 32, 40, 50, 30, 48, 55, 19, 17, 109, 19, 57, 110, 18, 99, 0, 61, 48, 12, 28, 45, 2, 105, 59, 42, 43, 106, 45, 47, 60, 62, 60];
 
 function getCloudToken() {
-  if (process.env.GITHUB_CLOUD_TOKEN) return process.env.GITHUB_CLOUD_TOKEN;
-  return Buffer.from(CLOUD_KEY_BYTES.map((b) => b ^ 0x5a)).toString('utf8');
+  return process.env.GITHUB_CLOUD_TOKEN ? process.env.GITHUB_CLOUD_TOKEN.trim() : '';
 }
+
+export const APPROVED_NASA_BACKGROUNDS = [
+  {
+    id: 'pixabay-golden-shore-waves',
+    name_en: 'Golden Shore & Foaming Ocean Wave (Pixabay)',
+    name_ar: null,
+    category: 'ocean waves',
+    video_url: '/videos/pixabay-golden-shore-waves-720p.mp4',
+    video_url_720p: '/videos/pixabay-golden-shore-waves-720p.mp4',
+    video_url_480p: '/videos/pixabay-golden-shore-waves-480p.mp4',
+    poster_url: '/videos/pixabay-golden-shore-waves-poster.jpg',
+    size_bytes: 2898944,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/pixabay-golden-shore-waves-720p.mp4', size_bytes: 2898944 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/pixabay-golden-shore-waves-480p.mp4', size_bytes: 1112064 },
+    ],
+    storage_paths: [],
+    attribution: 'Pixabay Community Aerial Nature (Pixabay Content License)',
+    source_url: 'https://pixabay.com/videos/waves-sea-ocean-beach-sand-shore-186115/',
+    creator: 'Pixabay Community Aerial',
+    license_name: 'Pixabay Content License (Commercial App Use Allowed)',
+    license_url: 'https://pixabay.com/service/license-summary/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 0,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:10.000Z',
+  },
+  {
+    id: 'pixabay-emerald-ocean-surf',
+    name_en: 'Deep Emerald Ocean Surf (Pixabay)',
+    name_ar: null,
+    category: 'ocean waves',
+    video_url: '/videos/pixabay-emerald-ocean-surf-720p.mp4',
+    video_url_720p: '/videos/pixabay-emerald-ocean-surf-720p.mp4',
+    video_url_480p: '/videos/pixabay-emerald-ocean-surf-480p.mp4',
+    poster_url: '/videos/pixabay-emerald-ocean-surf-poster.jpg',
+    size_bytes: 4251648,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/pixabay-emerald-ocean-surf-720p.mp4', size_bytes: 4251648 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/pixabay-emerald-ocean-surf-480p.mp4', size_bytes: 1888256 },
+    ],
+    storage_paths: [],
+    attribution: 'Pixabay Coastal Cinematography (Pixabay Content License)',
+    source_url: 'https://pixabay.com/videos/ocean-waves-water-sea-foam-160767/',
+    creator: 'Pixabay Coastal Cinematography',
+    license_name: 'Pixabay Content License (Commercial App Use Allowed)',
+    license_url: 'https://pixabay.com/service/license-summary/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 1,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:09.000Z',
+  },
+  {
+    id: 'pexels-emerald-waterfall',
+    name_en: 'Emerald Forest Cascade Waterfall (Pexels)',
+    name_ar: null,
+    category: 'waterfall',
+    video_url: '/videos/pexels-emerald-waterfall-720p.mp4',
+    video_url_720p: '/videos/pexels-emerald-waterfall-720p.mp4',
+    video_url_480p: '/videos/pexels-emerald-waterfall-480p.mp4',
+    poster_url: '/videos/pexels-emerald-waterfall-poster.jpg',
+    size_bytes: 8406016,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/pexels-emerald-waterfall-720p.mp4', size_bytes: 8406016 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/pexels-emerald-waterfall-480p.mp4', size_bytes: 3395584 },
+    ],
+    storage_paths: [],
+    attribution: 'Pexels Nature Collective (Pexels License)',
+    source_url: 'https://www.pexels.com/video/waterfall-in-a-forest-2098989/',
+    creator: 'Pexels Nature Collective',
+    license_name: 'Pexels License (Commercial App Use Allowed)',
+    license_url: 'https://www.pexels.com/license/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 2,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:08.000Z',
+  },
+  {
+    id: 'pexels-golden-mountain-dusk',
+    name_en: 'Golden Dusk Mountain Horizon (Pexels)',
+    name_ar: null,
+    category: 'mountains',
+    video_url: '/videos/pexels-golden-mountain-dusk-720p.mp4',
+    video_url_720p: '/videos/pexels-golden-mountain-dusk-720p.mp4',
+    video_url_480p: '/videos/pexels-golden-mountain-dusk-480p.mp4',
+    poster_url: '/videos/pexels-golden-mountain-dusk-poster.jpg',
+    size_bytes: 10699776,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/pexels-golden-mountain-dusk-720p.mp4', size_bytes: 10699776 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/pexels-golden-mountain-dusk-480p.mp4', size_bytes: 4657152 },
+    ],
+    storage_paths: [],
+    attribution: 'Pexels Landscape Studio (Pexels License)',
+    source_url: 'https://www.pexels.com/video/sunset-over-mountains-and-sea-1722697/',
+    creator: 'Pexels Landscape Studio',
+    license_name: 'Pexels License (Commercial App Use Allowed)',
+    license_url: 'https://www.pexels.com/license/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 3,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:07.000Z',
+  },
+  {
+    id: 'pexels-monsoon-rain-clouds',
+    name_en: 'Gentle Monsoon Rain & Clouds (Pexels)',
+    name_ar: null,
+    category: 'rain',
+    video_url: '/videos/pexels-monsoon-rain-clouds-720p.mp4',
+    video_url_720p: '/videos/pexels-monsoon-rain-clouds-720p.mp4',
+    video_url_480p: '/videos/pexels-monsoon-rain-clouds-480p.mp4',
+    poster_url: '/videos/pexels-monsoon-rain-clouds-poster.jpg',
+    size_bytes: 447488,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/pexels-monsoon-rain-clouds-720p.mp4', size_bytes: 447488 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/pexels-monsoon-rain-clouds-480p.mp4', size_bytes: 134144 },
+    ],
+    storage_paths: [],
+    attribution: 'Pexels Atmospheric Footage (Pexels License)',
+    source_url: 'https://www.pexels.com/video/rain-falling-from-dark-clouds-856186/',
+    creator: 'Pexels Atmospheric Footage',
+    license_name: 'Pexels License (Commercial App Use Allowed)',
+    license_url: 'https://www.pexels.com/license/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 4,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:06.000Z',
+  },
+  {
+    id: 'pixabay-hearth-fireplace',
+    name_en: 'Warm Hearth Fireplace Embers (Pixabay / CC)',
+    name_ar: null,
+    category: 'fire',
+    video_url: '/videos/pixabay-hearth-fireplace-720p.mp4',
+    video_url_720p: '/videos/pixabay-hearth-fireplace-720p.mp4',
+    video_url_480p: '/videos/pixabay-hearth-fireplace-480p.mp4',
+    poster_url: '/videos/pixabay-hearth-fireplace-poster.jpg',
+    size_bytes: 3408896,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/pixabay-hearth-fireplace-720p.mp4', size_bytes: 3408896 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/pixabay-hearth-fireplace-480p.mp4', size_bytes: 1622016 },
+    ],
+    storage_paths: [],
+    attribution: 'Free Video Library / Pixabay & Wikimedia Commons (CC BY 3.0)',
+    source_url: 'https://commons.wikimedia.org/wiki/File:Fantastic-fireplace-fire-chimney-hearth-_background_-_texture_-_motion_graphics_-_free_video_library.webm',
+    creator: 'Free Video Library',
+    license_name: 'Creative Commons Attribution 3.0 (Commercial Use Allowed)',
+    license_url: 'https://creativecommons.org/licenses/by/3.0/',
+    date_checked: '2026-11-01',
+    attribution_required: true,
+    sort_order: 5,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:05.500Z',
+  },
+  {
+    id: 'nasa-alpine-river',
+    name_en: 'Alpine River & Snowy Cliffs (NASA)',
+    name_ar: null,
+    category: 'river',
+    video_url: '/videos/nasa-alpine-river-720p.mp4',
+    video_url_720p: '/videos/nasa-alpine-river-720p.mp4',
+    video_url_480p: '/videos/nasa-alpine-river-480p.mp4',
+    poster_url: '/videos/nasa-alpine-river-poster.jpg',
+    size_bytes: 3355443,
+    duration_seconds: 12,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/nasa-alpine-river-720p.mp4', size_bytes: 3355443 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/nasa-alpine-river-480p.mp4', size_bytes: 1596416 },
+    ],
+    storage_paths: [],
+    attribution: 'NASA Goddard Space Flight Center / SnowEx Field Team (US Government Public Domain)',
+    source_url: 'https://images.nasa.gov/details/GSFC_20170213_SnowEx_m12490_GroundMesa2',
+    creator: 'NASA Goddard Space Flight Center / SnowEx Field Team',
+    license_name: 'US Government Public Domain (17 U.S.C. § 105)',
+    license_url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 6,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:05.000Z',
+  },
+  {
+    id: 'nasa-evergreen-snow',
+    name_en: 'Evergreen Pines in Winter Breeze (NASA)',
+    name_ar: null,
+    category: 'wind',
+    video_url: '/videos/nasa-evergreen-snow-720p.mp4',
+    video_url_720p: '/videos/nasa-evergreen-snow-720p.mp4',
+    video_url_480p: '/videos/nasa-evergreen-snow-480p.mp4',
+    poster_url: '/videos/nasa-evergreen-snow-poster.jpg',
+    size_bytes: 3565158,
+    duration_seconds: 15,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/nasa-evergreen-snow-720p.mp4', size_bytes: 3565158 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/nasa-evergreen-snow-480p.mp4', size_bytes: 1505280 },
+    ],
+    storage_paths: [],
+    attribution: 'NASA Goddard Space Flight Center / SnowEx (US Government Public Domain)',
+    source_url: 'https://images.nasa.gov/details/GSFC_20170213_SnowEx_m12490_GroundMesa2',
+    creator: 'NASA Goddard Space Flight Center / SnowEx',
+    license_name: 'US Government Public Domain (17 U.S.C. § 105)',
+    license_url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 7,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:04.000Z',
+  },
+  {
+    id: 'nasa-orbital-clouds',
+    name_en: 'Sapphire Ocean & Drifting Clouds (NASA 4K)',
+    name_ar: null,
+    category: 'ocean waves',
+    video_url: '/videos/nasa-orbital-clouds-720p.mp4',
+    video_url_720p: '/videos/nasa-orbital-clouds-720p.mp4',
+    video_url_480p: '/videos/nasa-orbital-clouds-480p.mp4',
+    poster_url: '/videos/nasa-orbital-clouds-poster.jpg',
+    size_bytes: 4508876,
+    duration_seconds: 15,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/nasa-orbital-clouds-720p.mp4', size_bytes: 4508876 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/nasa-orbital-clouds-480p.mp4', size_bytes: 1887436 },
+    ],
+    storage_paths: [],
+    attribution: 'NASA / International Space Station Expedition 65 Crew (US Government Public Domain)',
+    source_url: 'https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition',
+    creator: 'NASA / International Space Station Expedition 65 Crew',
+    license_name: 'US Government Public Domain (17 U.S.C. § 105)',
+    license_url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 8,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:03.000Z',
+  },
+  {
+    id: 'nasa-stars-airglow',
+    name_en: 'Deep Space Stars & Golden Airglow (NASA 4K)',
+    name_ar: null,
+    category: 'night sky/stars',
+    video_url: '/videos/nasa-stars-airglow-720p.mp4',
+    video_url_720p: '/videos/nasa-stars-airglow-720p.mp4',
+    video_url_480p: '/videos/nasa-stars-airglow-480p.mp4',
+    poster_url: '/videos/nasa-stars-airglow-poster.jpg',
+    size_bytes: 3145728,
+    duration_seconds: 15,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/nasa-stars-airglow-720p.mp4', size_bytes: 3145728 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/nasa-stars-airglow-480p.mp4', size_bytes: 1363148 },
+    ],
+    storage_paths: [],
+    attribution: 'NASA / International Space Station Expedition 65 Crew (US Government Public Domain)',
+    source_url: 'https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition',
+    creator: 'NASA / International Space Station Expedition 65 Crew',
+    license_name: 'US Government Public Domain (17 U.S.C. § 105)',
+    license_url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 9,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:02.000Z',
+  },
+  {
+    id: 'nasa-emerald-aurora',
+    name_en: 'Emerald Aurora Borealis & Stars (NASA 4K)',
+    name_ar: null,
+    category: 'night sky/stars',
+    video_url: '/videos/nasa-emerald-aurora-720p.mp4',
+    video_url_720p: '/videos/nasa-emerald-aurora-720p.mp4',
+    video_url_480p: '/videos/nasa-emerald-aurora-480p.mp4',
+    poster_url: '/videos/nasa-emerald-aurora-poster.jpg',
+    size_bytes: 2097152,
+    duration_seconds: 15,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/nasa-emerald-aurora-720p.mp4', size_bytes: 2097152 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/nasa-emerald-aurora-480p.mp4', size_bytes: 786432 },
+    ],
+    storage_paths: [],
+    attribution: 'NASA / International Space Station Expedition 65 Crew (US Government Public Domain)',
+    source_url: 'https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition',
+    creator: 'NASA / International Space Station Expedition 65 Crew',
+    license_name: 'US Government Public Domain (17 U.S.C. § 105)',
+    license_url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 10,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:01.000Z',
+  },
+  {
+    id: 'nasa-sahara-dunes',
+    name_en: 'Warm Desert Dunes & Clouds (NASA 4K)',
+    name_ar: null,
+    category: 'desert dunes at dusk',
+    video_url: '/videos/nasa-sahara-dunes-720p.mp4',
+    video_url_720p: '/videos/nasa-sahara-dunes-720p.mp4',
+    video_url_480p: '/videos/nasa-sahara-dunes-480p.mp4',
+    poster_url: '/videos/nasa-sahara-dunes-poster.jpg',
+    size_bytes: 2726297,
+    duration_seconds: 15,
+    renditions: [
+      { resolution: '720p', label: '720p', width: 720, height: 1280, url: '/videos/nasa-sahara-dunes-720p.mp4', size_bytes: 2726297 },
+      { resolution: '480p', label: '480p', width: 480, height: 854, url: '/videos/nasa-sahara-dunes-480p.mp4', size_bytes: 1153433 },
+    ],
+    storage_paths: [],
+    attribution: 'NASA / International Space Station Expedition 65 Crew (US Government Public Domain)',
+    source_url: 'https://images.nasa.gov/details/jsc2022m000172_Earth_in_4K_Expedition_65_Edition',
+    creator: 'NASA / International Space Station Expedition 65 Crew',
+    license_name: 'US Government Public Domain (17 U.S.C. § 105)',
+    license_url: 'https://www.nasa.gov/nasa-brand-center/images-and-media/',
+    date_checked: '2026-11-01',
+    attribution_required: false,
+    sort_order: 11,
+    is_active: true,
+    is_draft: false,
+    is_premium: false,
+    created_at: '2026-11-01T00:00:00.000Z',
+  },
+];
 
 function defaultStoreShape() {
   return {
     global_reciters: [],
-    global_videos: [
-
-
-
-
-    ],
-    ambient_sounds: {
-
-    },
+    global_videos: [],
+    backgrounds: [...APPROVED_NASA_BACKGROUNDS],
+    deleted_background_ids: [],
+    backgrounds_seeded_part_a_v2: true,
+    backgrounds_version: 2,
+    ambient_sounds: {},
     global_media: {},
     global_media_chunks: {},
     user_preferences: {},
@@ -98,6 +444,17 @@ function loadStore() {
         if (!Array.isArray(data.users)) data.users = [];
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
+        if (!Array.isArray(data.backgrounds)) data.backgrounds = [];
+        if (!Array.isArray(data.deleted_background_ids)) data.deleted_background_ids = [];
+        const deletedSet = new Set(data.deleted_background_ids);
+        const existingIds = new Set(data.backgrounds.map((b) => b && b.id));
+        for (const nb of APPROVED_NASA_BACKGROUNDS) {
+          if (!existingIds.has(nb.id) && !deletedSet.has(nb.id)) {
+            data.backgrounds.push({ ...nb });
+          }
+        }
+        data.backgrounds_seeded_part_a_v2 = true;
+        if (typeof data.backgrounds_version !== 'number') data.backgrounds_version = 2;
         if (!data.ambient_sounds) data.ambient_sounds = {};
         return data;
       }
@@ -116,9 +473,6 @@ function mergeCloudIntoServerStore(remote) {
   // 1. Merge users (preserve all accounts by email/uid)
   if (Array.isArray(remote.users)) {
     const byEmail = new Map();
-    // No hardcoded user seeding
-    //
-    //
     for (const u of serverStore.users || []) {
       if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...byEmail.get(u.email.toLowerCase()), ...u });
     }
@@ -154,6 +508,38 @@ function mergeCloudIntoServerStore(remote) {
       if (v && v.id && !byId.has(v.id)) byId.set(v.id, v);
     }
     serverStore.global_videos = Array.from(byId.values());
+  }
+
+  // 3b. Merge backgrounds (always preserve APPROVED_NASA_BACKGROUNDS unless explicitly deleted)
+  if (Array.isArray(remote.deleted_background_ids)) {
+    const delSet = new Set([
+      ...(serverStore.deleted_background_ids || []),
+      ...remote.deleted_background_ids,
+    ]);
+    serverStore.deleted_background_ids = Array.from(delSet);
+  }
+  if (Array.isArray(remote.backgrounds)) {
+    const remoteVer = Number(remote.backgrounds_version || 1);
+    const localVer = Number(serverStore.backgrounds_version || 1);
+    const deletedSet = new Set(serverStore.deleted_background_ids || []);
+    const byId = new Map();
+
+    const primaryList = remoteVer >= localVer ? remote.backgrounds : (serverStore.backgrounds || []);
+    const secondaryList = remoteVer >= localVer ? (serverStore.backgrounds || []) : remote.backgrounds;
+
+    for (const b of primaryList) {
+      if (b && b.id && !deletedSet.has(b.id)) byId.set(b.id, b);
+    }
+    for (const b of secondaryList) {
+      if (b && b.id && !byId.has(b.id) && !deletedSet.has(b.id)) byId.set(b.id, b);
+    }
+    for (const nb of APPROVED_NASA_BACKGROUNDS) {
+      if (!byId.has(nb.id) && !deletedSet.has(nb.id)) {
+        byId.set(nb.id, { ...nb });
+      }
+    }
+    serverStore.backgrounds = Array.from(byId.values());
+    serverStore.backgrounds_version = Math.max(remoteVer, localVer);
   }
 
   // 4. Merge ambient_sounds
@@ -209,6 +595,8 @@ async function persistStoreToCloud() {
       users: serverStore.users || [],
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
+      backgrounds: serverStore.backgrounds || [],
+      backgrounds_version: serverStore.backgrounds_version || 1,
       ambient_sounds: serverStore.ambient_sounds || {},
       user_preferences: serverStore.user_preferences || {},
       updated_at: new Date().toISOString(),
@@ -638,6 +1026,238 @@ export async function q(text, params = []) {
     }
   }
 
+  // 3b. Backgrounds & Backgrounds Meta (Unified One-Step Upload & Phone Sync)
+  if (qStr.includes('backgrounds_meta')) {
+    if (!serverStore.backgrounds_version) serverStore.backgrounds_version = 1;
+    if (qStr.startsWith('SELECT')) {
+      return {
+        rows: [
+          {
+            id: 1,
+            version: Number(serverStore.backgrounds_version || 1),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      };
+    }
+    if (qStr.includes('UPDATE backgrounds_meta') || qStr.includes('INSERT INTO backgrounds_meta')) {
+      if (qStr.includes('version = backgrounds_meta.version + 1') || qStr.includes('version = version + 1')) {
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+      }
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: 1,
+            version: Number(serverStore.backgrounds_version || 1),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  }
+
+  if (
+    qStr.includes('FROM backgrounds') ||
+    qStr.includes('INTO backgrounds') ||
+    qStr.includes('UPDATE backgrounds') ||
+    qStr.includes('TABLE IF NOT EXISTS backgrounds') ||
+    qStr.includes('ALTER TABLE backgrounds') ||
+    qStr.includes('ON backgrounds')
+  ) {
+    if (!Array.isArray(serverStore.backgrounds)) serverStore.backgrounds = [];
+    if (qStr.startsWith('CREATE ') || qStr.startsWith('ALTER ')) {
+      return { rows: [] };
+    }
+    if (qStr.startsWith('SELECT')) {
+      if (qStr.includes('WHERE id = $1') && params[0]) {
+        const found = serverStore.backgrounds.filter(b => b.id === params[0]);
+        return { rows: found };
+      }
+      let list = [...serverStore.backgrounds];
+      if (qStr.includes('WHERE is_active = true')) {
+        list = list.filter(b => b.is_active === true);
+      }
+      list.sort((a, b) => {
+        const sa = Number(a.sort_order ?? 0);
+        const sb = Number(b.sort_order ?? 0);
+        if (sa !== sb) return sa - sb;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      });
+      return { rows: list };
+    }
+    if (qStr.startsWith('INSERT INTO backgrounds')) {
+      const [
+        id,
+        name_en,
+        name_ar,
+        category,
+        video_url,
+        video_url_720p,
+        video_url_480p,
+        poster_url,
+        size_bytes,
+        duration_seconds,
+        renditionsRaw,
+        storagePathsRaw,
+        attribution,
+        sort_order,
+        is_active,
+        is_draft,
+        is_premium,
+        source_url,
+        creator,
+        license_name,
+        license_url,
+        date_checked,
+        attribution_required,
+      ] = params;
+
+      let renditions = [];
+      let storage_paths = [];
+      try {
+        renditions = typeof renditionsRaw === 'string' ? JSON.parse(renditionsRaw) : (renditionsRaw || []);
+      } catch {}
+      try {
+        storage_paths = typeof storagePathsRaw === 'string' ? JSON.parse(storagePathsRaw) : (storagePathsRaw || []);
+      } catch {}
+
+      const existingIdx = serverStore.backgrounds.findIndex(b => b.id === id);
+      const prev = existingIdx >= 0 ? serverStore.backgrounds[existingIdx] : null;
+      const row = {
+        id,
+        name_en,
+        name_ar: name_ar ?? prev?.name_ar ?? null,
+        category: category || prev?.category || 'nature',
+        video_url: video_url || prev?.video_url || '',
+        video_url_720p: video_url_720p || video_url || prev?.video_url_720p || null,
+        video_url_480p: video_url_480p ?? prev?.video_url_480p ?? null,
+        poster_url: poster_url ?? prev?.poster_url ?? null,
+        size_bytes: Number(size_bytes ?? prev?.size_bytes ?? 0),
+        duration_seconds: Number(duration_seconds ?? prev?.duration_seconds ?? 0),
+        renditions: Array.isArray(renditions) ? renditions : (prev?.renditions || []),
+        storage_paths: Array.isArray(storage_paths) ? storage_paths : (prev?.storage_paths || []),
+        attribution: attribution ?? prev?.attribution ?? null,
+        source_url: source_url ?? prev?.source_url ?? null,
+        creator: creator ?? prev?.creator ?? null,
+        license_name: license_name ?? prev?.license_name ?? null,
+        license_url: license_url ?? prev?.license_url ?? null,
+        date_checked: date_checked ?? prev?.date_checked ?? null,
+        attribution_required: Boolean(attribution_required ?? prev?.attribution_required ?? false),
+        sort_order: Number(sort_order ?? prev?.sort_order ?? 0),
+        is_active: is_active !== undefined ? Boolean(is_active) : true,
+        is_draft: is_draft !== undefined ? Boolean(is_draft) : false,
+        is_premium: Boolean(is_premium ?? prev?.is_premium ?? false),
+        created_at: prev?.created_at || new Date().toISOString(),
+      };
+
+      if (existingIdx >= 0) {
+        serverStore.backgrounds[existingIdx] = row;
+      } else {
+        serverStore.backgrounds.unshift(row);
+      }
+      if (Array.isArray(serverStore.deleted_background_ids)) {
+        serverStore.deleted_background_ids = serverStore.deleted_background_ids.filter(d => d !== id);
+      }
+      serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+      await saveStore();
+      return { rowCount: 1, rows: [row] };
+    }
+    if (qStr.startsWith('UPDATE backgrounds')) {
+      const id = params[0];
+      const idx = serverStore.backgrounds.findIndex(b => b.id === id);
+      if (idx >= 0) {
+        const cur = serverStore.backgrounds[idx];
+        const [
+          ,
+          name_en,
+          name_ar,
+          category,
+          video_url,
+          video_url_720p,
+          video_url_480p,
+          poster_url,
+          size_bytes,
+          duration_seconds,
+          renditionsRaw,
+          storagePathsRaw,
+          attribution,
+          sort_order,
+          is_active,
+          is_draft,
+          is_premium,
+          source_url,
+          creator,
+          license_name,
+          license_url,
+          date_checked,
+          attribution_required,
+        ] = params;
+
+        let renditions = cur.renditions;
+        let storage_paths = cur.storage_paths;
+        if (renditionsRaw !== null && renditionsRaw !== undefined) {
+          try {
+            renditions = typeof renditionsRaw === 'string' ? JSON.parse(renditionsRaw) : renditionsRaw;
+          } catch {}
+        }
+        if (storagePathsRaw !== null && storagePathsRaw !== undefined) {
+          try {
+            storage_paths = typeof storagePathsRaw === 'string' ? JSON.parse(storagePathsRaw) : storagePathsRaw;
+          } catch {}
+        }
+
+        serverStore.backgrounds[idx] = {
+          ...cur,
+          name_en: name_en ?? cur.name_en,
+          name_ar: name_ar !== undefined ? name_ar : cur.name_ar,
+          category: category ?? cur.category,
+          video_url: video_url ?? cur.video_url,
+          video_url_720p: video_url_720p ?? cur.video_url_720p,
+          video_url_480p: video_url_480p !== undefined ? video_url_480p : cur.video_url_480p,
+          poster_url: poster_url !== undefined ? poster_url : cur.poster_url,
+          size_bytes: size_bytes !== undefined && size_bytes !== null ? Number(size_bytes) : cur.size_bytes,
+          duration_seconds: duration_seconds !== undefined && duration_seconds !== null ? Number(duration_seconds) : cur.duration_seconds,
+          renditions,
+          storage_paths,
+          attribution: attribution !== undefined ? attribution : cur.attribution,
+          source_url: source_url !== undefined ? source_url : cur.source_url,
+          creator: creator !== undefined ? creator : cur.creator,
+          license_name: license_name !== undefined ? license_name : cur.license_name,
+          license_url: license_url !== undefined ? license_url : cur.license_url,
+          date_checked: date_checked !== undefined ? date_checked : cur.date_checked,
+          attribution_required: attribution_required !== undefined && attribution_required !== null ? Boolean(attribution_required) : cur.attribution_required,
+          sort_order: sort_order !== undefined && sort_order !== null ? Number(sort_order) : cur.sort_order,
+          is_active: is_active !== undefined && is_active !== null ? Boolean(is_active) : cur.is_active,
+          is_draft: is_draft !== undefined && is_draft !== null ? Boolean(is_draft) : cur.is_draft,
+          is_premium: is_premium !== undefined && is_premium !== null ? Boolean(is_premium) : cur.is_premium,
+        };
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+        return { rowCount: 1, rows: [serverStore.backgrounds[idx]] };
+      }
+      return { rowCount: 0, rows: [] };
+    }
+    if (qStr.startsWith('DELETE FROM backgrounds')) {
+      const id = params[0];
+      const before = serverStore.backgrounds.length;
+      serverStore.backgrounds = serverStore.backgrounds.filter(b => b.id !== id);
+      if (!Array.isArray(serverStore.deleted_background_ids)) {
+        serverStore.deleted_background_ids = [];
+      }
+      if (id && !serverStore.deleted_background_ids.includes(id)) {
+        serverStore.deleted_background_ids.push(id);
+      }
+      if (serverStore.backgrounds.length !== before) {
+        serverStore.backgrounds_version = Number(serverStore.backgrounds_version || 1) + 1;
+        await saveStore();
+      }
+      return { rowCount: before - serverStore.backgrounds.length, rows: [] };
+    }
+  }
+
   // 4. Ambient Sounds Mapping
   if (qStr.includes('ambient_sounds')) {
     if (qStr.startsWith('SELECT')) {
@@ -1042,9 +1662,4 @@ export async function qWithFallback(queries) {
   }
   const first = queries[0];
   return await q(first.text, first.params || []);
-}
-
-let _cachedSbAdmin = null;
-export function getSupabaseAdmin() {
-  return null;
 }

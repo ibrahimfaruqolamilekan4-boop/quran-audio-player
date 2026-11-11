@@ -189,9 +189,15 @@ CREATE TABLE IF NOT EXISTS public.backgrounds (
   renditions JSONB DEFAULT '[]'::jsonb,
   storage_paths JSONB DEFAULT '[]'::jsonb,
   attribution TEXT,
+  source_url TEXT,
+  creator TEXT,
+  license_name TEXT,
+  license_url TEXT,
+  date_checked TEXT,
+  attribution_required BOOLEAN DEFAULT false,
   sort_order INT DEFAULT 0,
-  is_active BOOLEAN DEFAULT false, -- Starts as DRAFT until published by admin
-  is_draft BOOLEAN DEFAULT true,
+  is_active BOOLEAN DEFAULT true, -- Publishes immediately by default
+  is_draft BOOLEAN DEFAULT false,
   is_premium BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -203,7 +209,31 @@ ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS duration_seconds NUMERIC
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS renditions JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS storage_paths JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS attribution TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS source_url TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS creator TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS license_name TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS license_url TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS date_checked TEXT;
+ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS attribution_required BOOLEAN DEFAULT false;
 ALTER TABLE public.backgrounds ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT false;
+ALTER TABLE public.backgrounds ALTER COLUMN is_active SET DEFAULT true;
+ALTER TABLE public.backgrounds ALTER COLUMN is_draft SET DEFAULT false;
+
+-- Single-row list version counter checked by phones on open, focus, and every 60s
+CREATE TABLE IF NOT EXISTS public.backgrounds_meta (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  version BIGINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO public.backgrounds_meta (id, version, updated_at)
+VALUES (1, 1, now())
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.backgrounds_meta ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can read backgrounds_meta" ON public.backgrounds_meta;
+CREATE POLICY "Public can read backgrounds_meta"
+  ON public.backgrounds_meta FOR SELECT
+  USING (true);
 
 CREATE INDEX IF NOT EXISTS idx_backgrounds_active_sort ON public.backgrounds (is_active, sort_order ASC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_backgrounds_category ON public.backgrounds (category);
@@ -405,6 +435,7 @@ CREATE POLICY "Only admin can delete backgrounds"
 DO $$
 BEGIN
   ALTER TABLE public.backgrounds REPLICA IDENTITY FULL;
+  ALTER TABLE public.backgrounds_meta REPLICA IDENTITY FULL;
   ALTER TABLE public.profiles REPLICA IDENTITY FULL;
 
   IF NOT EXISTS (
@@ -412,6 +443,13 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND tablename = 'backgrounds'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.backgrounds;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'backgrounds_meta'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.backgrounds_meta;
   END IF;
 
   IF NOT EXISTS (
@@ -479,7 +517,7 @@ CREATE TABLE IF NOT EXISTS public.plans (
 CREATE INDEX IF NOT EXISTS idx_plans_active_sort ON public.plans (is_active, sort_order ASC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_plans_code ON public.plans (code);
 
--- Seed ONE canonical row: premium_monthly at â‚¦500 for 30 days
+-- Seed ONE canonical row: premium_monthly at ₦500 for 30 days
 INSERT INTO public.plans (
   id,
   code,
@@ -495,7 +533,7 @@ INSERT INTO public.plans (
   'plan_premium_monthly',
   'premium_monthly',
   'Monthly Sanctuary',
-  'Ø§Ù„Ø§Ø´ØªØ±Ø§Ùƒ Ø§Ù„Ø´Ù‡Ø±ÙŠ',
+  'الاشتراك الشهري',
   500,
   'NGN',
   30,
@@ -640,98 +678,175 @@ ALTER TABLE public.plans REPLICA IDENTITY FULL;
 ALTER TABLE public.payments REPLICA IDENTITY FULL;
 
 -- ------------------------------------------------------------------------------
--- SECTION 8: ADHAN VOICES TABLE & REALTIME POLICIES
--- Admin-managed voices for five daily prayers & Fajr. Seed nothing by default.
+-- SECTION 9: ADHAN VOICES CATALOG & REALTIME SYNC (PHASE 2)
+-- Admin-managed muezzin recordings with Fajr-specific support and licensing metadata.
+-- No hardcoded audio URLs: slots start as 'upload_when_licensed' until Admin uploads.
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.adhan_voices (
-  id text PRIMARY KEY,
-  name_en text NOT NULL,
-  name_ar text,
-  muezzin text NOT NULL,
-  mosque text,
-  audio_url text,
-  fajr_audio_url text,
-  duration integer DEFAULT 0,
-  license text,
-  source text,
-  attribution text,
-  is_active boolean DEFAULT true,
-  is_premium boolean DEFAULT false,
-  created_at timestamptz DEFAULT now()
+  id TEXT PRIMARY KEY,
+  muezzin_name_en TEXT NOT NULL,
+  muezzin_name_ar TEXT,
+  title_en TEXT NOT NULL,
+  mosque_en TEXT DEFAULT 'Al-Masjid an-Nabawi (Prophet''s Mosque, Madinah)',
+  mosque_ar TEXT DEFAULT 'المسجد النبوي الشريف',
+  audio_url TEXT,
+  fajr_audio_url TEXT,
+  duration_seconds NUMERIC DEFAULT 0,
+  fajr_duration_seconds NUMERIC DEFAULT 0,
+  size_bytes BIGINT DEFAULT 0,
+  storage_paths JSONB DEFAULT '[]'::jsonb,
+  license_status TEXT NOT NULL DEFAULT 'upload_when_licensed' CHECK (license_status IN ('verified_licensed', 'upload_when_licensed', 'admin_uploaded')),
+  license_notes TEXT,
+  source_url TEXT,
+  official_verified BOOLEAN DEFAULT true,
+  is_default BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  sort_order INT DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_adhan_voices_active ON public.adhan_voices (is_active, is_premium);
+CREATE INDEX IF NOT EXISTS idx_adhan_voices_active_sort ON public.adhan_voices (is_active, sort_order ASC, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.adhan_voices_meta (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  version BIGINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.adhan_voices_meta (id, version, updated_at)
+VALUES (1, 1, now())
+ON CONFLICT (id) DO NOTHING;
 
 ALTER TABLE public.adhan_voices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.adhan_voices_meta ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Anyone can view active adhan voices" ON public.adhan_voices;
-CREATE POLICY "Anyone can view active adhan voices"
+DROP POLICY IF EXISTS "Public can read adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Public can read adhan_voices"
   ON public.adhan_voices FOR SELECT
-  TO anon, authenticated, service_role
   USING (is_active = true OR public.is_admin());
 
-DROP POLICY IF EXISTS "Only admin or service_role can manage adhan voices" ON public.adhan_voices;
-CREATE POLICY "Only admin or service_role can manage adhan voices"
-  ON public.adhan_voices FOR ALL
+DROP POLICY IF EXISTS "Only admin can insert adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Only admin can insert adhan_voices"
+  ON public.adhan_voices FOR INSERT
+  TO authenticated, service_role
+  WITH CHECK (auth.role() = 'service_role' OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only admin can update adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Only admin can update adhan_voices"
+  ON public.adhan_voices FOR UPDATE
   TO authenticated, service_role
   USING (auth.role() = 'service_role' OR public.is_admin())
   WITH CHECK (auth.role() = 'service_role' OR public.is_admin());
 
-ALTER TABLE public.adhan_voices REPLICA IDENTITY FULL;
+DROP POLICY IF EXISTS "Only admin can delete adhan_voices" ON public.adhan_voices;
+CREATE POLICY "Only admin can delete adhan_voices"
+  ON public.adhan_voices FOR DELETE
+  TO authenticated, service_role
+  USING (auth.role() = 'service_role' OR public.is_admin());
 
--- ------------------------------------------------------------------------------
--- SECTION 9: PRAYER PUSH SUBSCRIPTIONS (VAPID Web Push)
--- Stores browser web push endpoints with user coordinates for scheduled adhan push
--- ------------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.prayer_push_subscriptions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
-  endpoint text NOT NULL UNIQUE,
-  keys jsonb NOT NULL,
-  latitude double precision NOT NULL,
-  longitude double precision NOT NULL,
-  timezone text NOT NULL DEFAULT 'UTC',
-  city text,
-  country text,
-  calculation_method text DEFAULT 'MWL',
-  juristic text DEFAULT 'Shafi',
-  prayer_preferences jsonb DEFAULT '{"fajr":true,"dhuhr":true,"asr":true,"maghrib":true,"isha":true}'::jsonb,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_prayer_push_subs_coords ON public.prayer_push_subscriptions (latitude, longitude);
-CREATE INDEX IF NOT EXISTS idx_prayer_push_subs_user ON public.prayer_push_subscriptions (user_id);
-
-ALTER TABLE public.prayer_push_subscriptions ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can insert their own push subscriptions" ON public.prayer_push_subscriptions;
-CREATE POLICY "Users can insert their own push subscriptions"
-  ON public.prayer_push_subscriptions FOR INSERT
-  TO anon, authenticated, service_role
-  WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Users can update their own push subscriptions" ON public.prayer_push_subscriptions;
-CREATE POLICY "Users can update their own push subscriptions"
-  ON public.prayer_push_subscriptions FOR UPDATE
-  TO anon, authenticated, service_role
-  USING (true)
-  WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Users can delete their own push subscriptions" ON public.prayer_push_subscriptions;
-CREATE POLICY "Users can delete their own push subscriptions"
-  ON public.prayer_push_subscriptions FOR DELETE
-  TO anon, authenticated, service_role
+DROP POLICY IF EXISTS "Public can read adhan_voices_meta" ON public.adhan_voices_meta;
+CREATE POLICY "Public can read adhan_voices_meta"
+  ON public.adhan_voices_meta FOR SELECT
   USING (true);
 
-DROP POLICY IF EXISTS "Only service_role can view all subscriptions" ON public.prayer_push_subscriptions;
-CREATE POLICY "Only service_role can view all subscriptions"
-  ON public.prayer_push_subscriptions FOR SELECT
-  TO authenticated, service_role
-  USING (auth.role() = 'service_role' OR auth.uid() = user_id OR public.is_admin());
+-- Ensure ambient-backgrounds storage bucket also accepts audio files for Adhan uploads
+UPDATE storage.buckets
+SET allowed_mime_types = ARRAY[
+  'video/mp4', 'video/webm',
+  'image/jpeg', 'image/png', 'image/webp',
+  'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/x-m4a', 'audio/wav', 'audio/ogg'
+]
+WHERE id = 'ambient-backgrounds';
+
+DO $$
+BEGIN
+  ALTER TABLE public.adhan_voices REPLICA IDENTITY FULL;
+  ALTER TABLE public.adhan_voices_meta REPLICA IDENTITY FULL;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'adhan_voices'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.adhan_voices;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'adhan_voices_meta'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.adhan_voices_meta;
+  END IF;
+END;
+$$;
 
 -- ------------------------------------------------------------------------------
--- SECTION 10: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
+-- SECTION 10: WEB PUSH SUBSCRIPTIONS & PER-MINUTE PG_CRON SCHEDULER (PHASE 3)
+-- Stores opted-in user push endpoints, prayer calculation settings, and coordinates
+-- (strictly when user opts in to server-sent background notifications).
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  platform TEXT DEFAULT 'web',
+  city_name TEXT NOT NULL DEFAULT 'Makkah',
+  country TEXT DEFAULT 'Saudi Arabia',
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'Asia/Riyadh',
+  calculation_method TEXT NOT NULL DEFAULT 'UmmAlQura',
+  madhab TEXT NOT NULL DEFAULT 'shafi',
+  high_latitude_rule TEXT NOT NULL DEFAULT 'MiddleOfTheNight',
+  adjustments JSONB NOT NULL DEFAULT '{"fajr":0,"sunrise":0,"dhuhr":0,"asr":0,"maghrib":0,"isha":0}'::jsonb,
+  prayer_reminders JSONB NOT NULL DEFAULT '{"fajr":true,"sunrise":false,"dhuhr":true,"asr":true,"maghrib":true,"isha":true}'::jsonb,
+  prayer_adhan_modes JSONB NOT NULL DEFAULT '{"fajr":"full","sunrise":"silent","dhuhr":"full","asr":"full","maghrib":"full","isha":"full"}'::jsonb,
+  reminder_minutes_before INT NOT NULL DEFAULT 0,
+  active_adhan_voice_id TEXT DEFAULT 'nabawi-khashuqji',
+  use_fajr_adhan BOOLEAN NOT NULL DEFAULT true,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  last_sent_prayer_key TEXT,
+  last_sent_at TIMESTAMPTZ,
+  last_status TEXT,
+  failure_count INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_active ON public.push_subscriptions (is_active, timezone);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON public.push_subscriptions (user_id);
+
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users manage own push subscription or admin reads all" ON public.push_subscriptions;
+CREATE POLICY "Users manage own push subscription or admin reads all"
+  ON public.push_subscriptions FOR ALL
+  USING (auth.uid() = user_id OR auth.role() = 'service_role' OR public.is_admin())
+  WITH CHECK (auth.uid() = user_id OR auth.role() = 'service_role' OR public.is_admin());
+
+-- Optional Supabase pg_cron + pg_net per-minute scheduler (runs every minute * * * * *)
+-- Note: Enable pg_cron and pg_net extensions in Supabase Dashboard -> Database -> Extensions,
+-- then uncomment and set your production URL and CRON_SECRET below:
+--
+-- CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- CREATE EXTENSION IF NOT EXISTS pg_net;
+-- SELECT cron.schedule(
+--   'nooraya-prayer-push-every-minute',
+--   '* * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://YOUR_PRODUCTION_DOMAIN/api/push/dispatch',
+--     headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_CRON_SECRET"}'::jsonb,
+--     body := '{"source": "pg_cron"}'::jsonb
+--   );
+--   $$
+-- );
+
+-- ------------------------------------------------------------------------------
+-- SECTION 7: ADMIN GRANT INSTRUCTION (REPLACE EMAIL BEFORE RUNNING)
 -- ------------------------------------------------------------------------------
 -- UPDATE public.profiles
 -- SET role = 'admin'
