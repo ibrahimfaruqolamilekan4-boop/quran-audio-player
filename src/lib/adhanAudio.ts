@@ -498,7 +498,7 @@ export async function fetchAdhanVoicesVersion(): Promise<number> {
   return lastKnownAdhanVersion;
 }
 
-function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
+export function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
   const slotMap = new Map(OFFICIAL_MUEZZIN_CATALOG_SLOTS.map((s) => [s.id, s]));
   return rows.map((row) => {
     const slot = slotMap.get(row.id);
@@ -522,6 +522,8 @@ function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[
     };
   });
 }
+
+export const hydrateAdhanVoiceUrls = hydrateVoicesWithCatalogDefaults;
 
 /**
  * Fetches all active Adhan voices from `/api/adhan-voices` with direct Supabase fallback
