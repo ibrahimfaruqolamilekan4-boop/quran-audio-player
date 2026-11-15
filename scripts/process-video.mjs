@@ -137,7 +137,7 @@ ${colors.bold}Options:${colors.reset}
   --category <cat>       Category: fireplace, rain, ocean, forest, cosmos, night (default auto)
   --start <seconds>      Trim start time in seconds (e.g. --start 10)
   --duration <seconds>   Trim duration in seconds (e.g. --duration 30)
-  --loop-crossfade <sec> Add seamless loop crossfade overlap in seconds (e.g. --loop-crossfade 1.5)
+  --focus-x <0..1>       Horizontal focal point for 9:16 portrait crop (default 0.5 center)
   --out-dir <path>       Custom output folder (defaults to ./processed/<slug>_<timestamp>)
 
 ${colors.bold}Guarantees:${colors.reset}
@@ -146,13 +146,12 @@ ${colors.bold}Guarantees:${colors.reset}
     process.exit(0);
   }
 
-  // Parse arguments
   let inputPath = null;
   let customName = null;
   let category = null;
   let trimStart = null;
   let trimDuration = null;
-  let loopCrossfade = null;
+  let focusX = 0.5;
   let outDirOverride = null;
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -165,8 +164,8 @@ ${colors.bold}Guarantees:${colors.reset}
       trimStart = parseFloat(rawArgs[++i]);
     } else if (arg === '--duration' && rawArgs[i + 1]) {
       trimDuration = parseFloat(rawArgs[++i]);
-    } else if (arg === '--loop-crossfade' && rawArgs[i + 1]) {
-      loopCrossfade = parseFloat(rawArgs[++i]);
+    } else if (arg === '--focus-x' && rawArgs[i + 1]) {
+      focusX = Math.min(1, Math.max(0, parseFloat(rawArgs[++i]) || 0.5));
     } else if (arg === '--out-dir' && rawArgs[i + 1]) {
       outDirOverride = rawArgs[++i];
     } else if (!arg.startsWith('-') && !inputPath) {
@@ -185,7 +184,6 @@ ${colors.bold}Guarantees:${colors.reset}
     process.exit(1);
   }
 
-  // Verify read permission
   try {
     fs.accessSync(resolvedInput, fs.constants.R_OK);
   } catch {
@@ -199,18 +197,16 @@ ${colors.bold}Guarantees:${colors.reset}
     process.exit(1);
   }
 
-  console.log(`\n${colors.bold}${colors.green}=== Starting Nooraya Video Processing ===${colors.reset}`);
+  console.log(`\n${colors.bold}${colors.green}=== Starting Nooraya HD Portrait + Landscape Video Processing ===${colors.reset}`);
   console.log(`  Source File: ${colors.bold}${resolvedInput}${colors.reset}`);
 
   const originalStat = fs.statSync(resolvedInput);
   console.log(`  Source Size: ${colors.yellow}${formatBytes(originalStat.size)}${colors.reset}`);
 
-  // Step 1: Compute Pre-processing SHA-256 Checksum (Mathematical Immutability Proof)
   process.stdout.write(`  ${colors.cyan}Calculating source SHA-256 checksum...${colors.reset} `);
   const preChecksum = await computeSha256(resolvedInput);
   process.stdout.write(`${colors.green}${preChecksum.slice(0, 16)}...${colors.reset}\n`);
 
-  // Infer title and category
   const fileBasename = path.basename(resolvedInput, path.extname(resolvedInput));
   const title = (customName || fileBasename).trim();
   const safeSlug = title.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 24) || 'ambient';
@@ -231,15 +227,10 @@ ${colors.bold}Guarantees:${colors.reset}
     ? path.resolve(process.cwd(), outDirOverride)
     : path.resolve(process.cwd(), 'processed', `${safeSlug}_${timestamp}`);
 
-  if (!fs.existsSync(outDir)) {
-    fs.mkdirSync(outDir, { recursive: true });
-  }
-
+  fs.mkdirSync(outDir, { recursive: true });
   console.log(`  Output Folder: ${colors.bold}${outDir}${colors.reset}\n`);
 
   const startTime = Date.now();
-
-  // Common trim flags
   const trimArgs = [];
   if (trimStart !== null && !isNaN(trimStart) && trimStart > 0) {
     trimArgs.push('-ss', String(trimStart));
@@ -248,91 +239,129 @@ ${colors.bold}Guarantees:${colors.reset}
     trimArgs.push('-t', String(trimDuration));
   }
 
-  // Task 1: Generate Poster Thumbnail (JPEG, ~30-50 KB)
+  // Task 1: Generate Crisp Poster Thumbnail
   const posterPath = path.join(outDir, 'poster.jpg');
-  const posterArgs = [
-    '-y',
-    ...(trimStart ? ['-ss', String(trimStart)] : ['-ss', '00:00:01']),
-    '-i', resolvedInput,
-    '-vframes', '1',
-    '-vf', "scale='min(1280,iw)':-2",
-    '-q:v', '2',
-    posterPath,
-  ];
-  await runFFmpegCommand(ffmpegBin, posterArgs, 'Poster Thumbnail (1s frame)');
+  await runFFmpegCommand(
+    ffmpegBin,
+    [
+      '-y',
+      ...(trimStart ? ['-ss', String(trimStart)] : ['-ss', '00:00:01']),
+      '-i', resolvedInput,
+      '-vframes', '1',
+      '-vf', "scale='min(1280,iw)':-2:flags=lanczos",
+      '-q:v', '2',
+      posterPath,
+    ],
+    'Poster Thumbnail'
+  );
 
-  // Task 2: 720p Rendition (Desktop / Fast Wi-Fi / Tablets)
-  // Standards: MP4, H.264 Main, yuv420p, no audio (-an), constant 30fps, 2.2M max 2.5M, keyframe every 1s, faststart
-  const out720pPath = path.join(outDir, '720p.mp4');
-  const args720p = [
+  // Common H.264 High@L4.1 encoding profile (yuv420p, 30fps, 2s keyframe, CRF 21, no audio, faststart)
+  const buildVideoArgs = ({ vf, outFile, profile, level, crf, maxrate, bufsize, fps }) => [
     '-y',
     ...trimArgs,
     '-i', resolvedInput,
-    '-vf', "scale='min(1280,iw)':-2",
+    '-vf', vf,
     '-c:v', 'libx264',
-    '-profile:v', 'main',
+    '-profile:v', profile,
+    '-level:v', level,
     '-pix_fmt', 'yuv420p',
     '-an',
-    '-r', '30',
-    '-b:v', '2200k',
-    '-maxrate', '2500k',
-    '-bufsize', '5000k',
-    '-g', '30',
-    '-keyint_min', '30',
+    '-r', String(fps),
+    '-crf', String(crf),
+    '-maxrate', maxrate,
+    '-bufsize', bufsize,
+    '-g', String(fps * 2),
+    '-keyint_min', String(fps * 2),
     '-sc_threshold', '0',
     '-movflags', '+faststart',
-    out720pPath,
+    outFile,
   ];
-  await runFFmpegCommand(ffmpegBin, args720p, '720p High-Quality Rendition (Main profile, 30fps, faststart)');
 
-  // Task 3: 480p Rendition (Mobile Phones / Cellular Data / iOS Low Power Mode)
-  // Standards: MP4, H.264 Main, yuv420p, no audio (-an), constant 24fps, 1.0M max 1.2M, keyframe every 1s, faststart
-  const out480pPath = path.join(outDir, '480p.mp4');
-  const args480p = [
-    '-y',
-    ...trimArgs,
-    '-i', resolvedInput,
-    '-vf', "scale='min(854,iw)':-2",
-    '-c:v', 'libx264',
-    '-profile:v', 'main',
-    '-pix_fmt', 'yuv420p',
-    '-an',
-    '-r', '24',
-    '-b:v', '1000k',
-    '-maxrate', '1200k',
-    '-bufsize', '2400k',
-    '-g', '24',
-    '-keyint_min', '24',
-    '-sc_threshold', '0',
-    '-movflags', '+faststart',
-    out480pPath,
-  ];
-  await runFFmpegCommand(ffmpegBin, args480p, '480p Mobile Rendition (Battery-optimized, 24fps, faststart)');
+  // Portrait 9:16 crop filter centered on admin focusX (0..1) when source is wider than 9:16
+  const portraitFilter = (w, h) =>
+    `crop='min(iw,ih*9/16)':'ih':'(iw-min(iw,ih*9/16))*${focusX}':0,scale=${w}:${h}:flags=lanczos`;
+
+  const out720pPortrait = path.join(outDir, '720p-portrait.mp4');
+  await runFFmpegCommand(
+    ffmpegBin,
+    buildVideoArgs({
+      vf: portraitFilter(720, 1280),
+      outFile: out720pPortrait,
+      profile: 'high',
+      level: '4.1',
+      crf: 21,
+      maxrate: '3500k',
+      bufsize: '7000k',
+      fps: 30,
+    }),
+    'Portrait 720x1280 (Mobile High@L4.1, CRF 21, faststart)'
+  );
+
+  const out1080pPortrait = path.join(outDir, '1080p-portrait.mp4');
+  await runFFmpegCommand(
+    ffmpegBin,
+    buildVideoArgs({
+      vf: portraitFilter(1080, 1920),
+      outFile: out1080pPortrait,
+      profile: 'high',
+      level: '4.1',
+      crf: 20,
+      maxrate: '5500k',
+      bufsize: '11000k',
+      fps: 30,
+    }),
+    'Portrait 1080x1920 (Retina Wi-Fi High@L4.1, CRF 20, faststart)'
+  );
+
+  const out720pLandscape = path.join(outDir, '720p.mp4');
+  await runFFmpegCommand(
+    ffmpegBin,
+    buildVideoArgs({
+      vf: "scale=1280:720:force_original_aspect_ratio=increase:flags=lanczos,crop=1280:720",
+      outFile: out720pLandscape,
+      profile: 'high',
+      level: '4.1',
+      crf: 21,
+      maxrate: '3500k',
+      bufsize: '7000k',
+      fps: 30,
+    }),
+    'Landscape 1280x720 (Desktop/Tablet High@L4.1, CRF 21, faststart)'
+  );
+
+  const out480pFallback = path.join(outDir, '480p.mp4');
+  await runFFmpegCommand(
+    ffmpegBin,
+    buildVideoArgs({
+      vf: "scale=854:480:force_original_aspect_ratio=increase:flags=lanczos,crop=854:480",
+      outFile: out480pFallback,
+      profile: 'main',
+      level: '4.0',
+      crf: 23,
+      maxrate: '1400k',
+      bufsize: '2800k',
+      fps: 24,
+    }),
+    '480p Economy Fallback (Main@L4.0, Save-Data/Degraded)'
+  );
 
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-
-  // Step 4: Verify Post-processing SHA-256 Checksum (Mathematical Immutability Proof)
-  process.stdout.write(`\n  ${colors.cyan}Verifying source immutability (Post-processing SHA-256)...${colors.reset} `);
   const postChecksum = await computeSha256(resolvedInput);
-
   if (preChecksum !== postChecksum) {
     console.error(`\n${colors.red}${colors.bold}CRITICAL SAFETY ALERT: Source file checksum mismatch!${colors.reset}`);
     process.exit(1);
   }
-  process.stdout.write(`${colors.green}VERIFIED UNTOUCHED (100% Match)${colors.reset}\n`);
 
-  // Gather stats
   const statPoster = fs.statSync(posterPath);
-  const stat720p = fs.statSync(out720pPath);
-  const stat480p = fs.statSync(out480pPath);
+  const stat720pPortrait = fs.statSync(out720pPortrait);
+  const stat1080pPortrait = fs.statSync(out1080pPortrait);
+  const stat720p = fs.statSync(out720pLandscape);
+  const stat480p = fs.statSync(out480pFallback);
 
-  const savings720p = Math.round((1 - stat720p.size / originalStat.size) * 100);
-  const savings480p = Math.round((1 - stat480p.size / originalStat.size) * 100);
-
-  // Create manifest.json for one-click admin upload
   const manifest = {
     name: title,
     category,
+    focusX,
     source: {
       originalFilename: path.basename(resolvedInput),
       originalSizeBytes: originalStat.size,
@@ -340,58 +369,27 @@ ${colors.bold}Guarantees:${colors.reset}
       immutabilityConfirmed: true,
     },
     renditions: [
-      {
-        resolution: '720p',
-        filename: '720p.mp4',
-        path: out720pPath,
-        sizeBytes: stat720p.size,
-        targetWidth: 1280,
-        targetHeight: 720,
-        fps: 30,
-        bitrateBps: 2200000,
-      },
-      {
-        resolution: '480p',
-        filename: '480p.mp4',
-        path: out480pPath,
-        sizeBytes: stat480p.size,
-        targetWidth: 854,
-        targetHeight: 480,
-        fps: 24,
-        bitrateBps: 1000000,
-      },
+      { resolution: '1080p-portrait', filename: '1080p-portrait.mp4', width: 1080, height: 1920, sizeBytes: stat1080pPortrait.size, fps: 30 },
+      { resolution: '720p-portrait', filename: '720p-portrait.mp4', width: 720, height: 1280, sizeBytes: stat720pPortrait.size, fps: 30 },
+      { resolution: '720p', filename: '720p.mp4', width: 1280, height: 720, sizeBytes: stat720p.size, fps: 30 },
+      { resolution: '480p', filename: '480p.mp4', width: 854, height: 480, sizeBytes: stat480p.size, fps: 24 },
     ],
-    poster: {
-      filename: 'poster.jpg',
-      path: posterPath,
-      sizeBytes: statPoster.size,
-    },
+    poster: { filename: 'poster.jpg', sizeBytes: statPoster.size },
     durationSeconds: trimDuration || null,
     generatedAt: new Date().toISOString(),
     processingTimeSeconds: parseFloat(elapsedSec),
   };
 
-  const manifestPath = path.join(outDir, 'manifest.json');
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
-
-  // Print Clean Benchmark Table
-  console.log(`\n${colors.bold}${colors.green}=== Video Processing Complete in ${elapsedSec}s ===${colors.reset}\n`);
-  console.log(`  ${''.padEnd(20)} | ${'File Size'.padStart(12)} | ${'Bandwidth Reduction'.padStart(20)} | ${'Target Device'.padEnd(25)}`);
-  console.log(`  ${'-'.repeat(20)}-+-${'-'.repeat(12)}-+-${'-'.repeat(20)}-+-${'-'.repeat(25)}`);
-  console.log(`  ${'Original (Source)'.padEnd(20)} | ${formatBytes(originalStat.size).padStart(12)} | ${'0% (Base)'.padStart(20)} | ${'Local Master (Untouched)'.padEnd(25)}`);
-  console.log(`  ${'720p (Desktop/TV)'.padEnd(20)} | ${formatBytes(stat720p.size).padStart(12)} | ${`-${savings720p}%`.padStart(20)} | ${'Laptops, Tablets, Fast Wi-Fi'.padEnd(25)}`);
-  console.log(`  ${'480p (Mobile/Data)'.padEnd(20)} | ${formatBytes(stat480p.size).padStart(12)} | ${`-${savings480p}%`.padStart(20)} | ${'Smartphones, 3G/4G, Battery'.padEnd(25)}`);
-  console.log(`  ${'Poster Thumbnail'.padEnd(20)} | ${formatBytes(statPoster.size).padStart(12)} | ${'99.9%'.padStart(20)} | ${'Instant Zero-Blank Fallback'.padEnd(25)}`);
-
-  console.log(`\n${colors.cyan}${colors.bold}Admin Upload Instructions:${colors.reset}`);
-  console.log(`  1. Open the Admin Panel at ${colors.bold}/admin/backgrounds${colors.reset}`);
-  console.log(`  2. In the upload card, drag and drop the generated files from:`);
-  console.log(`     ${colors.yellow}${outDir}${colors.reset}`);
-  console.log(`  3. Or select the files: ${colors.bold}720p.mp4, 480p.mp4, poster.jpg${colors.reset}`);
-  console.log(`  4. Preview on your device and click ${colors.green}${colors.bold}Publish to All Devices${colors.reset}.\n`);
+  fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+  console.log(`\n${colors.bold}${colors.green}=== Processing Complete in ${elapsedSec}s ===${colors.reset}`);
+  console.log(`  1080p Portrait: ${formatBytes(stat1080pPortrait.size)}`);
+  console.log(`  720p Portrait : ${formatBytes(stat720pPortrait.size)}`);
+  console.log(`  720p Landscape: ${formatBytes(stat720p.size)}`);
+  console.log(`  480p Fallback : ${formatBytes(stat480p.size)}`);
 }
 
 main().catch((err) => {
   console.error(`\n${colors.red}${colors.bold}Fatal Error:${colors.reset}`, err?.message || err);
   process.exit(1);
 });
+
