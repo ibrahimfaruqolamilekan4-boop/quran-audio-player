@@ -38,6 +38,7 @@ import {
 import { ReciterAvatar } from '../components/ReciterAvatar';
 import { DownloadManager } from '../components/DownloadManager';
 import { resizeImageToDataUrl, uploadMediaToServer, mediaStore } from '../lib/upload';
+import { APP_BUILD_VERSION } from '../lib/featureFlags';
 import {
   uploadRecitation,
   replaceRecitation,
@@ -129,8 +130,11 @@ export function SettingsView() {
   const [syncStatusText, setSyncStatusText] = useState('');
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
 
-  // Toast feedback state
+  // Toast & inline confirmation feedback state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => Promise<void> | void } | null>(null);
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState('');
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -359,7 +363,7 @@ export function SettingsView() {
         await localforage.setItem('customReciters', updated);
       }
 
-      // 2. Global server sync â€” persist to /api/media and /api/admin/reciters so phones, tablets, and all users get this portrait!
+      // 2. Global server sync — persist to /api/media and /api/admin/reciters so phones, tablets, and all users get this portrait!
       let permanentUrl = dataUrl;
       try {
         const hostedUrl = await uploadMediaToServer(dataUrl, {
@@ -545,41 +549,44 @@ export function SettingsView() {
   };
 
   // 4. DELETE CUSTOM RECITER
-  const handleDeleteCustomReciter = async (reciter: Reciter) => {
-    if (!window.confirm(`Delete "${reciter.name}" from your catalog?`)) return;
+  const handleDeleteCustomReciter = (reciter: Reciter) => {
+    setPendingConfirm({
+      message: `Delete "${reciter.name}" from your catalog?`,
+      onConfirm: async () => {
+        const updated = customReciters.filter(r => r.id !== reciter.id);
+        setCustomReciters(updated);
+        await localforage.setItem('customReciters', updated);
 
-    const updated = customReciters.filter(r => r.id !== reciter.id);
-    setCustomReciters(updated);
-    await localforage.setItem('customReciters', updated);
+        // Delete associated recitations from device
+        const toRemove = recitations.filter(r => r.reciterId === reciter.id);
+        for (const rec of toRemove) {
+          await deleteRecitation(rec.id);
+        }
+        setRecitations(recitations.filter(r => r.reciterId !== reciter.id));
 
-    // Delete associated recitations from device
-    const toRemove = recitations.filter(r => r.reciterId === reciter.id);
-    for (const rec of toRemove) {
-      await deleteRecitation(rec.id);
-    }
-    setRecitations(recitations.filter(r => r.reciterId !== reciter.id));
+        if (managingReciterId === reciter.id) {
+          setManagingReciterId(null);
+        }
 
-    if (managingReciterId === reciter.id) {
-      setManagingReciterId(null);
-    }
+        try {
+          await appApi('/admin/reciters', {
+            method: 'POST',
+            body: { id: reciter.id, action: 'delete' },
+          });
+        } catch {}
 
-    try {
-      await appApi('/admin/reciters', {
-        method: 'POST',
-        body: { id: reciter.id, action: 'delete' },
-      });
-    } catch {}
+        if (user) {
+          try {
+            await appApi(`/me/reciters/${encodeURIComponent(reciter.id)}`, { method: 'DELETE' });
+          } catch (e) {
+            console.warn('Server delete failed', e);
+          }
+        }
 
-    if (user) {
-      try {
-        await appApi(`/me/reciters/${encodeURIComponent(reciter.id)}`, { method: 'DELETE' });
-      } catch (e) {
-        console.warn('Server delete failed', e);
-      }
-    }
-
-    await refreshGlobalCatalog();
-    showToast(`Removed "${reciter.name}".`, 'success');
+        await refreshGlobalCatalog();
+        showToast(`Removed "${reciter.name}".`, 'success');
+      },
+    });
   };
 
   // 5. UPLOAD SURAH AUDIO DOWNLOADED TO PHONE
@@ -624,25 +631,28 @@ export function SettingsView() {
   };
 
   // 6. DELETE STORED SURAH AUDIO
-  const handleDeleteSurahAudio = async (chapterId: number) => {
+  const handleDeleteSurahAudio = (chapterId: number) => {
     const existing = reciterSurahMap.get(chapterId);
     if (!existing) return;
 
-    if (!window.confirm(`Delete the uploaded audio for Surah ${chapterId}?`)) return;
-
-    try {
-      await deleteRecitation(existing.id);
-      setRecitations(recitations.filter(r => r.id !== existing.id));
-      if (previewSurahId === chapterId && previewAudioRef.current) {
-        previewAudioRef.current.pause();
-        setPreviewAudioUrl(null);
-        setPreviewSurahId(null);
-        setIsPreviewPlaying(false);
-      }
-      showToast(`Removed audio for Surah ${chapterId}.`, 'success');
-    } catch (err) {
-      showToast('Could not delete audio.', 'error');
-    }
+    setPendingConfirm({
+      message: `Delete the uploaded audio for Surah ${chapterId}?`,
+      onConfirm: async () => {
+        try {
+          await deleteRecitation(existing.id);
+          setRecitations(recitations.filter(r => r.id !== existing.id));
+          if (previewSurahId === chapterId && previewAudioRef.current) {
+            previewAudioRef.current.pause();
+            setPreviewAudioUrl(null);
+            setPreviewSurahId(null);
+            setIsPreviewPlaying(false);
+          }
+          showToast(`Removed audio for Surah ${chapterId}.`, 'success');
+        } catch (err) {
+          showToast('Could not delete audio.', 'error');
+        }
+      },
+    });
   };
 
   // 7. PREVIEW UPLOADED SURAH AUDIO
@@ -850,6 +860,35 @@ export function SettingsView() {
         )}
       </AnimatePresence>
 
+      {/* Inline Confirmation Dialog */}
+      {pendingConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D121F] border border-slate-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <p className="text-sm text-white font-medium">{pendingConfirm.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingConfirm(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const fn = pendingConfirm.onConfirm;
+                  setPendingConfirm(null);
+                  await fn();
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
@@ -932,14 +971,23 @@ export function SettingsView() {
                     key={theme.id}
                     type="button"
                     onClick={() => {
-                      if (theme.id === 'light') {
+                      const nextMode = theme.id === 'light' ? 'light' : 'dark';
+                      if (nextMode === 'light') {
                         document.documentElement.classList.add('light');
                         document.documentElement.setAttribute('data-theme', 'light');
                       } else {
                         document.documentElement.classList.remove('light');
                         document.documentElement.setAttribute('data-theme', 'dark');
                       }
-                      localStorage.setItem('nooraya_theme', theme.id);
+                      const metaTheme = document.querySelector('meta[name="theme-color"]');
+                      if (metaTheme) {
+                        metaTheme.setAttribute('content', nextMode === 'light' ? '#F4EFE6' : '#06150F');
+                      }
+                      try {
+                        localStorage.setItem('nooraya_theme', nextMode);
+                        localStorage.setItem('nooraya_color_theme', nextMode);
+                      } catch {}
+                      window.dispatchEvent(new CustomEvent('nooraya-theme-changed', { detail: nextMode }));
                     }}
                     className="flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all bg-[#11382B] hover:bg-[#176B53] text-[#F6F1E4] border border-white/8 active:scale-95 cursor-pointer text-center"
                   >
@@ -980,7 +1028,53 @@ export function SettingsView() {
                     </div>
                   )}
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white">{user.displayName || user.email?.split('@')[0]}</span><button type="button" onClick={() => { const next = prompt("Enter your new display name:", user.displayName || user.email?.split('@')[0]); if (next && next.trim()) { appApi("/me/preferences", { method: "PUT", body: { full_name: next.trim() } }).then(() => refreshUser()).catch(() => {}); } }} className="text-emerald-400 hover:text-emerald-300 text-xs cursor-pointer p-0.5" title="Edit Full Name"><Pencil size={12} /></button></div>
+                    {editingDisplayName ? (
+                      <form
+                        className="flex items-center gap-1.5"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const next = displayNameInput.trim();
+                          if (next) {
+                            appApi("/me/preferences", { method: "PUT", body: { full_name: next } })
+                              .then(() => {
+                                void refreshUser();
+                                showToast("Display name updated.", "success");
+                              })
+                              .catch(() => showToast("Could not update display name.", "error"));
+                          }
+                          setEditingDisplayName(false);
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={displayNameInput}
+                          onChange={(e) => setDisplayNameInput(e.target.value)}
+                          className="bg-[#0D121F] border border-emerald-500/40 rounded-lg px-2 py-1 text-xs text-white focus:outline-none w-36"
+                          autoFocus
+                        />
+                        <button type="submit" className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold cursor-pointer px-1.5">
+                          Save
+                        </button>
+                        <button type="button" onClick={() => setEditingDisplayName(false)} className="text-slate-400 hover:text-white text-xs cursor-pointer">
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-white">{user.displayName || user.email?.split('@')[0]}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDisplayNameInput(user.displayName || user.email?.split('@')[0] || '');
+                            setEditingDisplayName(true);
+                          }}
+                          className="text-emerald-400 hover:text-emerald-300 text-xs cursor-pointer p-0.5"
+                          title="Edit Full Name"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
+                    )}
                     <span className="text-xs text-slate-400 truncate max-w-[180px]">{user.email}</span>
                   </div>
                 </div>
@@ -1005,6 +1099,39 @@ export function SettingsView() {
         {/* Offline Surahs & Storage Manager */}
         <section>
           <DownloadManager />
+        </section>
+
+        {/* Phase 5: Production Build Stamp & Diagnostics Console */}
+        <section className="bg-[#0C2A20] border border-white/10 rounded-3xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-[#D4AF37]">
+              Build Version &amp; Production Diagnostics
+            </div>
+            <p className="text-xs font-mono text-[#D1DFD8] mt-1">
+              Version: {APP_BUILD_VERSION} • Deploy ID:{' '}
+              {typeof document !== 'undefined'
+                ? document.querySelector('meta[name="build-id"]')?.getAttribute('content') ||
+                  'live'
+                : 'live'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/diag')}
+              className="px-4 py-2 rounded-xl bg-[#11382B] hover:bg-[#176B53] text-[#34C38F] border border-[#34C38F]/30 text-xs font-bold cursor-pointer transition-colors"
+            >
+              Open Diagnostics (/diag)
+            </button>
+            <a
+              href="/control-audio-test.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-xl bg-[#06150F] hover:bg-white/5 text-[#A8BFB3] border border-white/10 text-xs font-semibold transition-colors"
+            >
+              Control Audio Test
+            </a>
+          </div>
         </section>
 
         {/* ============================================================ */}
@@ -1041,7 +1168,7 @@ export function SettingsView() {
                       </div>
                       <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
                         <span>{managingReciter.category || 'General'}</span>
-                        <span>â€¢</span>
+                        <span>•</span>
                         <span className="text-teal-400 font-semibold">
                           {reciterSurahMap.size} of 114 Surahs uploaded from phone
                         </span>
@@ -1139,7 +1266,7 @@ export function SettingsView() {
                               </span>
                             </div>
                             <span className="text-[11px] text-slate-400">
-                              {surah.verses_count} verses â€¢ {surah.translated_name?.name || 'Surah'}
+                              {surah.verses_count} verses • {surah.translated_name?.name || 'Surah'}
                             </span>
                           </div>
                         </div>
@@ -1222,7 +1349,7 @@ export function SettingsView() {
                       Reciters & Sheikhs Directory ({allReciters.length})
                     </h2>
                     <p className="text-slate-400 text-sm mt-1">
-                      Upload portraits directly from your phone's photo library, edit bios, or click â€œUpload Surahsâ€ to attach downloaded MP3 files for all 114 surahs.
+                      Upload portraits directly from your phone's photo library, edit bios, or click “Upload Surahs” to attach downloaded MP3 files for all 114 surahs.
                     </p>
                   </div>
 
@@ -1370,7 +1497,7 @@ export function SettingsView() {
                               </div>
                             ) : (
                               <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                                {reciter.bio || <span className="text-slate-600 italic">No biography added yet. Click â€œEdit Bioâ€ to add one.</span>}
+                                {reciter.bio || <span className="text-slate-600 italic">No biography added yet. Click “Edit Bio” to add one.</span>}
                               </p>
                             )}
                           </div>
@@ -2156,7 +2283,7 @@ export function SettingsView() {
                     App Version & System Status
                   </h3>
                   <p className="text-xs text-emerald-200/70 mt-1">
-                    Release: <span className="font-semibold text-emerald-300">Medina Emerald v2.1.0</span> â€¢ Build:{' '}
+                    Release: <span className="font-semibold text-emerald-300">Medina Emerald v2.1.0</span> • Build:{' '}
                     <span className="font-mono text-emerald-400">
                       {typeof document !== 'undefined'
                         ? document.querySelector('meta[name="build-id"]')?.getAttribute('content') || 'Latest Production'

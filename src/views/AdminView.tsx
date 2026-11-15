@@ -311,7 +311,7 @@ export function AdminView() {
       return;
     }
     setEditPhotoData(dataUrl);
-    showToast('Photo ready Ã¢â‚¬â€ save the reciter to apply it.', 'success');
+    showToast('Photo ready — save the reciter to apply it.', 'success');
   };
 
   const handleSaveReciter = async () => {
@@ -332,7 +332,7 @@ export function AdminView() {
         bio: editBio.trim() || undefined,
         ...(photoUrl ? { imageUrl: photoUrl } : {}),
       });
-      // 2) Global catalog Ã¢â‚¬â€ visible to every visitor and device (phones, tablets, and computers).
+      // 2) Global catalog — visible to every visitor and device (phones, tablets, and computers).
       let publicPhotoUrl = photoUrl;
       if (photoUrl && photoUrl.startsWith('data:image/')) {
         try {
@@ -390,7 +390,7 @@ export function AdminView() {
       showToast(`Saved and synced ${name || editing.name} to all phones, tablets, and computers!`, 'success');
       setEditing(null);
     } catch (e: any) {
-      showToast(e?.message || 'Saved on this device only Ã¢â‚¬â€ the server rejected the change.', 'error');
+      showToast(e?.message || 'Saved on this device only — the server rejected the change.', 'error');
     } finally {
       setEditSaving(false);
     }
@@ -407,7 +407,7 @@ export function AdminView() {
             body: { id: reciter.id, action: 'delete' },
           });
         } catch {
-          // Not in the global catalog (device-local only) Ã¢â‚¬â€ local removal is enough.
+          // Not in the global catalog (device-local only) — local removal is enough.
         }
         const updated = customReciters.filter((r) => r.id !== reciter.id);
         setCustomReciters(updated);
@@ -621,7 +621,7 @@ export function AdminView() {
                     </div>
                     <p className="text-xs text-slate-500 truncate">
                       {reciter.style || 'Reciter'}
-                      {reciter.serverUrl ? ` Ã‚Â· ${reciter.serverUrl}` : ''}
+                      {reciter.serverUrl ? ` · ${reciter.serverUrl}` : ''}
                     </p>
                     {reciter.bio && <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{reciter.bio}</p>}
                   </div>
@@ -815,7 +815,7 @@ export function AdminView() {
                       </div>
                       <h4 className="text-xs font-semibold text-white truncate mb-1" title={item.name}>{item.name}</h4>
                       <p className="text-[10px] text-slate-500">
-                        {(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB Ã¢â‚¬Â¢ {new Date(item.createdAt).toLocaleDateString()}
+                        {(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB • {new Date(item.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/60">

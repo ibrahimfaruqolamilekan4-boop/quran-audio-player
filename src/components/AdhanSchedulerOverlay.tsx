@@ -286,10 +286,14 @@ export function AdhanSchedulerOverlay() {
 
     try {
       const params = new URLSearchParams(window.location.search);
-      const playAdhanParam = params.get('playAdhan');
+      const playAdhanParam =
+        params.get('playAdhan') ||
+        (params.get('adhan_tap') === '1' ? params.get('prayer') || 'fajr' : null);
       if (playAdhanParam) {
         triggerFromNotification(playAdhanParam);
         params.delete('playAdhan');
+        params.delete('adhan_tap');
+        params.delete('prayer');
         const nextQuery = params.toString();
         const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
         window.history.replaceState({}, '', nextUrl);

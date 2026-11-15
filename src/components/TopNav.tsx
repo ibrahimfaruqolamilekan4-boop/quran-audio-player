@@ -42,7 +42,7 @@ export function TopNav({ currentTab, setCurrentTab }: TopNavProps) {
     <header
       role="navigation"
       aria-label="Top Navigation"
-      className="fixed top-0 left-0 right-0 md:left-72 z-40 bg-[#06150F]/90 backdrop-blur-2xl border-b border-white/8 pt-[max(0.6rem,env(safe-area-inset-top,0px))] pb-2.5 px-3 shadow-[0_4px_24px_rgba(0,0,0,0.5)] transition-all"
+      className="fixed top-0 left-0 right-0 md:left-72 z-40 bg-[var(--bg-primary)] border-b border-[var(--border-color-highlight)] pt-[max(0.6rem,env(safe-area-inset-top,0px))] pb-2.5 px-3 shadow-[0_4px_24px_rgba(0,0,0,0.35)] transition-colors"
     >
       <div className="max-w-5xl mx-auto flex items-center justify-start overflow-x-auto no-scrollbar gap-2 px-1">
         {TOP_NAV_TABS.map(tab => {
@@ -55,13 +55,13 @@ export function TopNav({ currentTab, setCurrentTab }: TopNavProps) {
               aria-current={active ? 'page' : undefined}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl min-h-[44px] shrink-0 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer ${
                 active
-                  ? 'bg-[#11382B] text-[#D4AF37] border border-[#D4AF37]/50 shadow-[0_0_15px_rgba(212,175,55,0.25)] font-bold'
-                  : 'text-[#A8BFB3] hover:text-[#F6F1E4] hover:bg-white/5 border border-transparent'
+                  ? 'bg-[var(--bg-surface-raised)] text-[var(--accent-gold-text)] border border-[var(--accent-gold)]/55 shadow-[0_0_15px_rgba(212,175,55,0.2)] font-bold'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)]/60 border border-transparent'
               }`}
             >
               <tab.icon
                 size={16}
-                className={active ? 'text-[#D4AF37]' : 'text-[#A8BFB3]'}
+                className={active ? 'text-[var(--accent-gold-text)]' : 'text-[var(--text-muted)]'}
                 strokeWidth={active ? 2.4 : 1.7}
               />
               <span className="whitespace-nowrap tracking-wide">{tab.label}</span>
@@ -73,9 +73,9 @@ export function TopNav({ currentTab, setCurrentTab }: TopNavProps) {
           <button
             type="button"
             onClick={() => navigate('/admin')}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-2xl min-h-[44px] shrink-0 text-xs sm:text-sm font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all duration-200 cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-2xl min-h-[44px] shrink-0 text-xs sm:text-sm font-medium text-[var(--accent-gold-text)] bg-[var(--accent-gold-subtle)] hover:opacity-90 border border-[var(--accent-gold)]/40 transition-all duration-200 cursor-pointer"
           >
-            <Shield size={16} className="text-amber-400" strokeWidth={2} />
+            <Shield size={16} className="text-[var(--accent-gold-text)]" strokeWidth={2} />
             <span className="whitespace-nowrap tracking-wide">Admin</span>
           </button>
         )}
@@ -83,9 +83,9 @@ export function TopNav({ currentTab, setCurrentTab }: TopNavProps) {
         <button
           type="button"
           onClick={() => void logOut()}
-          className="md:hidden flex items-center gap-1.5 px-3.5 py-2 rounded-2xl min-h-[44px] shrink-0 text-xs font-medium text-red-300 hover:bg-red-500/15 border border-red-500/20 transition-all duration-200 cursor-pointer"
+          className="md:hidden flex items-center gap-1.5 px-3.5 py-2 rounded-2xl min-h-[44px] shrink-0 text-xs font-medium text-[var(--status-error)] hover:bg-red-500/15 border border-red-500/25 transition-all duration-200 cursor-pointer"
         >
-          <LogOut size={15} className="text-red-400" strokeWidth={1.8} />
+          <LogOut size={15} className="text-[var(--status-error)]" strokeWidth={1.8} />
           <span className="whitespace-nowrap tracking-wide">Sign Out</span>
         </button>
       </div>

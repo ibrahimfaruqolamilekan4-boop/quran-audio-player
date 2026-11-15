@@ -298,15 +298,23 @@ export function unlockAudio() {
     'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
   for (const el of [quranAudio, ambientAudio, adhanAudio]) {
-    if (el.paused && !el.src) {
+    if (el.paused && !el.getAttribute('src') && !el.src) {
       el.src = silentWav;
       el.play()
         .then(() => {
-          el.pause();
-          el.currentTime = 0;
-          el.src = '';
+          // Only pause/clear if no real track took over while play() promise was resolving
+          if (el.src === silentWav || el.src.startsWith('data:audio/wav')) {
+            el.pause();
+            el.currentTime = 0;
+            el.removeAttribute('src');
+            el.load();
+          }
         })
-        .catch(() => {});
+        .catch(() => {
+          if (el.src === silentWav || el.src.startsWith('data:audio/wav')) {
+            el.removeAttribute('src');
+          }
+        });
     }
   }
 }
