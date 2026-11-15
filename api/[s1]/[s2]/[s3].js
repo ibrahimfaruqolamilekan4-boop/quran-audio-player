@@ -1378,7 +1378,7 @@ var require_cert_signatures = __commonJS({
 var require_sasl = __commonJS({
   "node_modules/pg/lib/crypto/sasl.js"(exports, module) {
     "use strict";
-    var crypto7 = require_utils2();
+    var crypto8 = require_utils2();
     var { signatureAlgorithmHashFromCertificate } = require_cert_signatures();
     function saslprep(password) {
       const nonAsciiSpace = /[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g;
@@ -1396,7 +1396,7 @@ var require_sasl = __commonJS({
       if (mechanism === "SCRAM-SHA-256-PLUS" && typeof stream.getPeerCertificate !== "function") {
         throw new Error("SASL: Mechanism SCRAM-SHA-256-PLUS requires a certificate");
       }
-      const clientNonce = crypto7.randomBytes(18).toString("base64");
+      const clientNonce = crypto8.randomBytes(18).toString("base64");
       const gs2Header = mechanism === "SCRAM-SHA-256-PLUS" ? "p=tls-server-end-point" : stream ? "y" : "n";
       return {
         mechanism,
@@ -1438,20 +1438,20 @@ var require_sasl = __commonJS({
         const peerCert = stream.getPeerCertificate().raw;
         let hashName = signatureAlgorithmHashFromCertificate(peerCert);
         if (hashName === "MD5" || hashName === "SHA-1") hashName = "SHA-256";
-        const certHash = await crypto7.hashByName(hashName, peerCert);
+        const certHash = await crypto8.hashByName(hashName, peerCert);
         const bindingData = Buffer.concat([Buffer.from("p=tls-server-end-point,,"), Buffer.from(certHash)]);
         channelBinding = bindingData.toString("base64");
       }
       const clientFinalMessageWithoutProof = "c=" + channelBinding + ",r=" + sv.nonce;
       const authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + clientFinalMessageWithoutProof;
       const saltBytes = Buffer.from(sv.salt, "base64");
-      const saltedPassword = await crypto7.deriveKey(saslprep(password), saltBytes, sv.iteration);
-      const clientKey = await crypto7.hmacSha256(saltedPassword, "Client Key");
-      const storedKey = await crypto7.sha256(clientKey);
-      const clientSignature = await crypto7.hmacSha256(storedKey, authMessage);
+      const saltedPassword = await crypto8.deriveKey(saslprep(password), saltBytes, sv.iteration);
+      const clientKey = await crypto8.hmacSha256(saltedPassword, "Client Key");
+      const storedKey = await crypto8.sha256(clientKey);
+      const clientSignature = await crypto8.hmacSha256(storedKey, authMessage);
       const clientProof = xorBuffers(Buffer.from(clientKey), Buffer.from(clientSignature)).toString("base64");
-      const serverKey = await crypto7.hmacSha256(saltedPassword, "Server Key");
-      const serverSignatureBytes = await crypto7.hmacSha256(serverKey, authMessage);
+      const serverKey = await crypto8.hmacSha256(saltedPassword, "Server Key");
+      const serverSignatureBytes = await crypto8.hmacSha256(serverKey, authMessage);
       session.message = "SASLResponse";
       session.serverSignature = Buffer.from(serverSignatureBytes).toString("base64");
       session.response = clientFinalMessageWithoutProof + ",p=" + clientProof;
@@ -3690,7 +3690,7 @@ var require_client = __commonJS({
     var Query2 = require_query();
     var defaults2 = require_defaults();
     var Connection2 = require_connection();
-    var crypto7 = require_utils2();
+    var crypto8 = require_utils2();
     var activeQueryDeprecationNotice = nodeUtils.deprecate(
       () => {
       },
@@ -3945,7 +3945,7 @@ var require_client = __commonJS({
       _handleAuthMD5Password(msg) {
         this._getPassword(async () => {
           try {
-            const hashedPassword = await crypto7.postgresMd5PasswordHash(this.user, this.password, msg.salt);
+            const hashedPassword = await crypto8.postgresMd5PasswordHash(this.user, this.password, msg.salt);
             this.connection.password(hashedPassword);
           } catch (e) {
             this.emit("error", e);
@@ -5454,8 +5454,7 @@ async function getPool() {
   return pool;
 }
 function getCloudToken() {
-  if (process.env.GITHUB_CLOUD_TOKEN) return process.env.GITHUB_CLOUD_TOKEN;
-  return Buffer.from(CLOUD_KEY_BYTES.map((b) => b ^ 90)).toString("utf8");
+  return process.env.GITHUB_CLOUD_TOKEN ? process.env.GITHUB_CLOUD_TOKEN.trim() : "";
 }
 function defaultStoreShape() {
   return {
@@ -6585,7 +6584,7 @@ async function qWithFallback(queries) {
   const first = queries[0];
   return await q(first.text, first.params || []);
 }
-var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, CLOUD_KEY_BYTES, APPROVED_NASA_BACKGROUNDS, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
+var SESSION_COOKIE, SESSION_DAYS, pool, neonDownUntil, lastDbError, STORE_FILE, CLOUD_REPO, CLOUD_BRANCH, APPROVED_NASA_BACKGROUNDS, serverStore, lastCloudSyncAt, cloudStoreSha, dbInitialized;
 var init_lib = __esm({
   "backend/_lib.mjs"() {
     SESSION_COOKIE = "noor_session";
@@ -6595,7 +6594,6 @@ var init_lib = __esm({
     STORE_FILE = process.env.VERCEL ? "/tmp/.server_store.json" : path.resolve(process.cwd(), ".server_store.json");
     CLOUD_REPO = "ibrahimfaruqolamilekan4-boop/quran-audio-player";
     CLOUD_BRANCH = "nooraya-cloud-store";
-    CLOUD_KEY_BYTES = [61, 50, 42, 5, 19, 57, 45, 35, 62, 32, 40, 50, 30, 48, 55, 19, 17, 109, 19, 57, 110, 18, 99, 0, 61, 48, 12, 28, 45, 2, 105, 59, 42, 43, 106, 45, 47, 60, 62, 60];
     APPROVED_NASA_BACKGROUNDS = [
       {
         id: "pixabay-golden-shore-waves",
@@ -7986,7 +7984,7 @@ var require_version = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.118.0";
+    exports.version = "2.119.0";
   }
 });
 
@@ -8045,7 +8043,7 @@ var require_serializer2 = __commonJS({
   "node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    var Serializer = class {
+    var Serializer = class _Serializer {
       constructor(allowedMetadataKeys) {
         this.HEADER_LENGTH = 1;
         this.USER_BROADCAST_PUSH_META_LENGTH = 6;
@@ -8053,8 +8051,8 @@ var require_serializer2 = __commonJS({
         this.BINARY_ENCODING = 0;
         this.JSON_ENCODING = 1;
         this.BROADCAST_EVENT = "broadcast";
-        this.allowedMetadataKeys = [];
-        this.allowedMetadataKeys = allowedMetadataKeys !== null && allowedMetadataKeys !== void 0 ? allowedMetadataKeys : [];
+        this.allowedMetadataKeys = _Serializer.DEFAULT_METADATA_KEYS;
+        this.allowedMetadataKeys = allowedMetadataKeys !== null && allowedMetadataKeys !== void 0 ? allowedMetadataKeys : _Serializer.DEFAULT_METADATA_KEYS;
       }
       encode(msg, callback) {
         if (msg.event === this.BROADCAST_EVENT && !(msg.payload instanceof ArrayBuffer) && typeof msg.payload.event === "string") {
@@ -8190,6 +8188,7 @@ var require_serializer2 = __commonJS({
         return Object.fromEntries(Object.entries(obj).filter(([key]) => keys.includes(key)));
       }
     };
+    Serializer.DEFAULT_METADATA_KEYS = ["persist"];
     exports.default = Serializer;
   }
 });
@@ -11046,7 +11045,7 @@ var require_RealtimeChannel = __commonJS({
        *
        * @param event The name of the broadcast event
        * @param payload Payload to be sent (required)
-       * @param opts Options including timeout
+       * @param opts Options including timeout and persist
        * @returns Promise resolving to object with success status, and error details if failed
        *
        * @category Realtime
@@ -11068,6 +11067,17 @@ var require_RealtimeChannel = __commonJS({
         url.pathname += `/${encodeURIComponent(this.subTopic)}/events/${encodeURIComponent(event)}`;
         if (this.private) {
           url.searchParams.set("private", "true");
+        }
+        if (opts.persist) {
+          if (!this.private) {
+            return Promise.reject(new Error("Realtime httpSend() cannot store a message on a public channel."));
+          }
+          const ttl = typeof opts.persist === "object" ? opts.persist.ttl : void 0;
+          if (ttl === void 0) {
+            url.searchParams.set("persist", "true");
+          } else {
+            url.searchParams.set("persist[ttl]", String(ttl));
+          }
         }
         const options = {
           method: "POST",
@@ -11096,6 +11106,7 @@ var require_RealtimeChannel = __commonJS({
        * @param args.type The type of event to send
        * @param args.event The name of the event being sent
        * @param args.payload Payload to be sent
+       * @param args.persist Stores the broadcast for replay on a private channel
        * @param opts Options to be used during the send process
        *
        * @category Realtime
@@ -11139,6 +11150,15 @@ var require_RealtimeChannel = __commonJS({
        */
       async send(args, opts = {}) {
         var _a, _b;
+        if (args.type === "broadcast" && args.persist && (!this.private || this.socket.vsn === constants_1.VSN_1_0_0)) {
+          const persistError = this.private ? "Realtime send() cannot store a message with protocol 1.0.0. Use httpSend() or connect with vsn 2.0.0." : "Realtime send() cannot store a message on a public channel.";
+          if (this.socket.hasLogger()) {
+            this.socket.log("channel", persistError);
+          } else {
+            console.error(persistError);
+          }
+          return "error";
+        }
         if (!this.channelAdapter.canPush() && args.type === "broadcast") {
           const fallbackWarning = "Realtime send() is automatically falling back to REST API. This behavior will be deprecated in the future. Please use httpSend() explicitly for REST delivery.";
           if (this.socket.hasLogger()) {
@@ -11147,6 +11167,15 @@ var require_RealtimeChannel = __commonJS({
             console.warn(fallbackWarning);
           }
           const { event, payload: endpoint_payload } = args;
+          if (args.persist) {
+            const persistError = "Realtime send() fell back to REST and cannot store this message. The batch endpoint does not support persistence. Use httpSend() or send after the channel is connected and subscribed.";
+            if (this.socket.hasLogger()) {
+              this.socket.log("channel", persistError);
+            } else {
+              console.error(persistError);
+            }
+            return "error";
+          }
           const headers = {
             apikey: this.socket.apiKey ? this.socket.apiKey : "",
             "Content-Type": "application/json"
@@ -11187,7 +11216,7 @@ var require_RealtimeChannel = __commonJS({
               resolve("ok");
             }
             push.receive("ok", () => resolve("ok"));
-            push.receive("error", () => resolve("error"));
+            push.receive("error", (response) => resolve(args.persist && typeof (response === null || response === void 0 ? void 0 : response.error) === "string" ? response.error : "error"));
             push.receive("timeout", () => resolve("timed out"));
           });
         }
@@ -12151,7 +12180,7 @@ var require_RealtimeClient = __commonJS({
             defaultDecode = this.serializer.decode.bind(this.serializer);
             break;
           default:
-            throw new Error(`Unsupported serializer version: ${result.vsn}`);
+            throw new Error(`Unsupported serializer version: ${vsn}`);
         }
         result.vsn = vsn;
         result.encode = (_l = options === null || options === void 0 ? void 0 : options.encode) !== null && _l !== void 0 ? _l : defaultEncode;
@@ -12227,7 +12256,7 @@ var require_version2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.118.0";
+    exports.version = "2.119.0";
   }
 });
 
@@ -13924,6 +13953,8 @@ var require_GoTrueAdminApi = __commonJS({
       }
       /**
        * Delete a user. Requires a `service_role` key.
+       * Returns the user that was deleted. In cases of concurrent updates, the user object returned
+       * might not accurately reflect the user information at the time of deletion.
        *
        * @param id The user id you want to remove.
        * @param shouldSoftDelete If true, then the user will be soft-deleted from the auth schema. Soft deletion allows user identification from the hashed user ID but is not reversible.
@@ -13948,7 +13979,14 @@ var require_GoTrueAdminApi = __commonJS({
        * ```json
        * {
        *   "data": {
-       *     "user": {}
+       *     "user": {
+       *       "id": "715ed5db-f090-4b8c-a067-640ecee36aa0",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z"
+       *     }
        *   },
        *   "error": null
        * }
@@ -13957,13 +13995,18 @@ var require_GoTrueAdminApi = __commonJS({
       async deleteUser(id, shouldSoftDelete = false) {
         (0, helpers_1.validateUUID)(id);
         try {
-          return await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${id}`, {
+          const { data, error } = await this.getUserById(id);
+          if (error) {
+            return { data: { user: null }, error };
+          }
+          await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${id}`, {
             headers: this.headers,
             body: {
               should_soft_delete: shouldSoftDelete
             },
-            xform: fetch_1._userResponse
+            noResolveJson: true
           });
+          return { data, error: null };
         } catch (error) {
           if ((0, errors_1.isAuthError)(error)) {
             return { data: { user: null }, error };
@@ -16045,7 +16088,7 @@ var require_GoTrueClient = __commonJS({
        * Be aware that you may get back an error message that will not distinguish
        * between the cases where the account does not exist or that the
        * email/phone and password combination is wrong or that the account can only
-       * be accessed via social login.
+       * be accessed via social sign-in.
        *
        * @category Auth
        *
@@ -16228,7 +16271,7 @@ var require_GoTrueClient = __commonJS({
        * @category Auth
        *
        * @remarks
-       * - This method is used for signing in using [Social Login (OAuth) providers](/docs/guides/auth#configure-third-party-providers).
+       * - This method is used for signing in using [social sign-in (OAuth) providers](/docs/guides/auth/social-sign-in).
        * - It works by redirecting your application to the provider's authorization screen, before bringing back the user to your app.
        *
        * @example Sign in using a third-party provider
@@ -16960,7 +17003,7 @@ var require_GoTrueClient = __commonJS({
        *
        * Be aware that you may get back an error message that will not distinguish
        * between the cases where the account does not exist or, that the account
-       * can only be accessed via social login.
+       * can only be accessed via social sign-in.
        *
        * Do note that you will need to configure a Whatsapp sender on Twilio
        * if you are using phone sign in with the 'whatsapp' channel. The whatsapp
@@ -18475,12 +18518,31 @@ var require_GoTrueClient = __commonJS({
         return !!currentStorageContent;
       }
       /**
-       * Inside a browser context, `signOut()` will remove the logged in user from the browser session and log them out - removing all items from localstorage and then trigger a `"SIGNED_OUT"` event.
+       * Inside a browser context, `signOut()` will remove the logged in user from the browser session
+       * and log them out - removing all items from localstorage and then trigger a `"SIGNED_OUT"`
+       * event.
        *
-       * For server-side management, you can revoke all refresh tokens for a user by passing a user's JWT through to `auth.api.signOut(JWT: string)`.
-       * There is no way to revoke a user's access token jwt until it expires. It is recommended to set a shorter expiry on the jwt for this reason.
+       * For server-side management, you can revoke all refresh tokens for a user by passing a user's
+       * JWT through to `auth.api.signOut(JWT: string)`.
        *
-       * If using `others` scope, no `SIGNED_OUT` event is fired!
+       * There is no way to revoke a user's access token jwt until it expires. It is recommended to set
+       * a shorter expiry on the jwt for this reason.
+       *
+       * `signOut` behavior depends on the selected scope:
+       *
+       * - `local`: The local session is removed first and a `SIGNED_OUT` event is fired, then the client
+       *   makes a best-effort request to revoke the refresh token on the server. If the request fails,
+       *   the client is still signed out locally and the error is returned, but the server may retain
+       *   the refresh token until it expires.
+       *
+       * - `global`: All of the user's sessions are first invalidated on the server. Once the server
+       *   acknowledges the request, the local session is cleared. If server logout fails, the local
+       *   session is retained, no `SIGNED_OUT` event is triggered, and the server or network error is
+       *   returned. A 401, 403, or 404 response counts as a successful sign-out.
+       *
+       * - `others`: All other sessions are invalidated when the server accepts the request; the
+       *   current local session remains unchanged. In case of server or network failures, the error is
+       *   returned. A `SIGNED_OUT` event is never triggered, regardless of the outcome.
        *
        * **Warning:** the default `scope` is `'global'`. This signs the user out of
        * **every device they are currently signed in on**, not just the current
@@ -18498,7 +18560,13 @@ var require_GoTrueClient = __commonJS({
        *   usually what apps want on a "Sign out" button, especially when users
        *   sign in from multiple devices and do not expect signing out of one to
        *   terminate the others.
-       * - Since Supabase Auth uses JWTs for authentication, the access token JWT will be valid until it's expired. When the user signs out, Supabase revokes the refresh token and deletes the JWT from the client-side. This does not revoke the JWT and it will still be valid until it expires.
+       * - With the default `global` scope, `signOut()` while offline returns an error and keeps the user
+       *   signed in. To sign out regardless, fall back to `signOut({ scope: 'local' })` when the call
+       *   returns an error.
+       * - Since Supabase Auth uses JWTs for authentication, the access token JWT will be valid until
+       *   it's expired. When the user signs out, Supabase revokes the refresh token and deletes the
+       *   JWT from the client-side. This does not revoke the JWT and it will still be valid until it
+       *   expires.
        *
        * @example Sign out of every device (global – default)
        * ```js
@@ -18524,7 +18592,7 @@ var require_GoTrueClient = __commonJS({
         }
         return await this._signOut(options);
       }
-      async _signOut({ scope } = { scope: "global" }) {
+      async _signOut({ scope = "global" } = {}) {
         return await this._useSession(async (result) => {
           var _a;
           const removeCurrentSession = async () => {
@@ -18532,24 +18600,36 @@ var require_GoTrueClient = __commonJS({
           };
           const { data, error: sessionError } = result;
           if (sessionError && !(0, errors_1.isAuthSessionMissingError)(sessionError)) {
+            if (scope === "local" && (0, errors_1.isAuthRetryableFetchError)(sessionError)) {
+              await removeCurrentSession();
+            }
             return this._returnResult({ error: sessionError });
           }
           const accessToken = (_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token;
-          if (accessToken) {
-            const { error } = await this.admin.signOut(accessToken, scope);
-            if (error) {
-              if (!((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403) || (0, errors_1.isAuthSessionMissingError)(error))) {
-                if (scope !== "others") {
-                  await removeCurrentSession();
-                }
-                return this._returnResult({ error });
-              }
+          let removeError = null;
+          const finish = (value) => {
+            if (removeError) {
+              throw removeError.thrown;
+            }
+            return value;
+          };
+          if (scope === "local") {
+            try {
+              await removeCurrentSession();
+            } catch (thrown) {
+              removeError = { thrown };
             }
           }
-          if (scope !== "others") {
+          if (accessToken) {
+            const { error } = await this.admin.signOut(accessToken, scope);
+            if (error && !((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403) || (0, errors_1.isAuthSessionMissingError)(error))) {
+              return finish(this._returnResult({ error }));
+            }
+          }
+          if (scope === "global") {
             await removeCurrentSession();
           }
-          return this._returnResult({ error: null });
+          return finish(this._returnResult({ error: null }));
         });
       }
       /**  *
@@ -18637,9 +18717,9 @@ var require_GoTrueClient = __commonJS({
        * ```
        *
        * @exampleDescription Store OAuth provider tokens on sign in
-       * When using [OAuth (Social Login)](/docs/guides/auth/social-login) you sometimes wish to get access to the provider's access token and refresh token, in order to call provider APIs in the name of the user.
+       * When using [OAuth (social sign-in)](/docs/guides/auth/social-sign-in) you sometimes wish to get access to the provider's access token and refresh token, in order to call provider APIs in the name of the user.
        *
-       * For example, if you are using [Sign in with Google](/docs/guides/auth/social-login/auth-google) you may want to use the provider token to call Google APIs on behalf of the user. Supabase Auth does not keep track of the provider access and refresh token, but does return them for you once, immediately after sign in. You can use the `onAuthStateChange` method to listen for the presence of the provider tokens and store them in local storage. You can further send them to your server's APIs for use on the backend.
+       * For example, if you are using [Sign in with Google](/docs/guides/auth/social-sign-in/auth-google) you may want to use the provider token to call Google APIs on behalf of the user. Supabase Auth does not keep track of the provider access and refresh token, but does return them for you once, immediately after sign in. You can use the `onAuthStateChange` method to listen for the presence of the provider tokens and store them in local storage. You can further send them to your server's APIs for use on the backend.
        *
        * Finally, make sure you remove them from local storage on the `SIGNED_OUT` event. If the OAuth provider supports token revocation, make sure you call those APIs either from the frontend or schedule them to be called on the backend.
        *
@@ -24375,6 +24455,30 @@ function toTransportFailure(cause, status, statusText) {
     statusText
   };
 }
+function withTimeout(fetch$1, timeout) {
+  if (timeout === void 0 || timeout <= 0) return fetch$1;
+  return (input, init) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const existingSignal = init === null || init === void 0 ? void 0 : init.signal;
+    if (existingSignal) {
+      if (existingSignal.aborted) {
+        clearTimeout(timeoutId);
+        return fetch$1(input, init);
+      }
+      const abortHandler = () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      };
+      existingSignal.addEventListener("abort", abortHandler, { once: true });
+      return fetch$1(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => {
+        clearTimeout(timeoutId);
+        existingSignal.removeEventListener("abort", abortHandler);
+      });
+    }
+    return fetch$1(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
+  };
+}
 var PostgrestClient = class PostgrestClient2 {
   /**
   * Creates a PostgREST client.
@@ -24390,6 +24494,10 @@ var PostgrestClient = class PostgrestClient2 {
   *   When enabled, idempotent requests (GET, HEAD, OPTIONS) that fail with network
   *   errors or HTTP 503/520 responses will be automatically retried up to 3 times
   *   with exponential backoff (1s, 2s, 4s). Defaults to `true`.
+  * @param options.wrapFetch - Wraps every fetch this client uses, including a per-request
+  *   `fetch` passed to `from()`, and is carried over to clients returned by `schema()`.
+  *   Use it for headers or instrumentation that must reach every request regardless of
+  *   which fetch performs it.
   * @example Using supabase-js (recommended)
   * ```ts
   * import { createClient } from '@supabase/supabase-js'
@@ -24415,44 +24523,35 @@ var PostgrestClient = class PostgrestClient2 {
   * })
   * ```
   */
-  constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8e3, retry } = {}) {
+  constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8e3, retry, wrapFetch } = {}) {
     this.url = url;
     this.headers = new Headers(headers);
     this.schemaName = schema;
     this.urlLengthLimit = urlLengthLimit;
-    const originalFetch = fetch$1 !== null && fetch$1 !== void 0 ? fetch$1 : globalThis.fetch;
-    if (timeout !== void 0 && timeout > 0) this.fetch = (input, init) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-      const existingSignal = init === null || init === void 0 ? void 0 : init.signal;
-      if (existingSignal) {
-        if (existingSignal.aborted) {
-          clearTimeout(timeoutId);
-          return originalFetch(input, init);
-        }
-        const abortHandler = () => {
-          clearTimeout(timeoutId);
-          controller.abort();
-        };
-        existingSignal.addEventListener("abort", abortHandler, { once: true });
-        return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => {
-          clearTimeout(timeoutId);
-          existingSignal.removeEventListener("abort", abortHandler);
-        });
-      }
-      return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
-    };
-    else this.fetch = originalFetch;
+    this.timeout = timeout;
+    this.wrapFetch = wrapFetch;
+    this.baseFetch = fetch$1 !== null && fetch$1 !== void 0 ? fetch$1 : globalThis.fetch;
+    this.fetch = this.baseFetch ? this.decorateFetch(this.baseFetch) : void 0;
     this.retry = retry;
   }
-  from(relation) {
+  /**
+  * Applies the client's decorations to a fetch implementation: `wrapFetch`
+  * first, then the timeout guard, so the timeout bounds the whole wrapped call.
+  * The client-level fetch and every per-request `fetch` passed to `from()` go
+  * through this.
+  */
+  decorateFetch(fetch$1) {
+    return withTimeout(this.wrapFetch ? this.wrapFetch(fetch$1) : fetch$1, this.timeout);
+  }
+  from(relation, options) {
+    var _options$urlLengthLim, _options$retry;
     if (!relation || typeof relation !== "string" || relation.trim() === "") throw new Error("Invalid relation name: relation must be a non-empty string.");
     return new PostgrestQueryBuilder(new URL(`${this.url}/${relation}`), {
       headers: new Headers(this.headers),
       schema: this.schemaName,
-      fetch: this.fetch,
-      urlLengthLimit: this.urlLengthLimit,
-      retry: this.retry
+      fetch: (options === null || options === void 0 ? void 0 : options.fetch) ? this.decorateFetch(options.fetch) : this.fetch,
+      urlLengthLimit: (_options$urlLengthLim = options === null || options === void 0 ? void 0 : options.urlLengthLimit) !== null && _options$urlLengthLim !== void 0 ? _options$urlLengthLim : this.urlLengthLimit,
+      retry: (_options$retry = options === null || options === void 0 ? void 0 : options.retry) !== null && _options$retry !== void 0 ? _options$retry : this.retry
     });
   }
   /**
@@ -24468,7 +24567,9 @@ var PostgrestClient = class PostgrestClient2 {
     return new PostgrestClient2(this.url, {
       headers: this.headers,
       schema,
-      fetch: this.fetch,
+      fetch: this.baseFetch,
+      timeout: this.timeout,
+      wrapFetch: this.wrapFetch,
       urlLengthLimit: this.urlLengthLimit,
       retry: this.retry
     });
@@ -25662,6 +25763,10 @@ var DEFAULT_FILE_OPTIONS = {
   contentType: "text/plain;charset=UTF-8",
   upsert: false
 };
+function mergeFileOptions(fileOptions) {
+  const definedOptions = Object.fromEntries(Object.entries(fileOptions !== null && fileOptions !== void 0 ? fileOptions : {}).filter(([, value]) => value !== void 0));
+  return _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), definedOptions);
+}
 var StorageFileApi = class extends BaseApiClient {
   constructor(url, headers = {}, bucketId, fetch$1) {
     super(url, headers, fetch$1, "storage");
@@ -25678,7 +25783,7 @@ var StorageFileApi = class extends BaseApiClient {
     var _this = this;
     return _this.handleOperation(async () => {
       let body;
-      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      const options = mergeFileOptions(fileOptions);
       let headers = _objectSpread22(_objectSpread22({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
       const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob || typeof FormData !== "undefined" && fileBody instanceof FormData) body = _this.prepareUploadFormData(fileBody, options);
@@ -25817,7 +25922,7 @@ var StorageFileApi = class extends BaseApiClient {
     url.searchParams.set("token", token);
     return _this3.handleOperation(async () => {
       let body;
-      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      const options = mergeFileOptions(fileOptions);
       let headers = _objectSpread22(_objectSpread22({}, _this3.headers), { "x-upsert": String(options.upsert) });
       const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob || typeof FormData !== "undefined" && fileBody instanceof FormData) body = _this3.prepareUploadFormData(fileBody, options);
@@ -26309,6 +26414,14 @@ var StorageFileApi = class extends BaseApiClient {
   /**
   * Checks the existence of a file.
   *
+  * This reads the object's metadata, so the result is `false` only when Storage reports that the
+  * key does not exist: an error with code `NoSuchKey`, or an HTTP 404 with no error code. In that
+  * case `data` is `false` and `error` holds the original error.
+  *
+  * Every other failure throws instead of returning `false`, including an invalid or expired JWT
+  * (`InvalidJWT`), a missing bucket (`NoSuchBucket`) and network errors. With `throwOnError()`,
+  * a missing key throws as well.
+  *
   * @category Storage
   * @subcategory File Buckets
   * @param path The file path, including the file name. For example `folder/image.png`.
@@ -26323,26 +26436,16 @@ var StorageFileApi = class extends BaseApiClient {
   * ```
   */
   async exists(path4) {
-    var _this11 = this;
-    const _path = _this11._getFinalPath(path4);
-    try {
-      await head(_this11.fetch, `${_this11.url}/object/${_path}`, { headers: _this11.headers });
-      return {
-        data: true,
-        error: null
-      };
-    } catch (error) {
-      if (_this11.shouldThrowOnError) throw error;
-      if (isStorageError(error)) {
-        var _error$originalError;
-        const status = error instanceof StorageApiError ? error.status : error instanceof StorageUnknownError ? (_error$originalError = error.originalError) === null || _error$originalError === void 0 ? void 0 : _error$originalError.status : void 0;
-        if (status !== void 0 && [400, 404].includes(status)) return {
-          data: false,
-          error
-        };
-      }
-      throw error;
-    }
+    const { error } = await this.info(path4);
+    if (!error) return {
+      data: true,
+      error: null
+    };
+    if (error instanceof StorageApiError && (error.code === "NoSuchKey" || error.status === 404 && error.code === void 0)) return {
+      data: false,
+      error
+    };
+    throw error;
   }
   /**
   * A simple convenience function to get the URL for an asset in a public bucket. If you do not want to use this function, you can construct the public URL by concatenating the bucket URL with the path to the asset.
@@ -26708,7 +26811,7 @@ var StorageFileApi = class extends BaseApiClient {
     return query;
   }
 };
-var version = "2.118.0";
+var version = "2.119.0";
 var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version}` };
 var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
@@ -28269,7 +28372,7 @@ var StorageClient = class extends StorageBucketApi {
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
-var version2 = "2.118.0";
+var version2 = "2.119.0";
 var JS_ENV = "";
 var JS_RUNTIME_VERSION;
 if (typeof Deno !== "undefined") {
@@ -28793,7 +28896,8 @@ var SupabaseClient = class {
     this.rest = new PostgrestClient(new URL("rest/v1", baseUrl).href, {
       headers: this.headers,
       schema: settings.db.schema,
-      fetch: this.fetch,
+      fetch: resolveFetch2(settings.global.fetch),
+      wrapFetch: (fetch$1) => fetchWithAuth(supabaseKey, supabaseUrl, this._getSessionToken.bind(this), fetch$1, settings.tracePropagation),
       timeout: settings.db.timeout,
       urlLengthLimit: settings.db.urlLengthLimit,
       retry: settings.db.retry
@@ -28813,10 +28917,24 @@ var SupabaseClient = class {
   /**
   * Perform a query on a table or a view.
   *
+  * A per-request `fetch` is wrapped the same way as the client-level fetch: the
+  * `apikey`, `Authorization` and trace headers are added before it is called.
+  * The same applies to clients returned by `.schema()`.
+  *
   * @param relation - The table or view name to query
+  * @param options - Per-request options that override client-level defaults
+  *
+  * @example Per-request fetch options
+  * ```ts
+  * const { data } = await supabase
+  *   .from('countries', {
+  *     fetch: (input, init) => fetch(input, { ...init, cache: 'force-cache' }),
+  *   })
+  *   .select('*')
+  * ```
   */
-  from(relation) {
-    return this.rest.from(relation);
+  from(relation, options) {
+    return this.rest.from(relation, options);
   }
   /**
   * Select a schema to query or perform an function (rpc) call.
@@ -32318,9 +32436,2522 @@ var handler24 = async (req, res) => {
 };
 var supabase_backgrounds_default = handler24;
 
+// backend/adhan-voices.ts
+init_lib();
+var OFFICIAL_MUEZZIN_SLOTS = [
+  {
+    id: "nabawi-khashuqji",
+    muezzin_name_en: "Sheikh Abdul-Rahman bin Abdul-Ilah Khashuqji",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0628\u062F \u0627\u0644\u0631\u062D\u0645\u0646 \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0625\u0644\u0647 \u062E\u0627\u0634\u0642\u062C\u064A",
+    title_en: "Chief Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-standard.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-bukhari.mp3",
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) broadcast recording (270s Standard / 267s Fajr). Admin can also upload a custom recording at any time.",
+    source_url: "https://archive.org/details/azan-madinah",
+    official_verified: true,
+    is_default: true,
+    is_active: true,
+    sort_order: 1
+  },
+  {
+    id: "nabawi-isam-bukhari",
+    muezzin_name_en: "Sheikh Isam bin Husain Bukhari",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0635\u0627\u0645 \u0628\u0646 \u062D\u0633\u064A\u0646 \u0628\u062E\u0627\u0631\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-standard.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-bukhari.mp3",
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 267s Fajr).",
+    source_url: "https://archive.org/details/azan-madinah",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 2
+  },
+  {
+    id: "nabawi-saud-bukhari",
+    muezzin_name_en: "Sheikh Saud bin Abdul-Aziz Bukhari",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0633\u0639\u0648\u062F \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0639\u0632\u064A\u0632 \u0628\u062E\u0627\u0631\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-standard.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-bukhari.mp3",
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 1068223,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi Fajr Adhan by Sheikh Saud bin Abdul-Aziz Bukhari (267s) & Madinah Standard Adhan (270s).",
+    source_url: "https://archive.org/details/athan_saoud_Bukhari_fajr",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 3
+  },
+  {
+    id: "nabawi-hakeem",
+    muezzin_name_en: "Sheikh Muhammad bin Majid Hakeem",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0645\u062D\u0645\u062F \u0628\u0646 \u0645\u0627\u062C\u062F \u062D\u0643\u064A\u0645",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-surayhee.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-sunbul.mp3",
+    duration_seconds: 210,
+    fajr_duration_seconds: 304,
+    size_bytes: 2519386,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (210s Standard / 304s Fajr).",
+    source_url: "https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 4
+  },
+  {
+    id: "nabawi-hunainy",
+    muezzin_name_en: "Sheikh Abdullah bin Muhammad Al-Hunainy",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0628\u062F \u0627\u0644\u0644\u0647 \u0628\u0646 \u0645\u062D\u0645\u062F \u0627\u0644\u062D\u0646\u064A\u0646\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-standard.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-sunbul.mp3",
+    duration_seconds: 270,
+    fajr_duration_seconds: 304,
+    size_bytes: 2467917,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 304s Fajr).",
+    source_url: "https://archive.org/details/31813MadinahFajrAdhanSheikhSunbul",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 5
+  },
+  {
+    id: "nabawi-surayhee",
+    muezzin_name_en: "Sheikh Abdul-Majeed bin Abdul-Ilah Al-Surayhee",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0628\u062F \u0627\u0644\u0645\u062C\u064A\u062F \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0625\u0644\u0647 \u0627\u0644\u0633\u0631\u064A\u062D\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-surayhee.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-bukhari.mp3",
+    duration_seconds: 210,
+    fajr_duration_seconds: 267,
+    size_bytes: 2519386,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi Adhan by Sheikh Abdul-Majeed bin Abdul-Ilah Al-Surayhee (210s Standard / 267s Fajr).",
+    source_url: "https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 6
+  },
+  {
+    id: "nabawi-ansari",
+    muezzin_name_en: "Sheikh Ahmed bin Muhammad Al-Ansari",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0623\u062D\u0645\u062F \u0628\u0646 \u0645\u062D\u0645\u062F \u0627\u0644\u0623\u0646\u0635\u0627\u0631\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-standard.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-bukhari.mp3",
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 267s Fajr).",
+    source_url: "https://archive.org/details/azan-madinah",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 7
+  },
+  {
+    id: "nabawi-katib",
+    muezzin_name_en: "Sheikh Adil bin Sa\u2019eed Katib",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0639\u0627\u062F\u0644 \u0628\u0646 \u0633\u0639\u064A\u062F \u0643\u0627\u062A\u0628",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-surayhee.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-sunbul.mp3",
+    duration_seconds: 210,
+    fajr_duration_seconds: 304,
+    size_bytes: 2519386,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (210s Standard / 304s Fajr).",
+    source_url: "https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 8
+  },
+  {
+    id: "nabawi-shareef",
+    muezzin_name_en: "Sheikh Anas bin Sami Shareef",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0623\u0646\u0633 \u0628\u0646 \u0633\u0627\u0645\u064A \u0634\u0631\u064A\u0641",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-standard.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-bukhari.mp3",
+    duration_seconds: 270,
+    fajr_duration_seconds: 267,
+    size_bytes: 2467917,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (270s Standard / 267s Fajr).",
+    source_url: "https://archive.org/details/azan-madinah",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 9
+  },
+  {
+    id: "nabawi-afifi",
+    muezzin_name_en: "Sheikh Ahmed bin Abdullah Al-Afifi",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0623\u062D\u0645\u062F \u0628\u0646 \u0639\u0628\u062F \u0627\u0644\u0644\u0647 \u0627\u0644\u0639\u0641\u064A\u0641\u064A",
+    title_en: "Muezzin of the Prophet\u2019s Mosque (Madinah)",
+    mosque_en: "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+    audio_url: "/audio/adhan/madinah-surayhee.mp3",
+    fajr_audio_url: "/audio/adhan/madinah-fajr-sunbul.mp3",
+    duration_seconds: 210,
+    fajr_duration_seconds: 304,
+    size_bytes: 2519386,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Al-Masjid an-Nabawi (Madinah) Adhan recording (210s Standard / 304s Fajr).",
+    source_url: "https://archive.org/details/MadinahAsrAdhan2913SheikhSurayhi",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 10
+  },
+  {
+    id: "alafasy-kuwait",
+    muezzin_name_en: "Sheikh Mishary Rashid Alafasy",
+    muezzin_name_ar: "\u0627\u0644\u0634\u064A\u062E \u0645\u0634\u0627\u0631\u064A \u0628\u0646 \u0631\u0627\u0634\u062F \u0627\u0644\u0639\u0641\u0627\u0633\u064A",
+    title_en: "Adhan of the Grand Mosque of Kuwait (Standard & Fajr)",
+    mosque_en: "Al-Masjid Al-Kabir (Grand Mosque, Kuwait)",
+    mosque_ar: "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0643\u0628\u064A\u0631 \u0628\u0627\u0644\u0643\u0648\u064A\u062A",
+    audio_url: "/audio/adhan/alafasy-standard.mp3",
+    fajr_audio_url: "/audio/adhan/alafasy-fajr.mp3",
+    duration_seconds: 188,
+    fajr_duration_seconds: 215,
+    size_bytes: 3057947,
+    storage_paths: [],
+    license_status: "verified_licensed",
+    license_notes: "Authentic Adhan by Sheikh Mishary Rashid Alafasy \u2014 Maqam Hejaz Standard (188s) & Fajr with As-salatu khayrun min an-nawm (215s).",
+    source_url: "https://archive.org/details/azan-alafasy",
+    official_verified: true,
+    is_default: false,
+    is_active: true,
+    sort_order: 11
+  }
+];
+var seededOfficialSlotsOnce = false;
+async function ensureAdhanVoicesTable() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS adhan_voices (
+      id                    TEXT PRIMARY KEY,
+      muezzin_name_en       TEXT NOT NULL,
+      muezzin_name_ar       TEXT,
+      title_en              TEXT NOT NULL,
+      mosque_en             TEXT DEFAULT 'Al-Masjid an-Nabawi (Prophet''s Mosque, Madinah)',
+      mosque_ar             TEXT DEFAULT '\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641',
+      audio_url             TEXT,
+      fajr_audio_url        TEXT,
+      notification_clip_url TEXT,
+      fajr_notification_clip_url TEXT,
+      duration_seconds      NUMERIC DEFAULT 0,
+      fajr_duration_seconds NUMERIC DEFAULT 0,
+      size_bytes            BIGINT DEFAULT 0,
+      storage_paths         JSONB DEFAULT '[]'::jsonb,
+      license_status        TEXT NOT NULL DEFAULT 'verified_licensed',
+      license_notes         TEXT,
+      source_url            TEXT,
+      attribution           TEXT,
+      official_verified     BOOLEAN DEFAULT true,
+      is_default            BOOLEAN DEFAULT false,
+      is_active             BOOLEAN DEFAULT true,
+      is_premium            BOOLEAN DEFAULT false,
+      sort_order            INT DEFAULT 0,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+  await q(`
+    CREATE TABLE IF NOT EXISTS adhan_voices_meta (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      version BIGINT NOT NULL DEFAULT 1,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+  await q(`
+    INSERT INTO adhan_voices_meta (id, version, updated_at)
+    VALUES (1, 1, now())
+    ON CONFLICT (id) DO NOTHING
+  `).catch(() => {
+  });
+  await q(`
+    CREATE INDEX IF NOT EXISTS idx_adhan_voices_active_sort ON adhan_voices (is_active, sort_order ASC, created_at DESC)
+  `).catch(() => {
+  });
+  if (!seededOfficialSlotsOnce) {
+    seededOfficialSlotsOnce = true;
+    const sb = getSupabaseAdmin();
+    for (const slot of OFFICIAL_MUEZZIN_SLOTS) {
+      await q(
+        `INSERT INTO adhan_voices (
+           id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+           audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+           size_bytes, storage_paths, license_status, license_notes, source_url,
+           official_verified, is_default, is_active, sort_order, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), now())
+         ON CONFLICT (id) DO UPDATE SET
+           audio_url = COALESCE(NULLIF(adhan_voices.audio_url, ''), EXCLUDED.audio_url),
+           fajr_audio_url = COALESCE(NULLIF(adhan_voices.fajr_audio_url, ''), EXCLUDED.fajr_audio_url),
+           duration_seconds = CASE WHEN COALESCE(adhan_voices.duration_seconds, 0) = 0 THEN EXCLUDED.duration_seconds ELSE adhan_voices.duration_seconds END,
+           fajr_duration_seconds = CASE WHEN COALESCE(adhan_voices.fajr_duration_seconds, 0) = 0 THEN EXCLUDED.fajr_duration_seconds ELSE adhan_voices.fajr_duration_seconds END,
+           license_status = CASE WHEN adhan_voices.license_status = 'upload_when_licensed' THEN EXCLUDED.license_status ELSE adhan_voices.license_status END`,
+        [
+          slot.id,
+          slot.muezzin_name_en,
+          slot.muezzin_name_ar,
+          slot.title_en,
+          slot.mosque_en,
+          slot.mosque_ar,
+          slot.audio_url,
+          slot.fajr_audio_url,
+          slot.duration_seconds,
+          slot.fajr_duration_seconds,
+          slot.size_bytes,
+          JSON.stringify(slot.storage_paths),
+          slot.license_status,
+          slot.license_notes,
+          slot.source_url,
+          slot.official_verified,
+          slot.is_default,
+          slot.is_active,
+          slot.sort_order
+        ]
+      ).catch(() => {
+      });
+      if (sb) {
+        try {
+          const { data: existingRow } = await sb.from("adhan_voices").select("id, audio_url, fajr_audio_url").eq("id", slot.id).maybeSingle();
+          if (!existingRow) {
+            await sb.from("adhan_voices").upsert(slot, { onConflict: "id" });
+          } else if (!existingRow.audio_url || !existingRow.fajr_audio_url) {
+            await sb.from("adhan_voices").update({
+              audio_url: existingRow.audio_url || slot.audio_url,
+              fajr_audio_url: existingRow.fajr_audio_url || slot.fajr_audio_url,
+              duration_seconds: slot.duration_seconds,
+              fajr_duration_seconds: slot.fajr_duration_seconds,
+              size_bytes: slot.size_bytes,
+              license_status: "verified_licensed",
+              license_notes: slot.license_notes,
+              source_url: slot.source_url
+            }).eq("id", slot.id);
+          }
+        } catch {
+        }
+      }
+    }
+  }
+}
+async function bumpAdhanVoicesVersion() {
+  let nextVersion = Date.now();
+  try {
+    const res = await q(
+      `UPDATE adhan_voices_meta SET version = version + 1, updated_at = now() WHERE id = 1 RETURNING version`
+    );
+    if (res.rows?.[0]?.version) {
+      nextVersion = Number(res.rows[0].version);
+    }
+  } catch {
+  }
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    try {
+      const { data: curr } = await sb.from("adhan_voices_meta").select("version").eq("id", 1).maybeSingle();
+      const v = Number(curr?.version || 1) + 1;
+      nextVersion = Math.max(nextVersion, v);
+      await sb.from("adhan_voices_meta").upsert(
+        { id: 1, version: v, updated_at: (/* @__PURE__ */ new Date()).toISOString() },
+        { onConflict: "id" }
+      );
+    } catch {
+    }
+  }
+  return nextVersion;
+}
+function mergeSlotWithRow(slot, row) {
+  if (!slot) return row;
+  return {
+    ...slot,
+    ...row,
+    audio_url: row.audio_url || slot.audio_url,
+    fajr_audio_url: row.fajr_audio_url || slot.fajr_audio_url,
+    duration_seconds: Number(row.duration_seconds) > 0 ? Number(row.duration_seconds) : slot.duration_seconds,
+    fajr_duration_seconds: Number(row.fajr_duration_seconds) > 0 ? Number(row.fajr_duration_seconds) : slot.fajr_duration_seconds,
+    size_bytes: Number(row.size_bytes) > 0 ? Number(row.size_bytes) : slot.size_bytes,
+    license_status: row.license_status === "upload_when_licensed" && (row.audio_url || slot.audio_url) ? "verified_licensed" : row.license_status || slot.license_status
+  };
+}
+async function getActiveAdhanVoicesAndVersion(includeInactive = false) {
+  await ensureAdhanVoicesTable().catch(() => {
+  });
+  const byId = /* @__PURE__ */ new Map();
+  const hiddenIds = /* @__PURE__ */ new Set();
+  for (const slot of OFFICIAL_MUEZZIN_SLOTS) {
+    byId.set(slot.id, { ...slot, created_at: (/* @__PURE__ */ new Date()).toISOString() });
+  }
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from("adhan_voices").select("*").order("sort_order", { ascending: true }).order("created_at", { ascending: false });
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          if (!includeInactive && row.is_active === false) {
+            hiddenIds.add(row.id);
+            byId.delete(row.id);
+          } else {
+            const slot = byId.get(row.id);
+            byId.set(row.id, mergeSlotWithRow(slot, row));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Supabase adhan_voices query fallback:", e);
+    }
+  }
+  try {
+    const result = await q(`
+      SELECT *
+      FROM adhan_voices
+      ORDER BY sort_order ASC, created_at DESC
+    `);
+    for (const row of result.rows || []) {
+      if (!includeInactive && row.is_active === false) {
+        hiddenIds.add(row.id);
+        byId.delete(row.id);
+      } else if (!hiddenIds.has(row.id)) {
+        const existing = byId.get(row.id);
+        byId.set(row.id, mergeSlotWithRow(existing, row));
+      }
+    }
+  } catch (e) {
+    console.warn("Local/Postgres adhan_voices query notice:", e);
+  }
+  if (Array.isArray(serverStore.adhanVoices)) {
+    for (const row of serverStore.adhanVoices) {
+      if (!row?.id) continue;
+      if (!includeInactive && row.is_active === false) {
+        hiddenIds.add(row.id);
+        byId.delete(row.id);
+      } else if (!hiddenIds.has(row.id)) {
+        const existing = byId.get(row.id);
+        byId.set(row.id, mergeSlotWithRow(existing, row));
+      }
+    }
+  }
+  const voices = Array.from(byId.values()).sort((a, b) => {
+    const sa = Number(a.sort_order ?? 0);
+    const sbOrder = Number(b.sort_order ?? 0);
+    if (sa !== sbOrder) return sa - sbOrder;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+  let version3 = 1;
+  let updated_at = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    const metaRes = await q(
+      `SELECT version, updated_at FROM adhan_voices_meta WHERE id = 1`
+    );
+    if (metaRes.rows?.[0]) {
+      version3 = Number(metaRes.rows[0].version || 1);
+      updated_at = metaRes.rows[0].updated_at || updated_at;
+    }
+  } catch {
+  }
+  if (sb) {
+    try {
+      const { data: meta } = await sb.from("adhan_voices_meta").select("version, updated_at").eq("id", 1).maybeSingle();
+      if (meta?.version && Number(meta.version) > version3) {
+        version3 = Number(meta.version);
+        updated_at = meta.updated_at || updated_at;
+      }
+    } catch {
+    }
+  }
+  return { voices, version: version3, updated_at };
+}
+var handler25 = async (req, res) => {
+  if (req.method !== "GET") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    const { voices, version: version3, updated_at } = await getActiveAdhanVoicesAndVersion(false);
+    const urlObj = new URL(req.url || "/api/adhan-voices", "http://localhost");
+    if (urlObj.searchParams.get("version_only") === "1") {
+      return sendJson(res, 200, {
+        version: version3,
+        count: voices.length,
+        updated_at
+      });
+    }
+    return sendJson(res, 200, {
+      voices,
+      version: version3,
+      updated_at
+    });
+  } catch (err) {
+    console.error("Failed to load adhan voices:", err);
+    return sendJson(res, 500, { error: "Failed to load adhan voices" });
+  }
+};
+var adhan_voices_default = handler25;
+
+// backend/admin/adhan-voices.ts
+init_lib();
+var handler26 = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    await ensureAdhanVoicesTable().catch(() => {
+    });
+    if (req.method === "GET") {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const { voices, version: version3, updated_at } = await getActiveAdhanVoicesAndVersion(true);
+      return sendJson(res, 200, { voices, version: version3, updated_at });
+    }
+    if (req.method === "POST") {
+      const body = await readJsonLarge(req);
+      const action = body.action || "add";
+      if (action === "add" || action === "update") {
+        const id = String(body.id || `adhan_${Date.now()}`).trim();
+        const muezzin_name_en = body.muezzin_name_en !== void 0 ? String(body.muezzin_name_en).trim() : void 0;
+        const muezzin_name_ar = body.muezzin_name_ar !== void 0 ? body.muezzin_name_ar ? String(body.muezzin_name_ar).trim() : null : void 0;
+        const title_en = body.title_en !== void 0 ? String(body.title_en).trim() : void 0;
+        const mosque_en = body.mosque_en !== void 0 ? String(body.mosque_en).trim() : void 0;
+        const mosque_ar = body.mosque_ar !== void 0 ? body.mosque_ar ? String(body.mosque_ar).trim() : null : void 0;
+        const audio_url = body.audio_url !== void 0 ? body.audio_url ? String(body.audio_url).trim() : null : void 0;
+        const fajr_audio_url = body.fajr_audio_url !== void 0 ? body.fajr_audio_url ? String(body.fajr_audio_url).trim() : null : void 0;
+        const notification_clip_url = body.notification_clip_url !== void 0 ? body.notification_clip_url ? String(body.notification_clip_url).trim() : null : void 0;
+        const fajr_notification_clip_url = body.fajr_notification_clip_url !== void 0 ? body.fajr_notification_clip_url ? String(body.fajr_notification_clip_url).trim() : null : void 0;
+        const duration_seconds = body.duration_seconds !== void 0 ? Number(body.duration_seconds || 0) : void 0;
+        const fajr_duration_seconds = body.fajr_duration_seconds !== void 0 ? Number(body.fajr_duration_seconds || 0) : void 0;
+        const size_bytes = body.size_bytes !== void 0 ? Number(body.size_bytes || 0) : void 0;
+        const storage_paths = body.storage_paths !== void 0 ? Array.isArray(body.storage_paths) ? body.storage_paths : [] : void 0;
+        const license_status = body.license_status !== void 0 ? String(body.license_status) : void 0;
+        const license_notes = body.license_notes !== void 0 ? body.license_notes ? String(body.license_notes).trim() : null : void 0;
+        const source_url = body.source_url !== void 0 ? body.source_url ? String(body.source_url).trim() : null : void 0;
+        const attribution = body.attribution !== void 0 ? body.attribution ? String(body.attribution).trim() : null : void 0;
+        const official_verified = body.official_verified !== void 0 ? Boolean(body.official_verified) : void 0;
+        const is_default = body.is_default !== void 0 ? Boolean(body.is_default) : void 0;
+        const is_active = body.is_active !== void 0 ? Boolean(body.is_active) : void 0;
+        const is_premium = body.is_premium !== void 0 ? Boolean(body.is_premium) : void 0;
+        const sort_order = body.sort_order !== void 0 ? Number(body.sort_order) : void 0;
+        if (action === "add" && !muezzin_name_en) {
+          return sendJson(res, 400, { error: "Muezzin name (English) is required." });
+        }
+        const sb = getSupabaseAdmin();
+        const seedMatch = OFFICIAL_MUEZZIN_SLOTS.find((s) => s.id === id);
+        let existingRow = seedMatch ? { ...seedMatch } : null;
+        try {
+          const existingRes = await q(`SELECT * FROM adhan_voices WHERE id = $1`, [id]);
+          if (existingRes.rows?.[0]) {
+            existingRow = { ...existingRow, ...existingRes.rows[0] };
+          }
+        } catch {
+        }
+        if (sb && !existingRow) {
+          try {
+            const { data } = await sb.from("adhan_voices").select("*").eq("id", id).maybeSingle();
+            if (data) existingRow = data;
+          } catch {
+          }
+        }
+        const finalAudioUrl = audio_url !== void 0 ? audio_url : existingRow?.audio_url ?? null;
+        const finalFajrAudioUrl = fajr_audio_url !== void 0 ? fajr_audio_url : existingRow?.fajr_audio_url ?? null;
+        const finalLicenseStatus = license_status !== void 0 ? license_status : finalAudioUrl || finalFajrAudioUrl ? "admin_uploaded" : existingRow?.license_status || "upload_when_licensed";
+        const merged = {
+          id,
+          muezzin_name_en: muezzin_name_en ?? existingRow?.muezzin_name_en ?? "Muezzin",
+          muezzin_name_ar: muezzin_name_ar !== void 0 ? muezzin_name_ar : existingRow?.muezzin_name_ar ?? null,
+          title_en: title_en ?? existingRow?.title_en ?? "Adhan Recording",
+          mosque_en: mosque_en ?? existingRow?.mosque_en ?? "Al-Masjid an-Nabawi (Prophet\u2019s Mosque, Madinah)",
+          mosque_ar: mosque_ar !== void 0 ? mosque_ar : existingRow?.mosque_ar ?? "\u0627\u0644\u0645\u0633\u062C\u062F \u0627\u0644\u0646\u0628\u0648\u064A \u0627\u0644\u0634\u0631\u064A\u0641",
+          audio_url: finalAudioUrl,
+          fajr_audio_url: finalFajrAudioUrl,
+          notification_clip_url: notification_clip_url !== void 0 ? notification_clip_url : existingRow?.notification_clip_url ?? null,
+          fajr_notification_clip_url: fajr_notification_clip_url !== void 0 ? fajr_notification_clip_url : existingRow?.fajr_notification_clip_url ?? null,
+          duration_seconds: duration_seconds ?? Number(existingRow?.duration_seconds || 0),
+          fajr_duration_seconds: fajr_duration_seconds ?? Number(existingRow?.fajr_duration_seconds || 0),
+          size_bytes: size_bytes ?? Number(existingRow?.size_bytes || 0),
+          storage_paths: storage_paths ?? (Array.isArray(existingRow?.storage_paths) ? existingRow.storage_paths : []),
+          license_status: finalLicenseStatus,
+          license_notes: license_notes !== void 0 ? license_notes : existingRow?.license_notes ?? null,
+          source_url: source_url !== void 0 ? source_url : existingRow?.source_url ?? null,
+          attribution: attribution !== void 0 ? attribution : existingRow?.attribution ?? null,
+          official_verified: official_verified ?? Boolean(existingRow?.official_verified ?? false),
+          is_default: is_default ?? Boolean(existingRow?.is_default ?? false),
+          is_active: is_active ?? Boolean(existingRow?.is_active ?? true),
+          is_premium: is_premium ?? Boolean(existingRow?.is_premium ?? false),
+          sort_order: sort_order ?? Number(existingRow?.sort_order ?? 20),
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        if (merged.is_default) {
+          await q(`UPDATE adhan_voices SET is_default = false WHERE id != $1`, [id]).catch(() => {
+          });
+          if (sb) {
+            try {
+              await sb.from("adhan_voices").update({ is_default: false }).neq("id", id);
+            } catch {
+            }
+          }
+        }
+        let savedToSupabase = false;
+        let savedToDb = false;
+        if (sb) {
+          try {
+            const { error } = await sb.from("adhan_voices").upsert(merged, { onConflict: "id" });
+            if (!error) savedToSupabase = true;
+          } catch (e) {
+            console.warn("Supabase adhan_voices upsert notice:", e);
+          }
+        }
+        try {
+          await q(
+            `INSERT INTO adhan_voices (
+               id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+               audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+               size_bytes, storage_paths, license_status, license_notes, source_url,
+               official_verified, is_default, is_active, sort_order, created_at, updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), now())
+             ON CONFLICT (id) DO UPDATE SET
+               muezzin_name_en = EXCLUDED.muezzin_name_en,
+               muezzin_name_ar = EXCLUDED.muezzin_name_ar,
+               title_en = EXCLUDED.title_en,
+               mosque_en = EXCLUDED.mosque_en,
+               mosque_ar = EXCLUDED.mosque_ar,
+               audio_url = EXCLUDED.audio_url,
+               fajr_audio_url = EXCLUDED.fajr_audio_url,
+               duration_seconds = EXCLUDED.duration_seconds,
+               fajr_duration_seconds = EXCLUDED.fajr_duration_seconds,
+               size_bytes = EXCLUDED.size_bytes,
+               storage_paths = EXCLUDED.storage_paths,
+               license_status = EXCLUDED.license_status,
+               license_notes = EXCLUDED.license_notes,
+               source_url = EXCLUDED.source_url,
+               official_verified = EXCLUDED.official_verified,
+               is_default = EXCLUDED.is_default,
+               is_active = EXCLUDED.is_active,
+               sort_order = EXCLUDED.sort_order,
+               updated_at = now()`,
+            [
+              merged.id,
+              merged.muezzin_name_en,
+              merged.muezzin_name_ar,
+              merged.title_en,
+              merged.mosque_en,
+              merged.mosque_ar,
+              merged.audio_url,
+              merged.fajr_audio_url,
+              merged.duration_seconds,
+              merged.fajr_duration_seconds,
+              merged.size_bytes,
+              JSON.stringify(merged.storage_paths),
+              merged.license_status,
+              merged.license_notes,
+              merged.source_url,
+              merged.official_verified,
+              merged.is_default,
+              merged.is_active,
+              merged.sort_order
+            ]
+          );
+          savedToDb = true;
+        } catch (e) {
+          console.warn("Database adhan_voices upsert notice:", e);
+        }
+        if (!Array.isArray(serverStore.adhanVoices)) {
+          serverStore.adhanVoices = [];
+        }
+        if (merged.is_default) {
+          for (const v of serverStore.adhanVoices) {
+            if (v.id !== id) v.is_default = false;
+          }
+        }
+        const storeIdx = serverStore.adhanVoices.findIndex((v) => v.id === id);
+        if (storeIdx >= 0) {
+          serverStore.adhanVoices[storeIdx] = { ...serverStore.adhanVoices[storeIdx], ...merged };
+        } else {
+          serverStore.adhanVoices.push(merged);
+        }
+        await saveStore().catch(() => {
+        });
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3, voice: merged });
+      }
+      if (action === "set-default") {
+        const id = String(body.id || "").trim();
+        if (!id) return sendJson(res, 400, { error: "Voice ID is required" });
+        await q(`UPDATE adhan_voices SET is_default = (id = $1), updated_at = now()`, [id]).catch(() => {
+        });
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            await sb.from("adhan_voices").update({ is_default: false }).neq("id", id);
+            await sb.from("adhan_voices").update({ is_default: true, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id);
+          } catch {
+          }
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "reorder") {
+        const order = Array.isArray(body.order) ? body.order : [];
+        const sb = getSupabaseAdmin();
+        for (const item of order) {
+          if (!item?.id) continue;
+          const sortVal = Number(item.sort_order ?? 0);
+          await q(`UPDATE adhan_voices SET sort_order = $2, updated_at = now() WHERE id = $1`, [item.id, sortVal]).catch(
+            () => {
+            }
+          );
+          if (sb) {
+            try {
+              await sb.from("adhan_voices").update({ sort_order: sortVal }).eq("id", item.id);
+            } catch {
+            }
+          }
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "delete") {
+        const id = String(body.id || "").trim();
+        if (!id) return sendJson(res, 400, { error: "Voice ID is required" });
+        let paths = [];
+        const sb = getSupabaseAdmin();
+        if (sb) {
+          try {
+            const { data: existing } = await sb.from("adhan_voices").select("storage_paths").eq("id", id).maybeSingle();
+            if (Array.isArray(existing?.storage_paths)) {
+              paths = existing.storage_paths;
+            }
+            const isOfficialSeed2 = OFFICIAL_MUEZZIN_SLOTS.some((s) => s.id === id);
+            if (isOfficialSeed2) {
+              await sb.from("adhan_voices").update({
+                audio_url: null,
+                fajr_audio_url: null,
+                duration_seconds: 0,
+                fajr_duration_seconds: 0,
+                size_bytes: 0,
+                storage_paths: [],
+                license_status: "upload_when_licensed",
+                updated_at: (/* @__PURE__ */ new Date()).toISOString()
+              }).eq("id", id);
+            } else {
+              await sb.from("adhan_voices").delete().eq("id", id);
+            }
+            if (paths.length > 0) {
+              await sb.storage.from("ambient-backgrounds").remove(paths.map((p) => p.replace(/^\/+/, "")));
+            }
+          } catch (e) {
+            console.warn("Supabase delete adhan_voices notice:", e);
+          }
+        }
+        const isOfficialSeed = OFFICIAL_MUEZZIN_SLOTS.some((s) => s.id === id);
+        if (isOfficialSeed) {
+          await q(
+            `UPDATE adhan_voices
+             SET audio_url = NULL,
+                 fajr_audio_url = NULL,
+                 duration_seconds = 0,
+                 fajr_duration_seconds = 0,
+                 size_bytes = 0,
+                 storage_paths = '[]'::jsonb,
+                 license_status = 'upload_when_licensed',
+                 updated_at = now()
+             WHERE id = $1`,
+            [id]
+          ).catch(() => {
+          });
+        } else {
+          await q(`DELETE FROM adhan_voices WHERE id = $1`, [id]).catch(() => {
+          });
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, version: version3 });
+      }
+      if (action === "signed-upload-url") {
+        const path4 = String(body.path || "").replace(/^\/+/, "");
+        if (!path4) return sendJson(res, 400, { error: "Path is required" });
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+        if (sb && supabaseUrl) {
+          try {
+            const { data, error } = await sb.storage.from("ambient-backgrounds").createSignedUploadUrl(path4);
+            if (!error && data?.signedUrl) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+              return sendJson(res, 200, {
+                ok: true,
+                signedUrl: data.signedUrl,
+                token: data.token,
+                publicUrl
+              });
+            }
+          } catch (e) {
+            console.warn("Adhan createSignedUploadUrl notice:", e?.message);
+          }
+        }
+        return sendJson(res, 200, { ok: false });
+      }
+      if (action === "upload") {
+        const path4 = String(body.path || "").replace(/^\/+/, "");
+        const contentType = String(body.contentType || "audio/mpeg");
+        const base64Data = String(body.data || "");
+        if (!path4 || !base64Data) return sendJson(res, 400, { error: "Path and data are required" });
+        const buffer = Buffer.from(base64Data, "base64");
+        const sb = getSupabaseAdmin();
+        const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+        if (sb && supabaseUrl) {
+          try {
+            const { error } = await sb.storage.from("ambient-backgrounds").upload(path4, buffer, {
+              contentType,
+              upsert: true,
+              cacheControl: "31536000"
+            });
+            if (!error) {
+              const publicUrl = `${supabaseUrl}/storage/v1/object/public/ambient-backgrounds/${path4}`;
+              return sendJson(res, 200, { ok: true, publicUrl });
+            }
+          } catch (e) {
+            console.warn("Supabase adhan audio upload fallback:", e);
+          }
+        }
+        const mediaId = `adhan_${Date.now()}_${path4.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-36)}`;
+        const dataUrl = `data:${contentType};base64,${base64Data}`;
+        await q("INSERT INTO global_media (id, kind, mime_type, data_url) VALUES ($1, $2, $3, $4)", [
+          mediaId,
+          "audio",
+          contentType,
+          dataUrl
+        ]);
+        return sendJson(res, 200, { ok: true, publicUrl: `/api/media/${mediaId}` });
+      }
+      if (action === "seed-official-slots") {
+        const sb = getSupabaseAdmin();
+        for (const slot of OFFICIAL_MUEZZIN_SLOTS) {
+          await q(
+            `INSERT INTO adhan_voices (
+               id, muezzin_name_en, muezzin_name_ar, title_en, mosque_en, mosque_ar,
+               audio_url, fajr_audio_url, duration_seconds, fajr_duration_seconds,
+               size_bytes, storage_paths, license_status, license_notes, source_url,
+               official_verified, is_default, is_active, sort_order, created_at, updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), now())
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              slot.id,
+              slot.muezzin_name_en,
+              slot.muezzin_name_ar,
+              slot.title_en,
+              slot.mosque_en,
+              slot.mosque_ar,
+              slot.audio_url,
+              slot.fajr_audio_url,
+              slot.duration_seconds,
+              slot.fajr_duration_seconds,
+              slot.size_bytes,
+              JSON.stringify(slot.storage_paths),
+              slot.license_status,
+              slot.license_notes,
+              slot.source_url,
+              slot.official_verified,
+              slot.is_default,
+              slot.is_active,
+              slot.sort_order
+            ]
+          ).catch(() => {
+          });
+          if (sb) {
+            try {
+              await sb.from("adhan_voices").upsert(slot, { onConflict: "id", ignoreDuplicates: true });
+            } catch {
+            }
+          }
+        }
+        const version3 = await bumpAdhanVoicesVersion();
+        return sendJson(res, 200, { ok: true, count: OFFICIAL_MUEZZIN_SLOTS.length, version: version3 });
+      }
+      return sendJson(res, 400, { error: "Unknown action" });
+    }
+    return sendJson(res, 405, { error: "Method not allowed" });
+  } catch (err) {
+    console.error("Admin adhan-voices error:", err);
+    return sendJson(res, 500, { error: err?.message || "Server error" });
+  }
+};
+var adhan_voices_default2 = handler26;
+
+// backend/push.ts
+import crypto7 from "node:crypto";
+
+// node_modules/adhan/lib/esm/Madhab.js
+var Madhab = {
+  Shafi: "shafi",
+  Hanafi: "hanafi"
+};
+function shadowLength(madhab) {
+  switch (madhab) {
+    case Madhab.Shafi:
+      return 1;
+    case Madhab.Hanafi:
+      return 2;
+    default:
+      throw "Invalid Madhab";
+  }
+}
+
+// node_modules/adhan/lib/esm/HighLatitudeRule.js
+var HighLatitudeRule = {
+  MiddleOfTheNight: "middleofthenight",
+  SeventhOfTheNight: "seventhofthenight",
+  TwilightAngle: "twilightangle",
+  recommended(coordinates) {
+    if (coordinates.latitude > 48) {
+      return HighLatitudeRule.SeventhOfTheNight;
+    } else {
+      return HighLatitudeRule.MiddleOfTheNight;
+    }
+  }
+};
+var HighLatitudeRule_default = HighLatitudeRule;
+
+// node_modules/adhan/lib/esm/Coordinates.js
+var Coordinates = class {
+  constructor(latitude, longitude) {
+    this.latitude = latitude;
+    this.longitude = longitude;
+  }
+};
+
+// node_modules/adhan/lib/esm/Rounding.js
+var Rounding = {
+  Nearest: "nearest",
+  Up: "up",
+  None: "none"
+};
+
+// node_modules/adhan/lib/esm/DateUtils.js
+function dateByAddingDays(date, days) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const day = date.getDate() + days;
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const seconds = date.getSeconds();
+  return new Date(year, month, day, hours, minutes, seconds);
+}
+function dateByAddingMinutes(date, minutes) {
+  return dateByAddingSeconds(date, minutes * 60);
+}
+function dateByAddingSeconds(date, seconds) {
+  return new Date(date.getTime() + seconds * 1e3);
+}
+function roundedMinute(date, rounding = Rounding.Nearest) {
+  const seconds = date.getUTCSeconds();
+  let offset = seconds >= 30 ? 60 - seconds : -1 * seconds;
+  if (rounding === Rounding.Up) {
+    offset = 60 - seconds;
+  } else if (rounding === Rounding.None) {
+    offset = 0;
+  }
+  return dateByAddingSeconds(date, offset);
+}
+function isLeapYear(year) {
+  if (year % 4 !== 0) {
+    return false;
+  }
+  if (year % 100 === 0 && year % 400 !== 0) {
+    return false;
+  }
+  return true;
+}
+function dayOfYear(date) {
+  let returnedDayOfYear = 0;
+  const feb = isLeapYear(date.getFullYear()) ? 29 : 28;
+  const months = [31, feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  for (let i = 0; i < date.getMonth(); i++) {
+    returnedDayOfYear += months[i];
+  }
+  returnedDayOfYear += date.getDate();
+  return returnedDayOfYear;
+}
+function isValidDate(date) {
+  return date instanceof Date && !isNaN(date.valueOf());
+}
+
+// node_modules/adhan/lib/esm/MathUtils.js
+function degreesToRadians(degrees) {
+  return degrees * Math.PI / 180;
+}
+function radiansToDegrees(radians) {
+  return radians * 180 / Math.PI;
+}
+function normalizeToScale(num, max) {
+  return num - max * Math.floor(num / max);
+}
+function unwindAngle(angle) {
+  return normalizeToScale(angle, 360);
+}
+function quadrantShiftAngle(angle) {
+  if (angle >= -180 && angle <= 180) {
+    return angle;
+  }
+  return angle - 360 * Math.round(angle / 360);
+}
+
+// node_modules/adhan/lib/esm/Shafaq.js
+var Shafaq = {
+  // General is a combination of Ahmer and Abyad.
+  General: "general",
+  // Ahmer means the twilight is the red glow in the sky. Used by the Shafi, Maliki, and Hanbali madhabs.
+  Ahmer: "ahmer",
+  // Abyad means the twilight is the white glow in the sky. Used by the Hanafi madhab.
+  Abyad: "abyad"
+};
+
+// node_modules/adhan/lib/esm/Astronomical.js
+var Astronomical = {
+  /* The geometric mean longitude of the sun in degrees. */
+  meanSolarLongitude(julianCentury) {
+    const T = julianCentury;
+    const term1 = 280.4664567;
+    const term2 = 36000.76983 * T;
+    const term3 = 3032e-7 * Math.pow(T, 2);
+    const L0 = term1 + term2 + term3;
+    return unwindAngle(L0);
+  },
+  /* The geometric mean longitude of the moon in degrees. */
+  meanLunarLongitude(julianCentury) {
+    const T = julianCentury;
+    const term1 = 218.3165;
+    const term2 = 481267.8813 * T;
+    const Lp = term1 + term2;
+    return unwindAngle(Lp);
+  },
+  ascendingLunarNodeLongitude(julianCentury) {
+    const T = julianCentury;
+    const term1 = 125.04452;
+    const term2 = 1934.136261 * T;
+    const term3 = 20708e-7 * Math.pow(T, 2);
+    const term4 = Math.pow(T, 3) / 45e4;
+    const Omega = term1 - term2 + term3 + term4;
+    return unwindAngle(Omega);
+  },
+  /* The mean anomaly of the sun. */
+  meanSolarAnomaly(julianCentury) {
+    const T = julianCentury;
+    const term1 = 357.52911;
+    const term2 = 35999.05029 * T;
+    const term3 = 1537e-7 * Math.pow(T, 2);
+    const M = term1 + term2 - term3;
+    return unwindAngle(M);
+  },
+  /* The Sun's equation of the center in degrees. */
+  solarEquationOfTheCenter(julianCentury, meanAnomaly) {
+    const T = julianCentury;
+    const Mrad = degreesToRadians(meanAnomaly);
+    const term1 = (1.914602 - 4817e-6 * T - 14e-6 * Math.pow(T, 2)) * Math.sin(Mrad);
+    const term2 = (0.019993 - 101e-6 * T) * Math.sin(2 * Mrad);
+    const term3 = 289e-6 * Math.sin(3 * Mrad);
+    return term1 + term2 + term3;
+  },
+  /* The apparent longitude of the Sun, referred to the
+        true equinox of the date. */
+  apparentSolarLongitude(julianCentury, meanLongitude) {
+    const T = julianCentury;
+    const L0 = meanLongitude;
+    const longitude = L0 + Astronomical.solarEquationOfTheCenter(T, Astronomical.meanSolarAnomaly(T));
+    const Omega = 125.04 - 1934.136 * T;
+    const Lambda = longitude - 569e-5 - 478e-5 * Math.sin(degreesToRadians(Omega));
+    return unwindAngle(Lambda);
+  },
+  /* The mean obliquity of the ecliptic, formula
+        adopted by the International Astronomical Union.
+        Represented in degrees. */
+  meanObliquityOfTheEcliptic(julianCentury) {
+    const T = julianCentury;
+    const term1 = 23.439291;
+    const term2 = 0.013004167 * T;
+    const term3 = 1639e-10 * Math.pow(T, 2);
+    const term4 = 5036e-10 * Math.pow(T, 3);
+    return term1 - term2 - term3 + term4;
+  },
+  /* The mean obliquity of the ecliptic, corrected for
+        calculating the apparent position of the sun, in degrees. */
+  apparentObliquityOfTheEcliptic(julianCentury, meanObliquityOfTheEcliptic) {
+    const T = julianCentury;
+    const Epsilon0 = meanObliquityOfTheEcliptic;
+    const O = 125.04 - 1934.136 * T;
+    return Epsilon0 + 256e-5 * Math.cos(degreesToRadians(O));
+  },
+  /* Mean sidereal time, the hour angle of the vernal equinox, in degrees. */
+  meanSiderealTime(julianCentury) {
+    const T = julianCentury;
+    const JD = T * 36525 + 2451545;
+    const term1 = 280.46061837;
+    const term2 = 360.98564736629 * (JD - 2451545);
+    const term3 = 387933e-9 * Math.pow(T, 2);
+    const term4 = Math.pow(T, 3) / 3871e4;
+    const Theta = term1 + term2 + term3 - term4;
+    return unwindAngle(Theta);
+  },
+  nutationInLongitude(julianCentury, solarLongitude, lunarLongitude, ascendingNode) {
+    const L0 = solarLongitude;
+    const Lp = lunarLongitude;
+    const Omega = ascendingNode;
+    const term1 = -17.2 / 3600 * Math.sin(degreesToRadians(Omega));
+    const term2 = 1.32 / 3600 * Math.sin(2 * degreesToRadians(L0));
+    const term3 = 0.23 / 3600 * Math.sin(2 * degreesToRadians(Lp));
+    const term4 = 0.21 / 3600 * Math.sin(2 * degreesToRadians(Omega));
+    return term1 - term2 - term3 + term4;
+  },
+  nutationInObliquity(julianCentury, solarLongitude, lunarLongitude, ascendingNode) {
+    const L0 = solarLongitude;
+    const Lp = lunarLongitude;
+    const Omega = ascendingNode;
+    const term1 = 9.2 / 3600 * Math.cos(degreesToRadians(Omega));
+    const term2 = 0.57 / 3600 * Math.cos(2 * degreesToRadians(L0));
+    const term3 = 0.1 / 3600 * Math.cos(2 * degreesToRadians(Lp));
+    const term4 = 0.09 / 3600 * Math.cos(2 * degreesToRadians(Omega));
+    return term1 + term2 + term3 - term4;
+  },
+  altitudeOfCelestialBody(observerLatitude, declination, localHourAngle) {
+    const Phi = observerLatitude;
+    const delta = declination;
+    const H = localHourAngle;
+    const term1 = Math.sin(degreesToRadians(Phi)) * Math.sin(degreesToRadians(delta));
+    const term2 = Math.cos(degreesToRadians(Phi)) * Math.cos(degreesToRadians(delta)) * Math.cos(degreesToRadians(H));
+    return radiansToDegrees(Math.asin(term1 + term2));
+  },
+  approximateTransit(longitude, siderealTime, rightAscension) {
+    const L = longitude;
+    const Theta0 = siderealTime;
+    const a2 = rightAscension;
+    const Lw = L * -1;
+    const m0 = normalizeToScale((a2 + Lw - Theta0) / 360, 1);
+    const expectedTransit = normalizeToScale((12 - L / 15) / 24, 1);
+    if (m0 - expectedTransit > 0.5) {
+      return m0 - 1;
+    } else if (expectedTransit - m0 > 0.5) {
+      return m0 + 1;
+    } else {
+      return m0;
+    }
+  },
+  /* The time at which the sun is at its highest point in the sky (in universal time) */
+  correctedTransit(approximateTransit, longitude, siderealTime, rightAscension, previousRightAscension, nextRightAscension) {
+    const m0 = approximateTransit;
+    const L = longitude;
+    const Theta0 = siderealTime;
+    const a2 = rightAscension;
+    const a1 = previousRightAscension;
+    const a3 = nextRightAscension;
+    const Lw = L * -1;
+    const Theta = unwindAngle(Theta0 + 360.985647 * m0);
+    const a = unwindAngle(Astronomical.interpolateAngles(a2, a1, a3, m0));
+    const H = quadrantShiftAngle(Theta - Lw - a);
+    const dm = H / -360;
+    return (m0 + dm) * 24;
+  },
+  correctedHourAngle(approximateTransit, angle, coordinates, afterTransit, siderealTime, rightAscension, previousRightAscension, nextRightAscension, declination, previousDeclination, nextDeclination) {
+    const m0 = approximateTransit;
+    const h0 = angle;
+    const Theta0 = siderealTime;
+    const a2 = rightAscension;
+    const a1 = previousRightAscension;
+    const a3 = nextRightAscension;
+    const d2 = declination;
+    const d1 = previousDeclination;
+    const d3 = nextDeclination;
+    const Lw = coordinates.longitude * -1;
+    const term1 = Math.sin(degreesToRadians(h0)) - Math.sin(degreesToRadians(coordinates.latitude)) * Math.sin(degreesToRadians(d2));
+    const term2 = Math.cos(degreesToRadians(coordinates.latitude)) * Math.cos(degreesToRadians(d2));
+    const H0 = radiansToDegrees(Math.acos(term1 / term2));
+    const m = afterTransit ? m0 + H0 / 360 : m0 - H0 / 360;
+    const Theta = unwindAngle(Theta0 + 360.985647 * m);
+    const a = unwindAngle(Astronomical.interpolateAngles(a2, a1, a3, m));
+    const delta = Astronomical.interpolate(d2, d1, d3, m);
+    const H = Theta - Lw - a;
+    const h = Astronomical.altitudeOfCelestialBody(coordinates.latitude, delta, H);
+    const term3 = h - h0;
+    const term4 = 360 * Math.cos(degreesToRadians(delta)) * Math.cos(degreesToRadians(coordinates.latitude)) * Math.sin(degreesToRadians(H));
+    const dm = term3 / term4;
+    return (m + dm) * 24;
+  },
+  /* Interpolation of a value given equidistant
+        previous and next values and a factor
+        equal to the fraction of the interpolated
+        point's time over the time between values. */
+  interpolate(y2, y1, y3, n) {
+    const a = y2 - y1;
+    const b = y3 - y2;
+    const c = b - a;
+    return y2 + n / 2 * (a + b + n * c);
+  },
+  /* Interpolation of three angles, accounting for
+        angle unwinding. */
+  interpolateAngles(y2, y1, y3, n) {
+    const a = unwindAngle(y2 - y1);
+    const b = unwindAngle(y3 - y2);
+    const c = b - a;
+    return y2 + n / 2 * (a + b + n * c);
+  },
+  /* The Julian Day for the given Gregorian date components. */
+  julianDay(year, month, day, hours = 0) {
+    const trunc = Math.trunc;
+    const Y = trunc(month > 2 ? year : year - 1);
+    const M = trunc(month > 2 ? month : month + 12);
+    const D = day + hours / 24;
+    const A = trunc(Y / 100);
+    const B = trunc(2 - A + trunc(A / 4));
+    const i0 = trunc(365.25 * (Y + 4716));
+    const i1 = trunc(30.6001 * (M + 1));
+    return i0 + i1 + D + B - 1524.5;
+  },
+  /* Julian century from the epoch. */
+  julianCentury(julianDay) {
+    return (julianDay - 2451545) / 36525;
+  },
+  seasonAdjustedMorningTwilight(latitude, dayOfYear2, year, sunrise) {
+    const a = 75 + 28.65 / 55 * Math.abs(latitude);
+    const b = 75 + 19.44 / 55 * Math.abs(latitude);
+    const c = 75 + 32.74 / 55 * Math.abs(latitude);
+    const d = 75 + 48.1 / 55 * Math.abs(latitude);
+    const adjustment = (function() {
+      const dyy = Astronomical.daysSinceSolstice(dayOfYear2, year, latitude);
+      if (dyy < 91) {
+        return a + (b - a) / 91 * dyy;
+      } else if (dyy < 137) {
+        return b + (c - b) / 46 * (dyy - 91);
+      } else if (dyy < 183) {
+        return c + (d - c) / 46 * (dyy - 137);
+      } else if (dyy < 229) {
+        return d + (c - d) / 46 * (dyy - 183);
+      } else if (dyy < 275) {
+        return c + (b - c) / 46 * (dyy - 229);
+      } else {
+        return b + (a - b) / 91 * (dyy - 275);
+      }
+    })();
+    return dateByAddingSeconds(sunrise, Math.round(adjustment * -60));
+  },
+  seasonAdjustedEveningTwilight(latitude, dayOfYear2, year, sunset, shafaq) {
+    let a, b, c, d;
+    if (shafaq === Shafaq.Ahmer) {
+      a = 62 + 17.4 / 55 * Math.abs(latitude);
+      b = 62 - 7.16 / 55 * Math.abs(latitude);
+      c = 62 + 5.12 / 55 * Math.abs(latitude);
+      d = 62 + 19.44 / 55 * Math.abs(latitude);
+    } else if (shafaq === Shafaq.Abyad) {
+      a = 75 + 25.6 / 55 * Math.abs(latitude);
+      b = 75 + 7.16 / 55 * Math.abs(latitude);
+      c = 75 + 36.84 / 55 * Math.abs(latitude);
+      d = 75 + 81.84 / 55 * Math.abs(latitude);
+    } else {
+      a = 75 + 25.6 / 55 * Math.abs(latitude);
+      b = 75 + 2.05 / 55 * Math.abs(latitude);
+      c = 75 - 9.21 / 55 * Math.abs(latitude);
+      d = 75 + 6.14 / 55 * Math.abs(latitude);
+    }
+    const adjustment = (function() {
+      const dyy = Astronomical.daysSinceSolstice(dayOfYear2, year, latitude);
+      if (dyy < 91) {
+        return a + (b - a) / 91 * dyy;
+      } else if (dyy < 137) {
+        return b + (c - b) / 46 * (dyy - 91);
+      } else if (dyy < 183) {
+        return c + (d - c) / 46 * (dyy - 137);
+      } else if (dyy < 229) {
+        return d + (c - d) / 46 * (dyy - 183);
+      } else if (dyy < 275) {
+        return c + (b - c) / 46 * (dyy - 229);
+      } else {
+        return b + (a - b) / 91 * (dyy - 275);
+      }
+    })();
+    return dateByAddingSeconds(sunset, Math.round(adjustment * 60));
+  },
+  daysSinceSolstice(dayOfYear2, year, latitude) {
+    let daysSinceSolstice;
+    const northernOffset = 10;
+    const southernOffset = isLeapYear(year) ? 173 : 172;
+    const daysInYear = isLeapYear(year) ? 366 : 365;
+    if (latitude >= 0) {
+      daysSinceSolstice = dayOfYear2 + northernOffset;
+      if (daysSinceSolstice >= daysInYear) {
+        daysSinceSolstice = daysSinceSolstice - daysInYear;
+      }
+    } else {
+      daysSinceSolstice = dayOfYear2 - southernOffset;
+      if (daysSinceSolstice < 0) {
+        daysSinceSolstice = daysSinceSolstice + daysInYear;
+      }
+    }
+    return daysSinceSolstice;
+  }
+};
+var Astronomical_default = Astronomical;
+
+// node_modules/adhan/lib/esm/SolarCoordinates.js
+var SolarCoordinates = class {
+  constructor(julianDay) {
+    const T = Astronomical_default.julianCentury(julianDay);
+    const L0 = Astronomical_default.meanSolarLongitude(T);
+    const Lp = Astronomical_default.meanLunarLongitude(T);
+    const Omega = Astronomical_default.ascendingLunarNodeLongitude(T);
+    const Lambda = degreesToRadians(Astronomical_default.apparentSolarLongitude(T, L0));
+    const Theta0 = Astronomical_default.meanSiderealTime(T);
+    const dPsi = Astronomical_default.nutationInLongitude(T, L0, Lp, Omega);
+    const dEpsilon = Astronomical_default.nutationInObliquity(T, L0, Lp, Omega);
+    const Epsilon0 = Astronomical_default.meanObliquityOfTheEcliptic(T);
+    const EpsilonApparent = degreesToRadians(Astronomical_default.apparentObliquityOfTheEcliptic(T, Epsilon0));
+    this.declination = radiansToDegrees(Math.asin(Math.sin(EpsilonApparent) * Math.sin(Lambda)));
+    this.rightAscension = unwindAngle(radiansToDegrees(Math.atan2(Math.cos(EpsilonApparent) * Math.sin(Lambda), Math.cos(Lambda))));
+    this.apparentSiderealTime = Theta0 + dPsi * 3600 * Math.cos(degreesToRadians(Epsilon0 + dEpsilon)) / 3600;
+  }
+};
+
+// node_modules/adhan/lib/esm/SolarTime.js
+var SolarTime = class {
+  constructor(date, coordinates) {
+    const julianDay = Astronomical_default.julianDay(date.getFullYear(), date.getMonth() + 1, date.getDate(), 0);
+    this.observer = coordinates;
+    this.solar = new SolarCoordinates(julianDay);
+    this.prevSolar = new SolarCoordinates(julianDay - 1);
+    this.nextSolar = new SolarCoordinates(julianDay + 1);
+    const m0 = Astronomical_default.approximateTransit(coordinates.longitude, this.solar.apparentSiderealTime, this.solar.rightAscension);
+    const solarAltitude = -50 / 60;
+    this.approxTransit = m0;
+    this.transit = Astronomical_default.correctedTransit(m0, coordinates.longitude, this.solar.apparentSiderealTime, this.solar.rightAscension, this.prevSolar.rightAscension, this.nextSolar.rightAscension);
+    this.sunrise = Astronomical_default.correctedHourAngle(m0, solarAltitude, coordinates, false, this.solar.apparentSiderealTime, this.solar.rightAscension, this.prevSolar.rightAscension, this.nextSolar.rightAscension, this.solar.declination, this.prevSolar.declination, this.nextSolar.declination);
+    this.sunset = Astronomical_default.correctedHourAngle(m0, solarAltitude, coordinates, true, this.solar.apparentSiderealTime, this.solar.rightAscension, this.prevSolar.rightAscension, this.nextSolar.rightAscension, this.solar.declination, this.prevSolar.declination, this.nextSolar.declination);
+  }
+  hourAngle(angle, afterTransit) {
+    return Astronomical_default.correctedHourAngle(this.approxTransit, angle, this.observer, afterTransit, this.solar.apparentSiderealTime, this.solar.rightAscension, this.prevSolar.rightAscension, this.nextSolar.rightAscension, this.solar.declination, this.prevSolar.declination, this.nextSolar.declination);
+  }
+  afternoon(shadowLength2) {
+    const tangent = Math.abs(this.observer.latitude - this.solar.declination);
+    const inverse = shadowLength2 + Math.tan(degreesToRadians(tangent));
+    const angle = radiansToDegrees(Math.atan(1 / inverse));
+    return this.hourAngle(angle, true);
+  }
+};
+
+// node_modules/adhan/lib/esm/PolarCircleResolution.js
+var PolarCircleResolution = {
+  AqrabBalad: "AqrabBalad",
+  AqrabYaum: "AqrabYaum",
+  Unresolved: "Unresolved"
+};
+var LATITUDE_VARIATION_STEP = 0.5;
+var UNSAFE_LATITUDE = 65;
+var isValidSolarTime = (solarTime) => !isNaN(solarTime.sunrise) && !isNaN(solarTime.sunset);
+var aqrabYaumResolver = (coordinates, date, daysAdded = 1, direction = 1) => {
+  if (daysAdded > Math.ceil(365 / 2)) {
+    return null;
+  }
+  const testDate = new Date(date.getTime());
+  testDate.setDate(testDate.getDate() + direction * daysAdded);
+  const tomorrow = dateByAddingDays(testDate, 1);
+  const solarTime = new SolarTime(testDate, coordinates);
+  const tomorrowSolarTime = new SolarTime(tomorrow, coordinates);
+  if (!isValidSolarTime(solarTime) || !isValidSolarTime(tomorrowSolarTime)) {
+    return aqrabYaumResolver(coordinates, date, daysAdded + (direction > 0 ? 0 : 1), -direction);
+  }
+  return {
+    date,
+    tomorrow,
+    coordinates,
+    solarTime,
+    tomorrowSolarTime
+  };
+};
+var aqrabBaladResolver = (coordinates, date, latitude) => {
+  const solarTime = new SolarTime(date, {
+    ...coordinates,
+    latitude
+  });
+  const tomorrow = dateByAddingDays(date, 1);
+  const tomorrowSolarTime = new SolarTime(tomorrow, {
+    ...coordinates,
+    latitude
+  });
+  if (!isValidSolarTime(solarTime) || !isValidSolarTime(tomorrowSolarTime)) {
+    return Math.abs(latitude) >= UNSAFE_LATITUDE ? aqrabBaladResolver(coordinates, date, latitude - Math.sign(latitude) * LATITUDE_VARIATION_STEP) : null;
+  }
+  return {
+    date,
+    tomorrow,
+    coordinates: new Coordinates(latitude, coordinates.longitude),
+    solarTime,
+    tomorrowSolarTime
+  };
+};
+var polarCircleResolvedValues = (resolver, date, coordinates) => {
+  const defaultReturn = {
+    date,
+    tomorrow: dateByAddingDays(date, 1),
+    coordinates,
+    solarTime: new SolarTime(date, coordinates),
+    tomorrowSolarTime: new SolarTime(dateByAddingDays(date, 1), coordinates)
+  };
+  switch (resolver) {
+    case PolarCircleResolution.AqrabYaum: {
+      return aqrabYaumResolver(coordinates, date) || defaultReturn;
+    }
+    case PolarCircleResolution.AqrabBalad: {
+      const {
+        latitude
+      } = coordinates;
+      return aqrabBaladResolver(coordinates, date, latitude - Math.sign(latitude) * LATITUDE_VARIATION_STEP) || defaultReturn;
+    }
+    default: {
+      return defaultReturn;
+    }
+  }
+};
+
+// node_modules/adhan/lib/esm/CalculationParameters.js
+var CalculationParameters = class {
+  // Madhab to determine how Asr is calculated.
+  madhab = Madhab.Shafi;
+  // Rule to determine the earliest time for Fajr and latest time for Isha
+  // needed for high latitude locations where Fajr and Isha may not truly exist
+  // or may present a hardship unless bound to a reasonable time.
+  highLatitudeRule = HighLatitudeRule_default.MiddleOfTheNight;
+  // Manual adjustments (in minutes) to be added to each prayer time.
+  adjustments = {
+    fajr: 0,
+    sunrise: 0,
+    dhuhr: 0,
+    asr: 0,
+    maghrib: 0,
+    isha: 0
+  };
+  // Adjustments set by a calculation method. This value should not be manually modified.
+  methodAdjustments = {
+    fajr: 0,
+    sunrise: 0,
+    dhuhr: 0,
+    asr: 0,
+    maghrib: 0,
+    isha: 0
+  };
+  // Rule to determine how to resolve prayer times inside the Polar Circle
+  // where daylight or night may persist for more than 24 hours depending
+  // on the season
+  polarCircleResolution = PolarCircleResolution.Unresolved;
+  // How seconds are rounded when calculating prayer times
+  rounding = Rounding.Nearest;
+  // Used by the MoonsightingCommittee method to determine how to calculate Isha
+  shafaq = Shafaq.General;
+  constructor(method, fajrAngle = 0, ishaAngle = 0, ishaInterval = 0, maghribAngle = 0) {
+    this.method = method;
+    this.fajrAngle = fajrAngle;
+    this.ishaAngle = ishaAngle;
+    this.ishaInterval = ishaInterval;
+    this.maghribAngle = maghribAngle;
+    if (this.method === null) {
+      this.method = "Other";
+    }
+  }
+  nightPortions() {
+    switch (this.highLatitudeRule) {
+      case HighLatitudeRule_default.MiddleOfTheNight:
+        return {
+          fajr: 1 / 2,
+          isha: 1 / 2
+        };
+      case HighLatitudeRule_default.SeventhOfTheNight:
+        return {
+          fajr: 1 / 7,
+          isha: 1 / 7
+        };
+      case HighLatitudeRule_default.TwilightAngle:
+        return {
+          fajr: this.fajrAngle / 60,
+          isha: this.ishaAngle / 60
+        };
+      default:
+        throw `Invalid high latitude rule found when attempting to compute night portions: ${this.highLatitudeRule}`;
+    }
+  }
+};
+
+// node_modules/adhan/lib/esm/CalculationMethod.js
+var CalculationMethod = {
+  // Muslim World League
+  MuslimWorldLeague() {
+    const params = new CalculationParameters("MuslimWorldLeague", 18, 17);
+    params.methodAdjustments.dhuhr = 1;
+    return params;
+  },
+  // Egyptian General Authority of Survey
+  Egyptian() {
+    const params = new CalculationParameters("Egyptian", 19.5, 17.5);
+    params.methodAdjustments.dhuhr = 1;
+    return params;
+  },
+  // University of Islamic Sciences, Karachi
+  Karachi() {
+    const params = new CalculationParameters("Karachi", 18, 18);
+    params.methodAdjustments.dhuhr = 1;
+    return params;
+  },
+  // Umm al-Qura University, Makkah
+  UmmAlQura() {
+    return new CalculationParameters("UmmAlQura", 18.5, 0, 90);
+  },
+  // Dubai
+  Dubai() {
+    const params = new CalculationParameters("Dubai", 18.2, 18.2);
+    params.methodAdjustments = {
+      ...params.methodAdjustments,
+      sunrise: -3,
+      dhuhr: 3,
+      asr: 3,
+      maghrib: 3
+    };
+    return params;
+  },
+  // Moonsighting Committee
+  MoonsightingCommittee() {
+    const params = new CalculationParameters("MoonsightingCommittee", 18, 18);
+    params.methodAdjustments = {
+      ...params.methodAdjustments,
+      dhuhr: 5,
+      maghrib: 3
+    };
+    return params;
+  },
+  // ISNA
+  NorthAmerica() {
+    const params = new CalculationParameters("NorthAmerica", 15, 15);
+    params.methodAdjustments.dhuhr = 1;
+    return params;
+  },
+  // Kuwait
+  Kuwait() {
+    return new CalculationParameters("Kuwait", 18, 17.5);
+  },
+  // Qatar
+  Qatar() {
+    return new CalculationParameters("Qatar", 18, 0, 90);
+  },
+  // Singapore
+  Singapore() {
+    const params = new CalculationParameters("Singapore", 20, 18);
+    params.methodAdjustments.dhuhr = 1;
+    params.rounding = Rounding.Up;
+    return params;
+  },
+  // Institute of Geophysics, University of Tehran
+  Tehran() {
+    const params = new CalculationParameters("Tehran", 17.7, 14, 0, 4.5);
+    return params;
+  },
+  // Dianet
+  Turkey() {
+    const params = new CalculationParameters("Turkey", 18, 17);
+    params.methodAdjustments = {
+      ...params.methodAdjustments,
+      sunrise: -7,
+      dhuhr: 5,
+      asr: 4,
+      maghrib: 7
+    };
+    return params;
+  },
+  // Other
+  Other() {
+    return new CalculationParameters("Other", 0, 0);
+  }
+};
+var CalculationMethod_default = CalculationMethod;
+
+// node_modules/adhan/lib/esm/Prayer.js
+var Prayer = {
+  Fajr: "fajr",
+  Sunrise: "sunrise",
+  Dhuhr: "dhuhr",
+  Asr: "asr",
+  Maghrib: "maghrib",
+  Isha: "isha",
+  None: "none"
+};
+var Prayer_default = Prayer;
+
+// node_modules/adhan/lib/esm/TimeComponents.js
+var TimeComponents = class {
+  constructor(num) {
+    this.hours = Math.floor(num);
+    this.minutes = Math.floor((num - this.hours) * 60);
+    this.seconds = Math.floor((num - (this.hours + this.minutes / 60)) * 60 * 60);
+    return this;
+  }
+  utcDate(year, month, date) {
+    return new Date(Date.UTC(year, month, date, this.hours, this.minutes, this.seconds));
+  }
+};
+
+// node_modules/adhan/lib/esm/PrayerTimes.js
+var HIGH_LATITUDE_THRESHOLD = 55;
+var PrayerTimes = class {
+  constructor(coordinates, date, calculationParameters) {
+    this.coordinates = coordinates;
+    this.date = date;
+    this.calculationParameters = calculationParameters;
+    let solarTime = new SolarTime(date, coordinates);
+    let fajrTime;
+    let sunriseTime;
+    let dhuhrTime;
+    let asrTime;
+    let sunsetTime;
+    let maghribTime;
+    let ishaTime;
+    let nightFraction;
+    dhuhrTime = new TimeComponents(solarTime.transit).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+    sunriseTime = new TimeComponents(solarTime.sunrise).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+    sunsetTime = new TimeComponents(solarTime.sunset).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+    const tomorrow = dateByAddingDays(date, 1);
+    let tomorrowSolarTime = new SolarTime(tomorrow, coordinates);
+    const polarCircleResolver = calculationParameters.polarCircleResolution;
+    if ((!isValidDate(sunriseTime) || !isValidDate(sunsetTime) || isNaN(tomorrowSolarTime.sunrise)) && polarCircleResolver !== PolarCircleResolution.Unresolved) {
+      const resolved = polarCircleResolvedValues(polarCircleResolver, date, coordinates);
+      solarTime = resolved.solarTime;
+      tomorrowSolarTime = resolved.tomorrowSolarTime;
+      const dateComponents = [date.getFullYear(), date.getMonth(), date.getDate()];
+      dhuhrTime = new TimeComponents(solarTime.transit).utcDate(...dateComponents);
+      sunriseTime = new TimeComponents(solarTime.sunrise).utcDate(...dateComponents);
+      sunsetTime = new TimeComponents(solarTime.sunset).utcDate(...dateComponents);
+    }
+    asrTime = new TimeComponents(solarTime.afternoon(shadowLength(calculationParameters.madhab))).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+    const tomorrowSunrise = new TimeComponents(tomorrowSolarTime.sunrise).utcDate(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate());
+    const night = (Number(tomorrowSunrise) - Number(sunsetTime)) / 1e3;
+    fajrTime = new TimeComponents(solarTime.hourAngle(-1 * calculationParameters.fajrAngle, false)).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+    if (calculationParameters.method === "MoonsightingCommittee" && coordinates.latitude >= HIGH_LATITUDE_THRESHOLD) {
+      nightFraction = night / 7;
+      fajrTime = dateByAddingSeconds(sunriseTime, -nightFraction);
+    }
+    const safeFajr = (function() {
+      if (calculationParameters.method === "MoonsightingCommittee") {
+        return Astronomical_default.seasonAdjustedMorningTwilight(coordinates.latitude, dayOfYear(date), date.getFullYear(), sunriseTime);
+      } else {
+        const portion = calculationParameters.nightPortions().fajr;
+        nightFraction = portion * night;
+        return dateByAddingSeconds(sunriseTime, -nightFraction);
+      }
+    })();
+    if (isNaN(fajrTime.getTime()) || safeFajr > fajrTime) {
+      fajrTime = safeFajr;
+    }
+    if (calculationParameters.ishaInterval > 0) {
+      ishaTime = dateByAddingMinutes(sunsetTime, calculationParameters.ishaInterval);
+    } else {
+      ishaTime = new TimeComponents(solarTime.hourAngle(-1 * calculationParameters.ishaAngle, true)).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+      if (calculationParameters.method === "MoonsightingCommittee" && coordinates.latitude >= HIGH_LATITUDE_THRESHOLD) {
+        nightFraction = night / 7;
+        ishaTime = dateByAddingSeconds(sunsetTime, nightFraction);
+      }
+      const safeIsha = (function() {
+        if (calculationParameters.method === "MoonsightingCommittee") {
+          return Astronomical_default.seasonAdjustedEveningTwilight(coordinates.latitude, dayOfYear(date), date.getFullYear(), sunsetTime, calculationParameters.shafaq);
+        } else {
+          const portion = calculationParameters.nightPortions().isha;
+          nightFraction = portion * night;
+          return dateByAddingSeconds(sunsetTime, nightFraction);
+        }
+      })();
+      if (isNaN(ishaTime.getTime()) || safeIsha < ishaTime) {
+        ishaTime = safeIsha;
+      }
+    }
+    maghribTime = sunsetTime;
+    if (calculationParameters.maghribAngle) {
+      const angleBasedMaghrib = new TimeComponents(solarTime.hourAngle(-1 * calculationParameters.maghribAngle, true)).utcDate(date.getFullYear(), date.getMonth(), date.getDate());
+      if (sunsetTime < angleBasedMaghrib && ishaTime > angleBasedMaghrib) {
+        maghribTime = angleBasedMaghrib;
+      }
+    }
+    const fajrAdjustment = (calculationParameters.adjustments.fajr || 0) + (calculationParameters.methodAdjustments.fajr || 0);
+    const sunriseAdjustment = (calculationParameters.adjustments.sunrise || 0) + (calculationParameters.methodAdjustments.sunrise || 0);
+    const dhuhrAdjustment = (calculationParameters.adjustments.dhuhr || 0) + (calculationParameters.methodAdjustments.dhuhr || 0);
+    const asrAdjustment = (calculationParameters.adjustments.asr || 0) + (calculationParameters.methodAdjustments.asr || 0);
+    const maghribAdjustment = (calculationParameters.adjustments.maghrib || 0) + (calculationParameters.methodAdjustments.maghrib || 0);
+    const ishaAdjustment = (calculationParameters.adjustments.isha || 0) + (calculationParameters.methodAdjustments.isha || 0);
+    this.fajr = roundedMinute(dateByAddingMinutes(fajrTime, fajrAdjustment), calculationParameters.rounding);
+    this.sunrise = roundedMinute(dateByAddingMinutes(sunriseTime, sunriseAdjustment), calculationParameters.rounding);
+    this.dhuhr = roundedMinute(dateByAddingMinutes(dhuhrTime, dhuhrAdjustment), calculationParameters.rounding);
+    this.asr = roundedMinute(dateByAddingMinutes(asrTime, asrAdjustment), calculationParameters.rounding);
+    this.sunset = roundedMinute(sunsetTime, calculationParameters.rounding);
+    this.maghrib = roundedMinute(dateByAddingMinutes(maghribTime, maghribAdjustment), calculationParameters.rounding);
+    this.isha = roundedMinute(dateByAddingMinutes(ishaTime, ishaAdjustment), calculationParameters.rounding);
+  }
+  timeForPrayer(prayer) {
+    if (prayer === Prayer_default.Fajr) {
+      return this.fajr;
+    } else if (prayer === Prayer_default.Sunrise) {
+      return this.sunrise;
+    } else if (prayer === Prayer_default.Dhuhr) {
+      return this.dhuhr;
+    } else if (prayer === Prayer_default.Asr) {
+      return this.asr;
+    } else if (prayer === Prayer_default.Maghrib) {
+      return this.maghrib;
+    } else if (prayer === Prayer_default.Isha) {
+      return this.isha;
+    } else {
+      return null;
+    }
+  }
+  currentPrayer(date = /* @__PURE__ */ new Date()) {
+    if (date >= this.isha) {
+      return Prayer_default.Isha;
+    } else if (date >= this.maghrib) {
+      return Prayer_default.Maghrib;
+    } else if (date >= this.asr) {
+      return Prayer_default.Asr;
+    } else if (date >= this.dhuhr) {
+      return Prayer_default.Dhuhr;
+    } else if (date >= this.sunrise) {
+      return Prayer_default.Sunrise;
+    } else if (date >= this.fajr) {
+      return Prayer_default.Fajr;
+    } else {
+      return Prayer_default.None;
+    }
+  }
+  nextPrayer(date = /* @__PURE__ */ new Date()) {
+    if (date >= this.isha) {
+      return Prayer_default.None;
+    } else if (date >= this.maghrib) {
+      return Prayer_default.Isha;
+    } else if (date >= this.asr) {
+      return Prayer_default.Maghrib;
+    } else if (date >= this.dhuhr) {
+      return Prayer_default.Asr;
+    } else if (date >= this.sunrise) {
+      return Prayer_default.Dhuhr;
+    } else if (date >= this.fajr) {
+      return Prayer_default.Sunrise;
+    } else {
+      return Prayer_default.Fajr;
+    }
+  }
+};
+
+// backend/push.ts
+init_lib();
+function base64UrlEncode(buf) {
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+function base64UrlDecode(str) {
+  const clean = str.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = clean.length % 4 === 0 ? "" : "=".repeat(4 - clean.length % 4);
+  return Buffer.from(clean + pad, "base64");
+}
+var cachedVapidKeys = null;
+async function ensurePushTables() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id                      TEXT PRIMARY KEY,
+      user_id                 TEXT,
+      endpoint                TEXT NOT NULL UNIQUE,
+      p256dh                  TEXT NOT NULL,
+      auth                    TEXT NOT NULL,
+      user_agent              TEXT,
+      platform                TEXT DEFAULT 'web',
+      city_name               TEXT NOT NULL DEFAULT 'Makkah',
+      country                 TEXT DEFAULT 'Saudi Arabia',
+      latitude                DOUBLE PRECISION NOT NULL,
+      longitude               DOUBLE PRECISION NOT NULL,
+      timezone                TEXT NOT NULL DEFAULT 'Asia/Riyadh',
+      calculation_method      TEXT NOT NULL DEFAULT 'UmmAlQura',
+      madhab                  TEXT NOT NULL DEFAULT 'shafi',
+      high_latitude_rule      TEXT NOT NULL DEFAULT 'MiddleOfTheNight',
+      adjustments             JSONB NOT NULL DEFAULT '{"fajr":0,"sunrise":0,"dhuhr":0,"asr":0,"maghrib":0,"isha":0}'::jsonb,
+      prayer_reminders        JSONB NOT NULL DEFAULT '{"fajr":true,"sunrise":false,"dhuhr":true,"asr":true,"maghrib":true,"isha":true}'::jsonb,
+      prayer_adhan_modes      JSONB NOT NULL DEFAULT '{"fajr":"full","sunrise":"silent","dhuhr":"full","asr":"full","maghrib":"full","isha":"full"}'::jsonb,
+      reminder_minutes_before INT NOT NULL DEFAULT 0,
+      active_adhan_voice_id   TEXT DEFAULT 'nabawi-khashuqji',
+      use_fajr_adhan          BOOLEAN NOT NULL DEFAULT true,
+      is_active               BOOLEAN NOT NULL DEFAULT true,
+      last_sent_prayer_key    TEXT,
+      last_sent_at            TIMESTAMPTZ,
+      last_status             TEXT,
+      failure_count           INT NOT NULL DEFAULT 0,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+  await q(`
+    CREATE TABLE IF NOT EXISTS push_vapid_config (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      public_key TEXT NOT NULL,
+      private_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => {
+  });
+}
+async function getVapidKeys() {
+  if (cachedVapidKeys) return cachedVapidKeys;
+  const envPub = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  const envPriv = (process.env.VAPID_PRIVATE_KEY || "").trim();
+  const subject = (process.env.VAPID_SUBJECT || "mailto:admin@nooraya.app").trim();
+  if (envPub && envPriv && !envPub.startsWith("Bxxxxx")) {
+    cachedVapidKeys = {
+      publicKey: envPub,
+      privateKey: envPriv,
+      subject,
+      configuredViaEnv: true
+    };
+    return cachedVapidKeys;
+  }
+  await ensurePushTables().catch(() => {
+  });
+  try {
+    const existing = await q(
+      `SELECT public_key, private_key FROM push_vapid_config WHERE id = 1`
+    );
+    if (existing.rows?.[0]?.public_key && existing.rows?.[0]?.private_key) {
+      cachedVapidKeys = {
+        publicKey: existing.rows[0].public_key,
+        privateKey: existing.rows[0].private_key,
+        subject,
+        configuredViaEnv: false
+      };
+      return cachedVapidKeys;
+    }
+  } catch {
+  }
+  const ecdh = crypto7.createECDH("prime256v1");
+  ecdh.generateKeys();
+  const pubKey = base64UrlEncode(ecdh.getPublicKey());
+  const privKey = base64UrlEncode(ecdh.getPrivateKey());
+  try {
+    await q(
+      `INSERT INTO push_vapid_config (id, public_key, private_key, created_at)
+       VALUES (1, $1, $2, now())
+       ON CONFLICT (id) DO NOTHING`,
+      [pubKey, privKey]
+    );
+  } catch {
+  }
+  cachedVapidKeys = {
+    publicKey: pubKey,
+    privateKey: privKey,
+    subject,
+    configuredViaEnv: false
+  };
+  return cachedVapidKeys;
+}
+function createVapidAuthHeader(endpoint, vapid) {
+  const url = new URL(endpoint);
+  const audience = `${url.protocol}//${url.host}`;
+  const exp = Math.floor(Date.now() / 1e3) + 12 * 3600;
+  const header = { typ: "JWT", alg: "ES256" };
+  const payload = {
+    aud: audience,
+    exp,
+    sub: vapid.subject
+  };
+  const unsignedToken = `${base64UrlEncode(Buffer.from(JSON.stringify(header)))}.${base64UrlEncode(
+    Buffer.from(JSON.stringify(payload))
+  )}`;
+  const pubBytes = base64UrlDecode(vapid.publicKey);
+  const x = base64UrlEncode(pubBytes.subarray(1, 33));
+  const y = base64UrlEncode(pubBytes.subarray(33, 65));
+  const d = vapid.privateKey;
+  const privateKeyObj = crypto7.createPrivateKey({
+    key: {
+      kty: "EC",
+      crv: "P-256",
+      x,
+      y,
+      d
+    },
+    format: "jwk"
+  });
+  const signer = crypto7.createSign("SHA256");
+  signer.update(unsignedToken);
+  signer.end();
+  const signature = signer.sign({ key: privateKeyObj, dsaEncoding: "ieee-p1363" });
+  const jwt = `${unsignedToken}.${base64UrlEncode(signature)}`;
+  return {
+    authorization: `vapid t=${jwt}, k=${vapid.publicKey}`,
+    cryptoKey: `p256ecdsa=${vapid.publicKey}`
+  };
+}
+function encryptWebPushPayload(payloadText, userPublicKeyB64, userAuthB64) {
+  const clientPublicKey = base64UrlDecode(userPublicKeyB64);
+  const userAuth = base64UrlDecode(userAuthB64);
+  const serverEcdh = crypto7.createECDH("prime256v1");
+  serverEcdh.generateKeys();
+  const serverPublicKey = serverEcdh.getPublicKey();
+  const sharedSecret = serverEcdh.computeSecret(clientPublicKey);
+  const salt = crypto7.randomBytes(16);
+  const keyInfo = Buffer.concat([
+    Buffer.from("WebPush: info\0", "ascii"),
+    clientPublicKey,
+    serverPublicKey
+  ]);
+  const ikm = Buffer.from(crypto7.hkdfSync("sha256", sharedSecret, userAuth, keyInfo, 32));
+  const cekInfo = Buffer.from("Content-Encoding: aes128gcm\0", "ascii");
+  const nonceInfo = Buffer.from("Content-Encoding: nonce\0", "ascii");
+  const cek = Buffer.from(crypto7.hkdfSync("sha256", ikm, salt, cekInfo, 16));
+  const nonce = Buffer.from(crypto7.hkdfSync("sha256", ikm, salt, nonceInfo, 12));
+  const plaintext = Buffer.concat([Buffer.from(payloadText, "utf8"), Buffer.from([2])]);
+  const cipher = crypto7.createCipheriv("aes-128-gcm", cek, nonce);
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
+  const rsBuf = Buffer.alloc(4);
+  rsBuf.writeUInt32BE(4096, 0);
+  const idLenBuf = Buffer.from([serverPublicKey.length]);
+  return Buffer.concat([salt, rsBuf, idLenBuf, serverPublicKey, encrypted]);
+}
+async function sendWebPushNotification(sub, payloadObj) {
+  try {
+    const vapid = await getVapidKeys();
+    const { authorization } = createVapidAuthHeader(sub.endpoint, vapid);
+    const bodyBuffer = encryptWebPushPayload(JSON.stringify(payloadObj), sub.p256dh, sub.auth);
+    const res = await fetch(sub.endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: authorization,
+        "Content-Encoding": "aes128gcm",
+        "Content-Type": "application/octet-stream",
+        TTL: "3600",
+        Urgency: "high"
+      },
+      body: new Uint8Array(bodyBuffer)
+    });
+    const expired = res.status === 404 || res.status === 410;
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      expired,
+      error: res.ok ? void 0 : `Push service returned HTTP ${res.status}`
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      expired: false,
+      error: err?.message || "Push network failure"
+    };
+  }
+}
+function getCalculationParamsServer(method, madhab = "shafi", highLatitudeRule = "MiddleOfTheNight") {
+  let params;
+  switch (method) {
+    case "Egyptian":
+      params = CalculationMethod_default.Egyptian();
+      break;
+    case "Karachi":
+      params = CalculationMethod_default.Karachi();
+      break;
+    case "UmmAlQura":
+      params = CalculationMethod_default.UmmAlQura();
+      break;
+    case "Dubai":
+      params = CalculationMethod_default.Dubai();
+      break;
+    case "Qatar":
+      params = CalculationMethod_default.Qatar();
+      break;
+    case "Kuwait":
+      params = CalculationMethod_default.Kuwait();
+      break;
+    case "Singapore":
+      params = CalculationMethod_default.Singapore();
+      break;
+    case "NorthAmerica":
+      params = CalculationMethod_default.NorthAmerica();
+      break;
+    case "MoonsightingCommittee":
+      params = CalculationMethod_default.MoonsightingCommittee();
+      break;
+    case "Tehran":
+      params = CalculationMethod_default.Tehran();
+      break;
+    case "Turkey":
+      params = CalculationMethod_default.Turkey ? CalculationMethod_default.Turkey() : CalculationMethod_default.MuslimWorldLeague();
+      break;
+    default:
+      params = CalculationMethod_default.MuslimWorldLeague();
+      break;
+  }
+  params.madhab = madhab === "hanafi" ? Madhab.Hanafi : Madhab.Shafi;
+  if (highLatitudeRule === "SeventhOfTheNight") {
+    params.highLatitudeRule = HighLatitudeRule_default.SeventhOfTheNight;
+  } else if (highLatitudeRule === "TwilightAngle") {
+    params.highLatitudeRule = HighLatitudeRule_default.TwilightAngle;
+  } else {
+    params.highLatitudeRule = HighLatitudeRule_default.MiddleOfTheNight;
+  }
+  return params;
+}
+function resolveCalendarDateInTz(date, timezone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric"
+    }).formatToParts(date);
+    const y = Number(parts.find((p) => p.type === "year")?.value);
+    const m = Number(parts.find((p) => p.type === "month")?.value);
+    const d = Number(parts.find((p) => p.type === "day")?.value);
+    if (y && m && d) return new Date(y, m - 1, d, 12, 0, 0);
+  } catch {
+  }
+  return date;
+}
+function computeSubscriberPrayerSchedule(sub, now) {
+  const coords = new Coordinates(Number(sub.latitude || 21.4225), Number(sub.longitude || 39.8262));
+  const params = getCalculationParamsServer(
+    sub.calculation_method || "UmmAlQura",
+    sub.madhab || "shafi",
+    sub.high_latitude_rule || "MiddleOfTheNight"
+  );
+  const calDate = resolveCalendarDateInTz(now, sub.timezone || "Asia/Riyadh");
+  const pt = new PrayerTimes(coords, calDate, params);
+  const adj = typeof sub.adjustments === "object" && sub.adjustments ? sub.adjustments : {};
+  const applyAdj = (d, mins = 0) => new Date(d.getTime() + Number(mins || 0) * 6e4);
+  return {
+    fajr: applyAdj(pt.fajr, adj.fajr),
+    sunrise: applyAdj(pt.sunrise, adj.sunrise),
+    dhuhr: applyAdj(pt.dhuhr, adj.dhuhr),
+    asr: applyAdj(pt.asr, adj.asr),
+    maghrib: applyAdj(pt.maghrib, adj.maghrib),
+    isha: applyAdj(pt.isha, adj.isha)
+  };
+}
+var PRAYER_LABELS = {
+  fajr: { english: "Fajr", arabic: "\u0627\u0644\u0641\u062C\u0631" },
+  sunrise: { english: "Sunrise", arabic: "\u0627\u0644\u0634\u0631\u0648\u0642" },
+  dhuhr: { english: "Dhuhr", arabic: "\u0627\u0644\u0638\u0647\u0631" },
+  asr: { english: "Asr", arabic: "\u0627\u0644\u0639\u0635\u0631" },
+  maghrib: { english: "Maghrib", arabic: "\u0627\u0644\u0645\u063A\u0631\u0628" },
+  isha: { english: "Isha", arabic: "\u0627\u0644\u0639\u0634\u0627\u0621" }
+};
+var handler27 = async (req, res) => {
+  await ensurePushTables().catch(() => {
+  });
+  const urlObj = new URL(req.url || "/api/push", "http://localhost");
+  const pathname = urlObj.pathname;
+  if (req.method === "GET" && pathname === "/api/push/vapid-public-key") {
+    const vapid = await getVapidKeys();
+    return sendJson(res, 200, {
+      publicKey: vapid.publicKey,
+      configuredViaEnv: vapid.configuredViaEnv
+    });
+  }
+  if (req.method === "GET" && pathname === "/api/push/diagnostics") {
+    const endpoint = urlObj.searchParams.get("endpoint") || "";
+    const vapid = await getVapidKeys();
+    const sb = getSupabaseAdmin();
+    let subscriptionRow = null;
+    let totalActiveCount = 0;
+    if (sb) {
+      try {
+        const { count } = await sb.from("push_subscriptions").select("*", { count: "exact", head: true }).eq("is_active", true);
+        if (typeof count === "number") totalActiveCount = count;
+        if (endpoint) {
+          const { data } = await sb.from("push_subscriptions").select("*").eq("endpoint", endpoint).maybeSingle();
+          if (data) subscriptionRow = data;
+        }
+      } catch {
+      }
+    }
+    try {
+      const countRes = await q(
+        `SELECT COUNT(*)::int AS count FROM push_subscriptions WHERE is_active = true`
+      );
+      if (countRes.rows?.[0]?.count) {
+        totalActiveCount = Math.max(totalActiveCount, Number(countRes.rows[0].count));
+      }
+      if (endpoint && !subscriptionRow) {
+        const subRes = await q(`SELECT * FROM push_subscriptions WHERE endpoint = $1`, [endpoint]);
+        if (subRes.rows?.[0]) subscriptionRow = subRes.rows[0];
+      }
+    } catch {
+    }
+    if (Array.isArray(serverStore.pushSubscriptions)) {
+      const activeLocal = serverStore.pushSubscriptions.filter((r) => r.is_active !== false);
+      totalActiveCount = Math.max(totalActiveCount, activeLocal.length);
+      if (endpoint && !subscriptionRow) {
+        subscriptionRow = serverStore.pushSubscriptions.find((r) => r.endpoint === endpoint) || null;
+      }
+    }
+    let nextScheduledPrayer = null;
+    const scheduleRow = subscriptionRow || (urlObj.searchParams.get("latitude") ? {
+      latitude: Number(urlObj.searchParams.get("latitude")),
+      longitude: Number(urlObj.searchParams.get("longitude")),
+      timezone: urlObj.searchParams.get("timezone") || "Asia/Riyadh",
+      calculation_method: urlObj.searchParams.get("method") || "UmmAlQura",
+      madhab: "shafi",
+      high_latitude_rule: "MiddleOfTheNight",
+      reminder_minutes_before: 0,
+      prayer_reminders: { fajr: true, sunrise: false, dhuhr: true, asr: true, maghrib: true, isha: true }
+    } : null);
+    if (scheduleRow) {
+      const now = /* @__PURE__ */ new Date();
+      const schedule = computeSubscriberPrayerSchedule(scheduleRow, now);
+      const reminders = scheduleRow.prayer_reminders || {};
+      const minsBefore = Number(scheduleRow.reminder_minutes_before || 0);
+      for (const key of ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]) {
+        if (reminders[key] === false) continue;
+        const pTime = schedule[key];
+        const triggerTime = new Date(pTime.getTime() - minsBefore * 6e4);
+        if (triggerTime.getTime() > now.getTime()) {
+          nextScheduledPrayer = {
+            key,
+            english: PRAYER_LABELS[key].english,
+            timeIso: triggerTime.toISOString(),
+            minutesBefore: minsBefore
+          };
+          break;
+        }
+      }
+      if (!nextScheduledPrayer) {
+        const tomorrow = new Date(now.getTime() + 864e5);
+        const tomorrowSchedule = computeSubscriberPrayerSchedule(scheduleRow, tomorrow);
+        for (const key of ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]) {
+          if (reminders[key] === false) continue;
+          const pTime = tomorrowSchedule[key];
+          const triggerTime = new Date(pTime.getTime() - minsBefore * 6e4);
+          nextScheduledPrayer = {
+            key,
+            english: PRAYER_LABELS[key].english,
+            timeIso: triggerTime.toISOString(),
+            minutesBefore: minsBefore
+          };
+          break;
+        }
+      }
+    }
+    return sendJson(res, 200, {
+      vapidPublicKeyReady: Boolean(vapid.publicKey),
+      configuredViaEnv: vapid.configuredViaEnv,
+      totalActiveSubscriptions: totalActiveCount,
+      schedulerEngine: "Supabase pg_cron (* * * * *) + /api/push/dispatch",
+      subscription: subscriptionRow ? {
+        id: subscriptionRow.id,
+        cityName: subscriptionRow.city_name,
+        timezone: subscriptionRow.timezone,
+        method: subscriptionRow.calculation_method,
+        reminderMinutesBefore: subscriptionRow.reminder_minutes_before,
+        isActive: subscriptionRow.is_active,
+        lastSentPrayerKey: subscriptionRow.last_sent_prayer_key,
+        lastSentAt: subscriptionRow.last_sent_at,
+        lastStatus: subscriptionRow.last_status,
+        updatedAt: subscriptionRow.updated_at
+      } : null,
+      nextScheduledPrayer
+    });
+  }
+  if (req.method === "POST" && pathname === "/api/push/subscribe") {
+    const body = await readJson(req);
+    const sub = body.subscription || {};
+    const endpoint = String(sub.endpoint || body.endpoint || "").trim();
+    const p256dh = String(sub.keys?.p256dh || body.p256dh || "").trim();
+    const auth = String(sub.keys?.auth || body.auth || "").trim();
+    if (!endpoint || !p256dh || !auth) {
+      return sendJson(res, 400, { error: "Valid PushSubscription (endpoint, p256dh, auth) is required." });
+    }
+    const user = await getAuthUser(req).catch(() => null);
+    const id = `push_${crypto7.createHash("sha256").update(endpoint).digest("hex").slice(0, 24)}`;
+    const record = {
+      id,
+      user_id: user?.uid || null,
+      endpoint,
+      p256dh,
+      auth,
+      user_agent: String(body.userAgent || req.headers["user-agent"] || "").slice(0, 250),
+      platform: String(body.platform || "web"),
+      city_name: String(body.cityName || "Makkah"),
+      country: String(body.country || "Saudi Arabia"),
+      latitude: Number(body.latitude ?? 21.422487),
+      longitude: Number(body.longitude ?? 39.826206),
+      timezone: String(body.timezone || "Asia/Riyadh"),
+      calculation_method: String(body.method || "UmmAlQura"),
+      madhab: String(body.madhab || "shafi"),
+      high_latitude_rule: String(body.highLatitudeRule || "MiddleOfTheNight"),
+      adjustments: body.adjustments || { fajr: 0, sunrise: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 },
+      prayer_reminders: body.prayerReminders || {
+        fajr: true,
+        sunrise: false,
+        dhuhr: true,
+        asr: true,
+        maghrib: true,
+        isha: true
+      },
+      prayer_adhan_modes: body.prayerAdhanModes || {
+        fajr: "full",
+        sunrise: "silent",
+        dhuhr: "full",
+        asr: "full",
+        maghrib: "full",
+        isha: "full"
+      },
+      reminder_minutes_before: Number(body.reminderMinutesBefore || 0),
+      active_adhan_voice_id: String(body.activeAdhanVoiceId || "nabawi-khashuqji"),
+      use_fajr_adhan: body.useFajrAdhan !== false,
+      is_active: true,
+      failure_count: 0,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        await sb.from("push_subscriptions").upsert(record, { onConflict: "endpoint" });
+      } catch (e) {
+        console.warn("Supabase push_subscriptions upsert notice:", e);
+      }
+    }
+    try {
+      await q(
+        `INSERT INTO push_subscriptions (
+           id, user_id, endpoint, p256dh, auth, user_agent, platform,
+           city_name, country, latitude, longitude, timezone,
+           calculation_method, madhab, high_latitude_rule,
+           adjustments, prayer_reminders, prayer_adhan_modes,
+           reminder_minutes_before, active_adhan_voice_id, use_fajr_adhan,
+           is_active, failure_count, created_at, updated_at
+         )
+         VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12,
+           $13, $14, $15,
+           $16::jsonb, $17::jsonb, $18::jsonb,
+           $19, $20, $21,
+           true, 0, now(), now()
+         )
+         ON CONFLICT (endpoint) DO UPDATE SET
+           user_id = COALESCE(EXCLUDED.user_id, push_subscriptions.user_id),
+           p256dh = EXCLUDED.p256dh,
+           auth = EXCLUDED.auth,
+           user_agent = EXCLUDED.user_agent,
+           platform = EXCLUDED.platform,
+           city_name = EXCLUDED.city_name,
+           country = EXCLUDED.country,
+           latitude = EXCLUDED.latitude,
+           longitude = EXCLUDED.longitude,
+           timezone = EXCLUDED.timezone,
+           calculation_method = EXCLUDED.calculation_method,
+           madhab = EXCLUDED.madhab,
+           high_latitude_rule = EXCLUDED.high_latitude_rule,
+           adjustments = EXCLUDED.adjustments,
+           prayer_reminders = EXCLUDED.prayer_reminders,
+           prayer_adhan_modes = EXCLUDED.prayer_adhan_modes,
+           reminder_minutes_before = EXCLUDED.reminder_minutes_before,
+           active_adhan_voice_id = EXCLUDED.active_adhan_voice_id,
+           use_fajr_adhan = EXCLUDED.use_fajr_adhan,
+           is_active = true,
+           failure_count = 0,
+           updated_at = now()`,
+        [
+          record.id,
+          record.user_id,
+          record.endpoint,
+          record.p256dh,
+          record.auth,
+          record.user_agent,
+          record.platform,
+          record.city_name,
+          record.country,
+          record.latitude,
+          record.longitude,
+          record.timezone,
+          record.calculation_method,
+          record.madhab,
+          record.high_latitude_rule,
+          JSON.stringify(record.adjustments),
+          JSON.stringify(record.prayer_reminders),
+          JSON.stringify(record.prayer_adhan_modes),
+          record.reminder_minutes_before,
+          record.active_adhan_voice_id,
+          record.use_fajr_adhan
+        ]
+      );
+    } catch (e) {
+      console.warn("Database push_subscriptions upsert notice:", e);
+    }
+    if (!Array.isArray(serverStore.pushSubscriptions)) {
+      serverStore.pushSubscriptions = [];
+    }
+    const existingIdx = serverStore.pushSubscriptions.findIndex((r) => r.endpoint === endpoint);
+    if (existingIdx >= 0) {
+      serverStore.pushSubscriptions[existingIdx] = { ...serverStore.pushSubscriptions[existingIdx], ...record };
+    } else {
+      serverStore.pushSubscriptions.push(record);
+    }
+    await saveStore().catch(() => {
+    });
+    return sendJson(res, 200, { ok: true, id: record.id });
+  }
+  if (req.method === "POST" && pathname === "/api/push/unsubscribe") {
+    const body = await readJson(req);
+    const endpoint = String(body.endpoint || "").trim();
+    if (!endpoint) return sendJson(res, 400, { error: "Endpoint is required" });
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        await sb.from("push_subscriptions").delete().eq("endpoint", endpoint);
+      } catch {
+      }
+    }
+    await q(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]).catch(() => {
+    });
+    if (Array.isArray(serverStore.pushSubscriptions)) {
+      serverStore.pushSubscriptions = serverStore.pushSubscriptions.filter((r) => r.endpoint !== endpoint);
+      await saveStore().catch(() => {
+      });
+    }
+    return sendJson(res, 200, { ok: true });
+  }
+  if (req.method === "POST" && pathname === "/api/push/test") {
+    const body = await readJson(req);
+    const sub = body.subscription || {};
+    const endpoint = String(sub.endpoint || body.endpoint || "").trim();
+    let p256dh = String(sub.keys?.p256dh || body.p256dh || "").trim();
+    let auth = String(sub.keys?.auth || body.auth || "").trim();
+    const cityName = String(body.cityName || "your city");
+    if (endpoint && (!p256dh || !auth)) {
+      const dbRes = await q(`SELECT p256dh, auth FROM push_subscriptions WHERE endpoint = $1`, [endpoint]).catch(
+        () => ({ rows: [] })
+      );
+      if (dbRes.rows?.[0]) {
+        p256dh = dbRes.rows[0].p256dh;
+        auth = dbRes.rows[0].auth;
+      }
+    }
+    if (!endpoint || !p256dh || !auth) {
+      return sendJson(res, 400, {
+        error: "No active push subscription keys found. Enable background notifications first."
+      });
+    }
+    const payload = {
+      title: "Nooraya Prayer Notification Test \u2022 \u062D\u064A \u0639\u0644\u0649 \u0627\u0644\u0635\u0644\u0627\u0629",
+      body: `Background push notifications are active for ${cityName}. Tap to open Nooraya and preview Adhan.`,
+      prayerKey: "fajr",
+      url: "/dashboard/prayer-times?playAdhan=fajr",
+      tag: `nooraya-test-${Date.now()}`,
+      sentAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const pushRes = await sendWebPushNotification({ endpoint, p256dh, auth }, payload);
+    const statusLabel = pushRes.ok ? `delivered_${pushRes.status}` : `error_${pushRes.status}`;
+    await q(
+      `UPDATE push_subscriptions
+       SET last_sent_at = now(),
+           last_status = $2,
+           is_active = CASE WHEN $3 THEN false ELSE is_active END,
+           updated_at = now()
+       WHERE endpoint = $1`,
+      [endpoint, statusLabel, pushRes.expired]
+    ).catch(() => {
+    });
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        await sb.from("push_subscriptions").update({
+          last_sent_at: (/* @__PURE__ */ new Date()).toISOString(),
+          last_status: statusLabel,
+          ...pushRes.expired ? { is_active: false } : {},
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("endpoint", endpoint);
+      } catch {
+      }
+    }
+    if (!pushRes.ok) {
+      return sendJson(res, 502, {
+        ok: false,
+        status: pushRes.status,
+        expired: pushRes.expired,
+        error: pushRes.error || "Push delivery failed."
+      });
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      status: pushRes.status,
+      sentAt: payload.sentAt
+    });
+  }
+  if ((req.method === "POST" || req.method === "GET") && pathname === "/api/push/dispatch") {
+    const cronSecret = (process.env.CRON_SECRET || "").trim();
+    if (cronSecret && cronSecret !== "change-me-cron-secret") {
+      const authHeader = String(req.headers.authorization || "");
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        return sendJson(res, 401, { error: "Unauthorized cron invocation" });
+      }
+    }
+    const byEndpoint = /* @__PURE__ */ new Map();
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data } = await sb.from("push_subscriptions").select("*").eq("is_active", true);
+        if (Array.isArray(data)) {
+          for (const row of data) {
+            if (row.endpoint) byEndpoint.set(row.endpoint, row);
+          }
+        }
+      } catch {
+      }
+    }
+    try {
+      const dbRes = await q(`SELECT * FROM push_subscriptions WHERE is_active = true`);
+      for (const row of dbRes.rows || []) {
+        if (row.endpoint && !byEndpoint.has(row.endpoint)) {
+          byEndpoint.set(row.endpoint, row);
+        }
+      }
+    } catch {
+    }
+    if (Array.isArray(serverStore.pushSubscriptions)) {
+      for (const row of serverStore.pushSubscriptions) {
+        if (row.endpoint && row.is_active !== false && !byEndpoint.has(row.endpoint)) {
+          byEndpoint.set(row.endpoint, row);
+        }
+      }
+    }
+    const now = /* @__PURE__ */ new Date();
+    const nowMs = now.getTime();
+    let checked = 0;
+    let sent = 0;
+    let expiredDeactivated = 0;
+    for (const sub of byEndpoint.values()) {
+      checked++;
+      const schedule = computeSubscriberPrayerSchedule(sub, now);
+      const reminders = sub.prayer_reminders || {};
+      const minsBefore = Number(sub.reminder_minutes_before || 0);
+      const offsetMs = minsBefore * 6e4;
+      let dateKey = now.toISOString().slice(0, 10);
+      try {
+        dateKey = new Intl.DateTimeFormat("en-CA", {
+          timeZone: sub.timezone || "Asia/Riyadh",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit"
+        }).format(now);
+      } catch {
+      }
+      for (const key of ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]) {
+        if (reminders[key] === false) continue;
+        const pTime = schedule[key];
+        if (!pTime || isNaN(pTime.getTime())) continue;
+        const targetMs = pTime.getTime() - offsetMs;
+        const diffMs = nowMs - targetMs;
+        if (diffMs >= -3e4 && diffMs <= 9e4) {
+          const fireKey = `${dateKey}:${key}:${minsBefore}`;
+          if (sub.last_sent_prayer_key === fireKey) continue;
+          const label = PRAYER_LABELS[key];
+          const title = minsBefore > 0 ? `${label.english} (${label.arabic}) in ${minsBefore} min \u2022 ${sub.city_name}` : `It is time for ${label.english} (${label.arabic}) \u2022 ${sub.city_name}`;
+          const bodyText = key === "fajr" ? "As-salatu khayrun min an-nawm (\u0627\u0644\u0635\u0644\u0627\u0629 \u062E\u064A\u0631 \u0645\u0646 \u0627\u0644\u0646\u0648\u0645) \u2022 Tap to listen to the Fajr Adhan." : "Hayya \u2019ala-s-Salah (\u062D\u064A \u0639\u0644\u0649 \u0627\u0644\u0635\u0644\u0627\u0629) \u2022 Tap to open Nooraya and listen to the Adhan.";
+          const pushRes = await sendWebPushNotification(sub, {
+            title,
+            body: bodyText,
+            prayerKey: key,
+            cityName: sub.city_name,
+            url: `/dashboard/prayer-times?playAdhan=${key}`,
+            tag: `adhan-${fireKey}`,
+            sentAt: now.toISOString()
+          });
+          if (pushRes.ok) {
+            sent++;
+          }
+          if (pushRes.expired) {
+            expiredDeactivated++;
+          }
+          const statusLabel = pushRes.ok ? `delivered_${pushRes.status}` : `error_${pushRes.status}`;
+          await q(
+            `UPDATE push_subscriptions
+             SET last_sent_prayer_key = $2,
+                 last_sent_at = now(),
+                 last_status = $3,
+                 is_active = CASE WHEN $4 THEN false ELSE is_active END,
+                 updated_at = now()
+             WHERE endpoint = $1`,
+            [sub.endpoint, fireKey, statusLabel, pushRes.expired]
+          ).catch(() => {
+          });
+          if (sb) {
+            try {
+              await sb.from("push_subscriptions").update({
+                last_sent_prayer_key: fireKey,
+                last_sent_at: now.toISOString(),
+                last_status: statusLabel,
+                ...pushRes.expired ? { is_active: false } : {},
+                updated_at: now.toISOString()
+              }).eq("endpoint", sub.endpoint);
+            } catch {
+            }
+          }
+          break;
+        }
+      }
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      checked,
+      sent,
+      expiredDeactivated,
+      dispatchedAt: now.toISOString()
+    });
+  }
+  return sendJson(res, 404, { error: "Unknown push route" });
+};
+var push_default = handler27;
+
 // backend/plans.ts
 init_lib();
-async function handler25(req, res) {
+async function handler28(req, res) {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -32335,7 +34966,7 @@ async function handler25(req, res) {
 
 // backend/admin/plans.ts
 init_lib();
-async function handler26(req, res) {
+async function handler29(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -32379,7 +35010,7 @@ async function handler26(req, res) {
 
 // backend/admin/payments.ts
 init_lib();
-async function handler27(req, res) {
+async function handler30(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -32529,7 +35160,7 @@ async function handler27(req, res) {
 
 // backend/admin/payments-diagnostics.ts
 init_lib();
-async function handler28(req, res) {
+async function handler31(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const rawSecret = process.env.FLW_SECRET_KEY || "";
@@ -32619,6 +35250,111 @@ async function handler28(req, res) {
   });
 }
 
+// backend/diag.ts
+init_lib();
+var rateLimitMap = /* @__PURE__ */ new Map();
+var RATE_LIMIT_MAX = 5;
+var RATE_LIMIT_WINDOW_MS = 10 * 60 * 1e3;
+var recentReports = [];
+function getClientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string") return xff.split(",")[0].trim();
+  if (Array.isArray(xff) && xff.length > 0) return xff[0];
+  return req.socket?.remoteAddress || "unknown";
+}
+async function diagHandler(req, res) {
+  if (req.method === "GET") {
+    sendJson(res, 200, {
+      ok: true,
+      count: recentReports.length,
+      reports: recentReports.slice(0, 20)
+    });
+    return;
+  }
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const bucket = rateLimitMap.get(ip);
+  if (bucket && now < bucket.resetAt) {
+    if (bucket.count >= RATE_LIMIT_MAX) {
+      sendJson(res, 429, {
+        error: "Rate limit exceeded. Maximum 5 diagnostic reports per 10 minutes."
+      });
+      return;
+    }
+    bucket.count += 1;
+  } else {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+  }
+  let body = {};
+  try {
+    body = await readJson(req) || {};
+  } catch {
+    sendJson(res, 400, { error: "Invalid JSON payload" });
+    return;
+  }
+  const reportId = `diag_${now}_${Math.random().toString(36).slice(2, 8)}`;
+  const events = Array.isArray(body.events) ? body.events.slice(0, 250) : [];
+  const entry = {
+    reportId,
+    createdAt: new Date(now).toISOString(),
+    buildVersion: String(body.buildVersion || "unknown").slice(0, 64),
+    note: String(body.note || "").slice(0, 500),
+    userAgent: String(body.userAgent || req.headers["user-agent"] || "").slice(0, 300),
+    standalone: Boolean(body.standalone),
+    viewport: body.viewport || null,
+    videoSnapshot: body.videoSnapshot || null,
+    eventCount: events.length,
+    events
+  };
+  recentReports.unshift(entry);
+  if (recentReports.length > 50) {
+    recentReports.length = 50;
+  }
+  try {
+    const pool2 = await getPool();
+    if (pool2) {
+      await pool2.query(`
+        CREATE TABLE IF NOT EXISTS diagnostic_reports (
+          report_id TEXT PRIMARY KEY,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          build_version TEXT,
+          note TEXT,
+          user_agent TEXT,
+          standalone BOOLEAN DEFAULT FALSE,
+          payload JSONB NOT NULL
+        );
+      `);
+      await pool2.query(
+        `INSERT INTO diagnostic_reports (report_id, build_version, note, user_agent, standalone, payload)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          reportId,
+          entry.buildVersion,
+          entry.note,
+          entry.userAgent,
+          entry.standalone,
+          JSON.stringify({
+            viewport: entry.viewport,
+            videoSnapshot: entry.videoSnapshot,
+            events: entry.events
+          })
+        ]
+      );
+    }
+  } catch (dbErr) {
+    console.warn("[diag] DB persistence note:", dbErr?.message || dbErr);
+  }
+  sendJson(res, 200, {
+    ok: true,
+    reportId,
+    storedEvents: events.length
+  });
+}
+
 // backend/index.ts
 init_lib();
 var routes = [
@@ -32639,12 +35375,12 @@ var routes = [
   [/^\/api\/health$/, handler15],
   [/^\/api\/reciters$/, reciters_default3],
   [/^\/api\/ambient$/, ambient_default2],
-  [/^\/api\/plans$/, handler25],
-  [/^\/api\/admin\/plans(\/.*)?$/, handler26],
-  [/^\/api\/admin\/plan-price-logs$/, handler26],
-  [/^\/api\/admin\/payments\/diagnostics$/, handler28],
-  [/^\/api\/admin\/payments$/, handler27],
-  [/^\/api\/admin\/reconcile-payments$/, handler27],
+  [/^\/api\/plans$/, handler28],
+  [/^\/api\/admin\/plans(\/.*)?$/, handler29],
+  [/^\/api\/admin\/plan-price-logs$/, handler29],
+  [/^\/api\/admin\/payments\/diagnostics$/, handler31],
+  [/^\/api\/admin\/payments$/, handler30],
+  [/^\/api\/admin\/reconcile-payments$/, handler30],
   [/^\/api\/payments\/verify-flutterwave$/, handler19],
   [/^\/api\/webhooks\/flutterwave$/, handler20],
   [/^\/api\/payments\/create-virtual-account$/, handler21],
@@ -32652,9 +35388,13 @@ var routes = [
   [/^\/api\/payments\/check-transfer-status$/, handler23],
   [/^\/api\/backgrounds$/, backgrounds_default],
   [/^\/api\/admin\/supabase-backgrounds$/, supabase_backgrounds_default],
+  [/^\/api\/adhan-voices$/, adhan_voices_default],
+  [/^\/api\/admin\/adhan-voices$/, adhan_voices_default2],
+  [/^\/api\/push(\/.*)?$/, push_default],
+  [/^\/api\/diag$/, diagHandler],
   [/^\/api\/media(\/.*)?$/, mediaHandler]
 ];
-var handler29 = async (req, res) => {
+var handler32 = async (req, res) => {
   const url = (req.url || "").split("?")[0];
   const match = routes.find(([pattern]) => pattern.test(url));
   if (!match) {
@@ -32669,7 +35409,7 @@ var handler29 = async (req, res) => {
     }
   }
 };
-var index_default = handler29;
+var index_default = handler32;
 export {
   index_default as default
 };

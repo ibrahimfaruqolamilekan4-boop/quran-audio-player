@@ -156,9 +156,50 @@ export function recordDiagEvent(
     memoryEvents.length = MAX_EVENTS;
   }
 
+  if (entry.category === 'error') {
+    void forwardErrorToSentry(entry);
+  }
+
   scheduleFlush();
   notifyListeners();
   return entry;
+}
+
+/**
+ * Forwards fatal/error events to Sentry Store/Envelope API if `VITE_SENTRY_DSN` is set,
+ * without adding heavy client bundle weight or printing secrets.
+ */
+async function forwardErrorToSentry(entry: DiagEvent): Promise<void> {
+  try {
+    const dsn = (import.meta as any)?.env?.VITE_SENTRY_DSN;
+    if (!dsn || typeof dsn !== 'string' || !dsn.startsWith('https://')) return;
+    const parsed = new URL(dsn);
+    const publicKey = parsed.username;
+    const projectId = parsed.pathname.replace(/\//g, '');
+    if (!publicKey || !projectId) return;
+
+    const endpoint = `${parsed.protocol}//${parsed.host}/api/${projectId}/store/?sentry_key=${encodeURIComponent(publicKey)}&sentry_version=7`;
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({
+        event_id: entry.id.replace(/[^a-f0-9]/gi, '').padEnd(32, '0').slice(0, 32),
+        timestamp: Math.floor(entry.ts / 1000),
+        platform: 'javascript',
+        level: 'error',
+        release: APP_BUILD_VERSION,
+        message: `${entry.event}: ${entry.errorMessage || 'Unknown error'}`,
+        extra: {
+          elementId: entry.elementId,
+          stack: entry.stack,
+          visibilityState: entry.visibilityState,
+        },
+      }),
+    });
+  } catch {
+    // Non-blocking
+  }
 }
 
 export function getDiagEvents(): DiagEvent[] {
