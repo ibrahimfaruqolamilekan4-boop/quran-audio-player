@@ -4,6 +4,7 @@
    =================================================================== */
 
 :root {
+  color-scheme: dark;
   /* Default: Dark Theme ("Medina Emerald") */
   --bg-primary: #06150F;
   --bg-surface: #0C2A20;
@@ -62,7 +63,8 @@
 
 /* Light Theme (explicit .light class) */
 .light, [data-theme="light"] {
-  --bg-primary: #F7F4EC;
+  color-scheme: light;
+  --bg-primary: #F4EFE6;
   --bg-surface: #FFFFFF;
   --bg-surface-raised: #EFE9DC;
   --border-color: rgba(18, 38, 31, 0.10);
@@ -86,42 +88,19 @@
   --status-success: #23976D;
   --status-warning: #C2841E;
 
-  --gradient-emerald-hero: linear-gradient(180deg, #EAE4D5 0%, #F7F4EC 100%);
-  --gradient-emerald-radial: radial-gradient(circle at 50% 20%, #EDE6D8 0%, #F7F4EC 80%);
-  --gradient-player: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(247, 244, 236, 0.98) 100%);
+  --gradient-emerald-hero: linear-gradient(180deg, #EAE4D5 0%, #F4EFE6 100%);
+  --gradient-emerald-radial: radial-gradient(circle at 50% 20%, #EDE6D8 0%, #F4EFE6 80%);
+  --gradient-player: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 239, 230, 0.98) 100%);
 }
 
-/* Follow system if data-theme="system" or not explicitly set */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg-primary: #F7F4EC;
-    --bg-surface: #FFFFFF;
-    --bg-surface-raised: #EFE9DC;
-    --border-color: rgba(18, 38, 31, 0.10);
-    --border-color-highlight: rgba(18, 38, 31, 0.20);
-
-    --primary-emerald: #0F5C45;
-    --primary-hover: #15795C;
-    --primary-pressed: #0B4634;
-    --primary-subtle: rgba(15, 92, 69, 0.12);
-
-    --accent-gold: #B8923A;
-    --accent-gold-hover: #CA9E42;
-    --accent-gold-subtle: rgba(184, 146, 58, 0.15);
-
-    --text-primary: #12261F;
-    --text-secondary: #2C4238;
-    --text-muted: #5B6F66;
-    --text-subtle: #7A9086;
-
-    --status-error: #D34538;
-    --status-success: #23976D;
-    --status-warning: #C2841E;
-
-    --gradient-emerald-hero: linear-gradient(180deg, #EAE4D5 0%, #F7F4EC 100%);
-    --gradient-emerald-radial: radial-gradient(circle at 50% 20%, #EDE6D8 0%, #F7F4EC 80%);
-    --gradient-player: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(247, 244, 236, 0.98) 100%);
-  }
+/* Default remains Dark Medina Emerald (#06150F) unless explicitly set to [data-theme="light"] */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #F4EFE6;
+  --bg-surface: #FFFFFF;
+  --bg-surface-raised: #EFE9DC;
+  --border-color: rgba(18, 38, 31, 0.10);
+  --border-color-highlight: rgba(18, 38, 31, 0.20);
 }
 
 /* Islamic Geometric Pattern Background Utility */

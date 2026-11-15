@@ -42,7 +42,7 @@ export function TopNav({ currentTab, setCurrentTab }: TopNavProps) {
     <header
       role="navigation"
       aria-label="Top Navigation"
-      className="fixed top-0 left-0 right-0 md:left-72 z-40 bg-[#06150F]/90 backdrop-blur-2xl border-b border-white/8 pt-[max(0.6rem,env(safe-area-inset-top,0px))] pb-2.5 px-3 shadow-[0_4px_24px_rgba(0,0,0,0.5)] transition-all"
+      className="fixed top-0 left-0 right-0 md:left-72 z-40 bg-[#06150F]/[0.98] border-b border-white/12 pt-[max(0.6rem,env(safe-area-inset-top,0px))] pb-2.5 px-3 shadow-[0_4px_24px_rgba(0,0,0,0.55)] transition-all"
     >
       <div className="max-w-5xl mx-auto flex items-center justify-start overflow-x-auto no-scrollbar gap-2 px-1">
         {TOP_NAV_TABS.map(tab => {
