@@ -471,6 +471,19 @@ export function PushNotificationsPanel({
         </div>
       )}
 
+      {/* Android Battery Optimization Guidance (Phase 4) */}
+      {typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '') && (
+        <div className="bg-emerald-950/45 border border-emerald-500/35 rounded-2xl p-4 space-y-1.5">
+          <div className="flex items-center gap-2 text-xs font-bold text-emerald-300 uppercase tracking-wider">
+            <Smartphone size={15} className="text-emerald-400 shrink-0" />
+            <span>Android Battery Optimization Tip (Prevent Delayed Prayer Alerts)</span>
+          </div>
+          <p className="text-xs text-emerald-100/80 leading-relaxed">
+            Some Android phones (Samsung, Xiaomi, Oppo, Pixel Doze) delay push notifications when battery saver restricts Chrome or the installed PWA. Set <strong>Settings → Apps → Nooraya (or Chrome) → Battery → Unrestricted</strong> for instant on-time prayer notifications.
+          </p>
+        </div>
+      )}
+
       {/* Status Toast Banner */}
       {statusMessage && (
         <div
