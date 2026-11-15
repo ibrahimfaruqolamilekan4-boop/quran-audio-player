@@ -62,7 +62,7 @@ export const PlayerScreen: React.FC<{ backgrounds: Background[] }> = ({ backgrou
   };
 
   return (
-    <div className="relative min-h-screen bg-black text-white">
+    <div className="relative min-h-screen bg-[#06150F] text-white">
       {/* Background video layer */}
       <BackgroundLayer
         backgrounds={backgrounds}
@@ -70,9 +70,9 @@ export const PlayerScreen: React.FC<{ backgrounds: Background[] }> = ({ backgrou
         onSelect={handleSelectBackground}
       />
 
-      {/* Glassmorphism player card */}
-      <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-8">
-        <div className="w-full max-w-md rounded-2xl bg-white/5 backdrop-blur-xl backdrop-saturate-150 border border-white/10 p-6 shadow-lg">
+      {/* Opaque scrim + player card */}
+      <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-8 bg-[#06150F]/45">
+        <div className="w-full max-w-md rounded-2xl bg-[#0C2A20]/95 border border-white/15 p-6 shadow-2xl">
           {/* Reciter & Surah info */}
           <div className="flex items-center space-x-4 mb-4">
             {currentReciter?.imageUrl ? (

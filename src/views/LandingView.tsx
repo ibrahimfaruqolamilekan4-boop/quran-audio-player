@@ -26,6 +26,16 @@ import { ReciterAvatar } from '../components/ReciterAvatar';
 export function LandingView() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [isLightTheme, setIsLightTheme] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light'
+  );
+
+  useEffect(() => {
+    const sync = () =>
+      setIsLightTheme(document.documentElement.dataset.theme === 'light');
+    window.addEventListener('nooraya-theme-changed', sync);
+    return () => window.removeEventListener('nooraya-theme-changed', sync);
+  }, []);
 
   // Interactive Live Sample Player on Landing Page
   const [isPlayingSample, setIsPlayingSample] = useState(false);
@@ -80,18 +90,30 @@ export function LandingView() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#020612]/35 via-[#020612]/15 to-[#020612]/50 backdrop-blur-[1px] text-slate-100 font-sans selection:bg-teal-500/30 selection:text-teal-200 overflow-x-hidden relative">
-      {/* Sacred Ambient Background Glows */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-teal-500/10 via-emerald-600/5 to-transparent blur-[140px] rounded-full" />
-        <div className="absolute top-[40%] right-[-10%] w-[600px] h-[600px] bg-amber-500/5 blur-[150px] rounded-full" />
-        <div className="absolute bottom-[10%] left-[-10%] w-[700px] h-[700px] bg-teal-900/10 blur-[160px] rounded-full" />
-      </div>
+    <div
+      className={`min-h-screen bg-transparent font-sans selection:bg-teal-500/30 selection:text-teal-200 overflow-x-hidden relative ${
+        isLightTheme ? 'text-[#12261F]' : 'text-slate-100'
+      }`}
+    >
+      {/* Sacred Ambient Background Glows (dark theme only) */}
+      {!isLightTheme && (
+        <div className="fixed inset-0 pointer-events-none z-0">
+          <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-teal-500/10 via-emerald-600/5 to-transparent blur-[140px] rounded-full" />
+          <div className="absolute top-[40%] right-[-10%] w-[600px] h-[600px] bg-amber-500/5 blur-[150px] rounded-full" />
+          <div className="absolute bottom-[10%] left-[-10%] w-[700px] h-[700px] bg-teal-900/10 blur-[160px] rounded-full" />
+        </div>
+      )}
 
       {/* =========================================================================
           NAVBAR: Refined Sanctuary Navigation
          ========================================================================= */}
-      <header className="sticky top-0 z-50 px-6 lg:px-16 py-5 bg-[#020612]/80 backdrop-blur-2xl border-b border-white/[0.06] transition-all">
+      <header
+        className={`sticky top-0 z-50 px-6 lg:px-16 py-5 border-b transition-colors duration-150 ${
+          isLightTheme
+            ? 'bg-[#F4EFE6]/95 border-[#12261F]/10 text-[#12261F]'
+            : 'bg-[#06150F]/95 border-white/[0.06]'
+        }`}
+      >
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Brand Logo */}
           <div 
@@ -99,25 +121,25 @@ export function LandingView() {
             className="flex items-center gap-3.5 cursor-pointer group"
           >
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-teal-400 via-teal-500 to-emerald-600 p-[1px] shadow-[0_0_25px_rgba(45,212,191,0.25)] group-hover:shadow-[0_0_35px_rgba(45,212,191,0.4)] transition-all">
-              <div className="w-full h-full bg-[#020612] rounded-[15px] flex items-center justify-center">
-                <BookOpen size={20} className="text-teal-300" />
+              <div className={`w-full h-full rounded-[15px] flex items-center justify-center ${isLightTheme ? 'bg-[#FFFDF9]' : 'bg-[#06150F]'}`}>
+                <BookOpen size={20} className={isLightTheme ? 'text-[#0F5C45]' : 'text-teal-300'} />
               </div>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xl font-serif text-white tracking-widest font-semibold">NOORAYA</span>
-                <span className="text-xs font-arabic text-teal-400/80 font-normal">نُورَايَا</span>
+                <span className={`text-xl font-serif tracking-widest font-semibold ${isLightTheme ? 'text-[#12261F]' : 'text-white'}`}>NOORAYA</span>
+                <span className={`text-xs font-arabic font-normal ${isLightTheme ? 'text-[#0F5C45]' : 'text-teal-400/80'}`}>نُورَايَا</span>
               </div>
-              <p className="text-[10px] text-slate-400 tracking-wider uppercase font-medium">Sacred Quranic Sanctuary</p>
+              <p className={`text-[10px] tracking-wider uppercase font-medium ${isLightTheme ? 'text-[#5B6F66]' : 'text-slate-400'}`}>Sacred Quranic Sanctuary</p>
             </div>
           </div>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
-            <a href="#reciters" className="hover:text-teal-300 transition-colors">Master Reciters</a>
-            <a href="#soundscapes" className="hover:text-teal-300 transition-colors">Soundscapes</a>
-            <a href="#azkar" className="hover:text-teal-300 transition-colors">Daily Azkar</a>
-            <a href="#prayer-qibla" className="hover:text-teal-300 transition-colors">Prayer & Qibla</a>
+          <nav className={`hidden md:flex items-center gap-8 text-sm font-medium ${isLightTheme ? 'text-[#2C4238]' : 'text-slate-300'}`}>
+            <a href="#reciters" className="hover:text-teal-500 transition-colors">Master Reciters</a>
+            <a href="#soundscapes" className="hover:text-teal-500 transition-colors">Soundscapes</a>
+            <a href="#azkar" className="hover:text-teal-500 transition-colors">Daily Azkar</a>
+            <a href="#prayer-qibla" className="hover:text-teal-500 transition-colors">Prayer & Qibla</a>
           </nav>
 
           {/* Actions */}
@@ -133,7 +155,7 @@ export function LandingView() {
               <>
                 <button 
                   onClick={() => navigate('/dashboard')}
-                  className="hidden sm:inline-block text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+                  className={`hidden sm:inline-block text-xs font-semibold transition-colors ${isLightTheme ? 'text-[#2C4238] hover:text-[#12261F]' : 'text-slate-300 hover:text-white'}`}
                 >
                   Explore as Guest
                 </button>
@@ -155,22 +177,22 @@ export function LandingView() {
       <section className="relative z-10 max-w-7xl mx-auto px-6 lg:px-16 pt-20 pb-24 md:pt-28 md:pb-36 flex flex-col items-center text-center">
         {/* Sacred Basmalah Ornament */}
         <div className="flex flex-col items-center gap-3 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <span className="text-2xl md:text-3xl font-arabic text-amber-300/90 tracking-wide font-normal drop-shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+          <span className={`text-2xl md:text-3xl font-arabic tracking-wide font-normal ${isLightTheme ? 'text-[#9B7722]' : 'text-amber-300/90 drop-shadow-[0_0_15px_rgba(245,158,11,0.2)]'}`}>
             بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
           </span>
-          <div className="h-[1px] w-24 bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+          <div className="h-[1px] w-24 bg-gradient-to-r from-transparent via-amber-500/50 to-transparent" />
         </div>
 
         {/* Main Headline */}
-        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-serif text-white tracking-tight max-w-5xl leading-[1.15] mb-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
+        <h1 className={`text-4xl sm:text-6xl lg:text-7xl font-serif tracking-tight max-w-5xl leading-[1.15] mb-8 ${isLightTheme ? 'text-[#12261F]' : 'text-white'}`}>
           Where Sacred Tartil Meets <br className="hidden sm:inline" />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-300 via-emerald-400 to-amber-300 drop-shadow-[0_0_30px_rgba(45,212,191,0.2)]">
+          <span className={`text-transparent bg-clip-text bg-gradient-to-r ${isLightTheme ? 'from-[#0F5C45] via-[#1F8A6A] to-[#9B7722]' : 'from-teal-300 via-emerald-400 to-amber-300 drop-shadow-[0_0_30px_rgba(45,212,191,0.2)]'}`}>
             Ethereal Peace & Focus
           </span>
         </h1>
 
         {/* Rich Editorial Subtitle */}
-        <p className="text-lg md:text-xl text-slate-300/90 max-w-3xl font-light leading-relaxed mb-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
+        <p className={`text-lg md:text-xl max-w-3xl font-light leading-relaxed mb-12 ${isLightTheme ? 'text-[#2C4238]' : 'text-slate-300/90'}`}>
           Crafted for nocturnal reflection, deep focus, and timeless remembrance. Experience the complete Holy Quran 
           chanted by canonical master reciters, seamlessly interwoven with living ambient soundscapes, verified daily adhkar, 
           and distraction-free sacred typography.
@@ -180,7 +202,7 @@ export function LandingView() {
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto mb-16 animate-in fade-in slide-in-from-bottom-10 duration-700">
           <button 
             onClick={() => navigate('/dashboard')}
-            className="w-full sm:w-auto px-9 py-4 rounded-full bg-gradient-to-r from-teal-400 via-teal-500 to-emerald-500 hover:from-teal-300 hover:to-emerald-400 text-slate-950 font-bold text-base flex items-center justify-center gap-3 transition-all hover:scale-[1.03] shadow-[0_0_40px_rgba(20,184,166,0.4)]"
+            className="w-full sm:w-auto px-9 py-4 rounded-full bg-gradient-to-r from-teal-500 via-teal-600 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-bold text-base flex items-center justify-center gap-3 transition-all hover:scale-[1.03] shadow-[0_12px_32px_rgba(15,92,69,0.35)]"
           >
             <span>Begin Listening Now</span>
             <ArrowRight size={18} />
@@ -188,9 +210,13 @@ export function LandingView() {
 
           <a 
             href="#reciters"
-            className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 border border-white/10 hover:border-teal-500/40 font-medium text-base flex items-center justify-center gap-2.5 transition-all"
+            className={`w-full sm:w-auto px-8 py-4 rounded-full border font-medium text-base flex items-center justify-center gap-2.5 transition-all ${
+              isLightTheme
+                ? 'bg-[#FFFDF9] hover:bg-white text-[#12261F] border-[#12261F]/15 hover:border-[#0F5C45]/50 shadow-sm'
+                : 'bg-[#0C2A20]/95 hover:bg-[#11382B] text-slate-200 border-white/10 hover:border-teal-500/40'
+            }`}
           >
-            <BookOpen size={18} className="text-teal-400" />
+            <BookOpen size={18} className={isLightTheme ? 'text-[#0F5C45]' : 'text-teal-400'} />
             <span>Explore 114 Surahs</span>
           </a>
         </div>

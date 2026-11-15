@@ -53,7 +53,7 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
       {/* =========================================================================
           DESKTOP SIDEBAR (w-72 fixed on left, md:flex)
           ========================================================================= */}
-      <div className="hidden md:flex flex-col w-72 bg-[#020617]/70 backdrop-blur-3xl border-r border-slate-800/60 h-screen fixed top-0 left-0 pt-8 pb-20 z-40">
+      <div className="hidden md:flex flex-col w-72 bg-[#06150F]/[0.98] border-r border-white/10 h-screen fixed top-0 left-0 pt-8 pb-20 z-40">
         <div className="px-8 mb-8 cursor-pointer" onClick={() => navigate('/')}>
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-400 via-teal-500 to-emerald-600 flex items-center justify-center shadow-[0_0_20px_rgba(45,212,191,0.25)] shrink-0">
@@ -155,7 +155,7 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
           ========================================================================= */}
       <nav
         aria-label="Mobile Navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#070B14]/95 backdrop-blur-2xl border-t border-slate-800/90 z-50 px-2 pt-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] shadow-[0_-8px_30px_rgba(0,0,0,0.6)]"
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#06150F]/[0.98] border-t border-white/12 z-50 px-2 pt-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] shadow-[0_-8px_30px_rgba(0,0,0,0.65)]"
       >
         <div className="grid grid-cols-4 items-center gap-1 max-w-md mx-auto">
           {bottomNavItems.map(item => {

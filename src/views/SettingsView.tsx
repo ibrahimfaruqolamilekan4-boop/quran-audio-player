@@ -1007,6 +1007,39 @@ export function SettingsView() {
           <DownloadManager />
         </section>
 
+        {/* Phase 5: Production Build Stamp & Diagnostics Console */}
+        <section className="bg-[#0C2A20] border border-white/10 rounded-3xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-[#D4AF37]">
+              Build Version &amp; Production Diagnostics
+            </div>
+            <p className="text-xs font-mono text-[#D1DFD8] mt-1">
+              Version: 2025.05.18-prod-fix-pack-v1 • Deploy ID:{' '}
+              {typeof document !== 'undefined'
+                ? document.querySelector('meta[name="build-id"]')?.getAttribute('content') ||
+                  'live'
+                : 'live'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/diag')}
+              className="px-4 py-2 rounded-xl bg-[#11382B] hover:bg-[#176B53] text-[#34C38F] border border-[#34C38F]/30 text-xs font-bold cursor-pointer transition-colors"
+            >
+              Open Diagnostics (/diag)
+            </button>
+            <a
+              href="/control-audio-test.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-xl bg-[#06150F] hover:bg-white/5 text-[#A8BFB3] border border-white/10 text-xs font-semibold transition-colors"
+            >
+              Control Audio Test
+            </a>
+          </div>
+        </section>
+
         {/* ============================================================ */}
         {/* ADMIN CONTROL: RECITERS, PHONE PHOTOS, BIOS & 114 SURAHS */}
         {/* ============================================================ */}
