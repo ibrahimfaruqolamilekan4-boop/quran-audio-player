@@ -1,0 +1,25 @@
+{
+  "appId": "com.nooraya.quranaudio",
+  "appName": "Nooraya",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_nooraya",
+      "iconColor": "#D4AF37",
+      "sound": "madinah_adhan_30s.caf"
+    }
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#06150F"
+  },
+  "android": {
+    "backgroundColor": "#06150F",
+    "allowMixedContent": false
+  }
+}
