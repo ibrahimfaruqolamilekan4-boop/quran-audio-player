@@ -421,12 +421,17 @@ export async function getOfflineAudioUrl(
 
   const cacheKey = getOfflineCacheUrl(surahId, reciterId, moshafId);
 
-  // 1. Check CacheStorage
+  // 1. Check CacheStorage — when Service Worker controller is active, return the canonical
+  // `/offline-audio/...` path served by push-sw.js with RFC 7233 206 Partial Content support
+  // (never expires during lock-screen suspension unlike ephemeral blob: URLs).
   if (typeof window !== 'undefined' && 'caches' in window) {
     try {
       const cache = await caches.open(CACHE_NAME);
       const match = await cache.match(cacheKey);
       if (match) {
+        if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+          return cacheKey;
+        }
         const blob = await match.blob();
         if (blob && blob.size > 10000) {
           return URL.createObjectURL(blob);

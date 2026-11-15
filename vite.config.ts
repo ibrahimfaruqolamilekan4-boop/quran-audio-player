@@ -34,6 +34,7 @@ import adminSupabaseBackgrounds from './backend/admin/supabase-backgrounds';
 import publicAdhanVoices from './backend/adhan-voices';
 import adminAdhanVoices from './backend/admin/adhan-voices';
 import pushHandler from './backend/push';
+import diagHandler from './backend/diag';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -96,6 +97,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
   [/^\/api\/admin\/adhan-voices$/, adminAdhanVoices],
   [/^\/api\/push(\/.*)?$/, pushHandler],
+  [/^\/api\/diag$/, diagHandler],
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
@@ -185,11 +187,18 @@ export default defineConfig(() => {
         workbox: {
           importScripts: ['/push-sw.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg,jpeg,webp}'],
+          globIgnores: ['**/control-audio-test.html', '**/audio/**'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           clientsClaim: true,
           skipWaiting: true,
           cleanupOutdatedCaches: true,
-          navigateFallbackDenylist: [/^\/api\/.*/, /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i],
+          navigateFallbackDenylist: [
+            /^\/api\/.*/,
+            /^\/control-audio-test\.html$/,
+            /^\/offline-audio\/.*/,
+            /^\/audio\/.*/,
+            /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i,
+          ],
           runtimeCaching: [
             {
               urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/,
@@ -264,5 +273,9 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
+    test: {
+      include: ['src/**/*.test.{ts,tsx}'],
+    },
   };
 });
+
