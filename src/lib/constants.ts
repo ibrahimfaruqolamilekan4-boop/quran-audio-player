@@ -2,19 +2,17 @@ import { CloudRain, Flame, Waves, Bird, Wind, CloudLightning, Trees, Droplets, A
 import { AmbientTrack, Reciter } from '../types';
 
 export const AMBIENT_TRACKS: AmbientTrack[] = [
-  { id: 'rain', name: 'Rain', url: 'https://actions.google.com/sounds/v1/weather/rain_on_roof.ogg', icon: CloudRain },
-  { id: 'birds', name: 'Birds', url: 'https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg', icon: Bird },
-  { id: 'fire', name: 'Fire', url: 'https://actions.google.com/sounds/v1/ambiences/fire.ogg', icon: Flame },
-  { id: 'waves', name: 'Wave', url: 'https://actions.google.com/sounds/v1/water/waves_crashing_on_rock_beach.ogg', icon: Waves },
-  { id: 'wind', name: 'Wind', url: 'https://actions.google.com/sounds/v1/weather/strong_wind.ogg', icon: Wind },
-  { id: 'cat', name: 'Cat', url: 'https://actions.google.com/sounds/v1/animals/cat_purr.ogg', icon: Cat },
-  { id: 'owl', name: 'Owl', url: 'https://actions.google.com/sounds/v1/animals/owl_hoot.ogg', icon: Trees },
-  { id: 'river', name: 'River', url: 'https://actions.google.com/sounds/v1/water/river_stream.ogg', icon: Droplets },
-  { id: 'whale', name: 'Whale', url: 'https://actions.google.com/sounds/v1/animals/whale_song.ogg', icon: AudioWaveform },
-  { id: 'crickets', name: 'Crickets', url: 'https://actions.google.com/sounds/v1/animals/crickets_and_night_insects.ogg', icon: Trees },
-  { id: 'storm', name: 'Thunder Storm', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: Zap },
-  { id: 'thunder', name: 'Thunder', url: 'https://actions.google.com/sounds/v1/weather/thunderstorm.ogg', icon: CloudLightning },
-  { id: 'train', name: 'Train', url: 'https://actions.google.com/sounds/v1/transportation/train_pass_by.ogg', icon: Train },
+  { id: 'rain', name: 'Rain', url: '/audio/ambient/rain.mp3', icon: CloudRain },
+  { id: 'birds', name: 'Birds', url: '/audio/ambient/birds.mp3', icon: Bird },
+  { id: 'fire', name: 'Fire', url: '/audio/ambient/fire.mp3', icon: Flame },
+  { id: 'waves', name: 'Waves', url: '/audio/ambient/waves.mp3', icon: Waves },
+  { id: 'wind', name: 'Wind', url: '/audio/ambient/wind.mp3', icon: Wind },
+  { id: 'cat', name: 'Cat Purr', url: '/audio/ambient/cat.mp3', icon: Cat },
+  { id: 'river', name: 'River', url: '/audio/ambient/river.mp3', icon: Droplets },
+  { id: 'fountain', name: 'Fountain', url: '/audio/ambient/fountain.mp3', icon: AudioWaveform },
+  { id: 'crickets', name: 'Crickets', url: '/audio/ambient/crickets.mp3', icon: Trees },
+  { id: 'storm', name: 'Thunder Storm', url: '/audio/ambient/storm.mp3', icon: Zap },
+  { id: 'thunder', name: 'Thunder', url: '/audio/ambient/thunder.mp3', icon: CloudLightning },
 ];
 
 /**

@@ -13,6 +13,7 @@ import logout from './backend/auth/logout';
 import me from './backend/auth/me';
 import preferences from './backend/me/preferences';
 import premiumStatus from './backend/me/premium-status';
+import mePayments from './backend/me/payments';
 import reciters from './backend/me/reciters';
 import reciterById from './backend/me/reciters/[id]';
 import adminOverview from './backend/admin/overview';
@@ -24,10 +25,15 @@ import publicMedia from './backend/media/[id]';
 import health from './backend/health.mjs';
 import publicReciters from './backend/reciters';
 import publicAmbient from './backend/ambient';
+import publicPlans from './backend/plans';
+import adminPlans from './backend/admin/plans';
+import adminPayments from './backend/admin/payments';
+import paymentsDiagnostics from './backend/admin/payments-diagnostics';
 import media from './backend/media';
 import verifyFlutterwave from './backend/payments/verify';
 import flwWebhook from './backend/payments/webhook';
 import createVirtualAccount from './backend/payments/create-virtual-account';
+import createHostedCheckout from './backend/payments/create-hosted-checkout';
 import checkTransferStatus from './backend/payments/check-transfer-status';
 import publicBackgrounds from './backend/backgrounds';
 import adminSupabaseBackgrounds from './backend/admin/supabase-backgrounds';
@@ -81,6 +87,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/me$/, me],
   [/^\/api\/me\/preferences$/, preferences],
   [/^\/api\/me\/premium-status$/, premiumStatus],
+  [/^\/api\/me\/payments$/, mePayments],
   [/^\/api\/me\/reciters$/, reciters],
   [/^\/api\/me\/reciters\/[^/]+$/, reciterById],
   [/^\/api\/admin\/overview$/, adminOverview],
@@ -92,6 +99,12 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/health$/, health],
   [/^\/api\/reciters$/, publicReciters],
   [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/plans$/, publicPlans],
+  [/^\/api\/admin\/plans(\/.*)?$/, adminPlans],
+  [/^\/api\/admin\/plan-price-logs$/, adminPlans],
+  [/^\/api\/admin\/payments\/diagnostics$/, paymentsDiagnostics],
+  [/^\/api\/admin\/payments$/, adminPayments],
+  [/^\/api\/admin\/reconcile-payments$/, adminPayments],
   [/^\/api\/backgrounds$/, publicBackgrounds],
   [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
@@ -101,6 +114,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
   [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
   [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
+  [/^\/api\/payments\/create-hosted-checkout$/, createHostedCheckout],
   [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
   [/^\/api\/media(\/.*)?$/, media],
 ];
@@ -274,6 +288,7 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
     test: {
+      environment: 'jsdom',
       include: ['src/**/*.test.{ts,tsx}'],
     },
   };

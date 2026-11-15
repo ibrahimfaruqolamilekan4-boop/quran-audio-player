@@ -167,6 +167,9 @@ export function BackgroundsAdmin() {
   // Default upload preferences (optional controls before or during drop)
   const [defaultCategory, setDefaultCategory] = useState<string>('auto');
   const [saveAsDraftDefault, setSaveAsDraftDefault] = useState<boolean>(false);
+  const [cropFocusMode, setCropFocusMode] = useState<
+    'portrait-center' | 'portrait-left' | 'portrait-right' | 'auto'
+  >('portrait-center');
 
   // Active & Recent Upload Queue (keeps File references so Retry never requires re-selecting)
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
@@ -306,8 +309,19 @@ export function BackgroundsAdmin() {
           statusDetail: `Optimizing (${probe.reasonForOptimize || 'converting to 720p & 480p muted MP4'})...`,
         });
 
+        const focusX =
+          cropFocusMode === 'portrait-left'
+            ? 0.25
+            : cropFocusMode === 'portrait-right'
+            ? 0.75
+            : 0.5;
+        const targetOrientation =
+          cropFocusMode === 'auto' ? 'auto' : 'portrait';
+
         const controller = transcodeInBrowser(file, {
-          bitrateMode: file.size > 80 * 1024 * 1024 ? 'economy' : 'standard',
+          bitrateMode: file.size > 90 * 1024 * 1024 ? 'economy' : 'standard',
+          focusX,
+          targetOrientation,
           onProgress: (p) => {
             const mappedPct = Math.min(55, Math.max(15, Math.round(15 + (p.percentage / 100) * 40)));
             updateQueueItem(queueId, {
@@ -884,6 +898,20 @@ export function BackgroundsAdmin() {
                         {c}
                       </option>
                     ))}
+                  </select>
+                </label>
+
+                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <span className="text-white/60">Phone Crop Focus:</span>
+                  <select
+                    value={cropFocusMode}
+                    onChange={(e) => setCropFocusMode(e.target.value as any)}
+                    className="rounded-lg bg-black/40 border border-white/15 px-2.5 py-1 text-xs text-white focus:outline-none focus:border-emerald-400"
+                  >
+                    <option value="portrait-center">Portrait 9:16 — Center Focus (≤1.5x upscale)</option>
+                    <option value="portrait-left">Portrait 9:16 — Left Subject Focus (25%)</option>
+                    <option value="portrait-right">Portrait 9:16 — Right Subject Focus (75%)</option>
+                    <option value="auto">Keep Original Aspect Ratio (16:9 / 9:16)</option>
                   </select>
                 </label>
 

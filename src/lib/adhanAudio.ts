@@ -29,6 +29,7 @@ import {
 } from './persistentAudio';
 import { uploadMediaToServer } from './upload';
 import { processAdhanAudioFile, type ProcessedAdhanUploadResult } from './adhanAudioProcessor';
+import { recordDiagEvent } from './prodDiagnostics';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 export type AdhanMode = 'full' | 'takbir' | 'silent';
@@ -450,6 +451,23 @@ function recordAdhanDiagnostic(entry: Omit<AdhanDiagnosticLogEntry, 'id' | 'time
     diagnosticLogs.length = 25;
   }
   console.info('[AdhanDiagnostics]', JSON.stringify(full));
+  recordDiagEvent({
+    category: 'adhan',
+    event: `ADHAN_${entry.playResult.toUpperCase()}`,
+    elementId: 'adhan',
+    src: entry.urlUsed || undefined,
+    readyState: entry.readyState,
+    errorMessage: entry.audioError || undefined,
+    details: {
+      trigger: entry.trigger,
+      prayerKey: entry.prayerKey,
+      voiceId: entry.voiceId,
+      muezzinName: entry.muezzinName,
+      isFajrVariant: entry.isFajrVariant,
+      pathTaken: entry.pathTaken,
+      durationSeconds: entry.durationSeconds,
+    },
+  });
   return full;
 }
 
@@ -498,7 +516,7 @@ export async function fetchAdhanVoicesVersion(): Promise<number> {
   return lastKnownAdhanVersion;
 }
 
-function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
+export function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
   const slotMap = new Map(OFFICIAL_MUEZZIN_CATALOG_SLOTS.map((s) => [s.id, s]));
   return rows.map((row) => {
     const slot = slotMap.get(row.id);
@@ -522,6 +540,8 @@ function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[
     };
   });
 }
+
+export const hydrateAdhanVoiceUrls = hydrateVoicesWithCatalogDefaults;
 
 /**
  * Fetches all active Adhan voices from `/api/adhan-voices` with direct Supabase fallback
@@ -1527,8 +1547,8 @@ export async function playAdhanPreview(options: {
 }> {
   const { voice, variant = 'standard' } = options;
 
-  unlockAudio();
   stopAdhanPlayback();
+  unlockAudio();
 
   const rawUrl =
     variant === 'fajr'

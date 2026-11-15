@@ -18,8 +18,7 @@ export const FullPlayerPage: React.FC = () => {
         videoUrl: vid.videoUrl ?? '',
         // ambientUrl is optional – look up by id in the ambient mapping if present.
         ambientUrl: ambientVideoMapping[vid.id] ?? undefined,
-        // Use the video URL as thumbnail fallback; in a real app you would have a separate thumbnail.
-        thumbnailUrl: vid.videoUrl,
+        thumbnailUrl: vid.posterUrl || vid.poster_url || undefined,
         sizeBytes: vid.sizeBytes,
         createdAt: vid.createdAt,
       };

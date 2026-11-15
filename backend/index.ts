@@ -24,6 +24,7 @@ import logout from './auth/logout';
 import me from './auth/me';
 import preferences from './me/preferences';
 import premiumStatus from './me/premium-status';
+import mePayments from './me/payments';
 import reciters from './me/reciters';
 import reciterById from './me/reciters/[id]';
 import adminOverview from './admin/overview';
@@ -63,6 +64,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/me$/, me],
   [/^\/api\/me\/preferences$/, preferences],
   [/^\/api\/me\/premium-status$/, premiumStatus],
+  [/^\/api\/me\/payments$/, mePayments],
   [/^\/api\/me\/reciters$/, reciters],
   [/^\/api\/me\/reciters\/[^/]+$/, reciterById],
   [/^\/api\/admin\/overview$/, adminOverview],

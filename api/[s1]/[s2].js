@@ -29945,6 +29945,13 @@ var handler5 = async (req, res) => {
       } catch (saveErr) {
         console.warn("Failed to persist preferences to db:", saveErr);
       }
+      if (typeof body.full_name === "string" && body.full_name.trim()) {
+        try {
+          await q("UPDATE users SET display_name = $1 WHERE uid = $2", [body.full_name.trim(), user.uid]);
+        } catch (nameErr) {
+          console.warn("Failed to update display_name:", nameErr);
+        }
+      }
       return sendJson(res, 200, {
         preferences: {
           theme,
@@ -29994,6 +30001,64 @@ var handler6 = async (req, res) => {
   }
 };
 var premium_status_default = handler6;
+
+// backend/me/payments.ts
+init_lib();
+async function handler7(req, res) {
+  if (req.method !== "GET") {
+    return sendJson(res, 405, { error: "Method not allowed" });
+  }
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) {
+      return sendJson(res, 200, { ok: true, payments: [] });
+    }
+    const url = new URL(req.url || "", "http://localhost");
+    const requestedUserId = url.searchParams.get("user_id");
+    const targetUserId = authUser.role === "admin" && requestedUserId ? requestedUserId : authUser.uid;
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data, error } = await sb.from("payments").select("*").eq("user_id", targetUserId).order("created_at", { ascending: false }).limit(50);
+        if (!error && Array.isArray(data)) {
+          return sendJson(res, 200, {
+            ok: true,
+            payments: data.map((p) => ({
+              ...p,
+              amount: Number(p.amount),
+              amount_paid: p.amount_paid ? Number(p.amount_paid) : null
+            }))
+          });
+        }
+      } catch (e) {
+        console.warn("[/api/me/payments] Supabase fetch failed, trying Postgres:", e);
+      }
+    }
+    try {
+      const { rows } = await q(
+        `SELECT * FROM payments
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        [targetUserId]
+      );
+      return sendJson(res, 200, {
+        ok: true,
+        payments: (rows || []).map((r) => ({
+          ...r,
+          amount: Number(r.amount),
+          amount_paid: r.amount_paid ? Number(r.amount_paid) : null
+        }))
+      });
+    } catch {
+    }
+    const fallbackList = Array.isArray(serverStore?.payments) ? serverStore.payments.filter((p) => p?.user_id === targetUserId) : [];
+    return sendJson(res, 200, { ok: true, payments: fallbackList });
+  } catch (err) {
+    console.error("[/api/me/payments] Error:", err);
+    return sendJson(res, 200, { ok: true, payments: [] });
+  }
+}
 
 // backend/me/reciters.ts
 init_lib();
@@ -30185,7 +30250,7 @@ var mapRow = (r) => ({
   serverUrl: r.server_url || "",
   ...r.image_url ? { imageUrl: r.image_url } : {}
 });
-var handler7 = async (req, res) => {
+var handler8 = async (req, res) => {
   try {
     const user = await requireAuth(req, res);
     if (!user) return;
@@ -30235,11 +30300,11 @@ var handler7 = async (req, res) => {
     return sendJson(res, 500, { error: "Could not save reciter." });
   }
 };
-var reciters_default = handler7;
+var reciters_default = handler8;
 
 // backend/me/reciters/[id].ts
 init_lib();
-var handler8 = async (req, res) => {
+var handler9 = async (req, res) => {
   try {
     const user = await requireAuth(req, res);
     if (!user) return;
@@ -30253,11 +30318,11 @@ var handler8 = async (req, res) => {
     return sendJson(res, 500, { error: "Could not delete reciter." });
   }
 };
-var id_default = handler8;
+var id_default = handler9;
 
 // backend/admin/overview.ts
 init_lib();
-var handler9 = async (req, res) => {
+var handler10 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
   try {
     const admin = await requireAdmin(req, res);
@@ -30281,11 +30346,11 @@ var handler9 = async (req, res) => {
     sendJson(res, 500, { error: "Could not load admin data." });
   }
 };
-var overview_default = handler9;
+var overview_default = handler10;
 
 // backend/admin/reciters.ts
 init_lib();
-var handler10 = async (req, res) => {
+var handler11 = async (req, res) => {
   if (req.method !== "POST" && req.method !== "DELETE") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30370,12 +30435,12 @@ var handler10 = async (req, res) => {
     return sendJson(res, 500, { error: "Could not save global reciter." });
   }
 };
-var reciters_default2 = handler10;
+var reciters_default2 = handler11;
 
 // backend/admin/role.ts
 init_lib();
 import crypto5 from "node:crypto";
-var handler11 = async (req, res) => {
+var handler12 = async (req, res) => {
   if (req.method !== "PUT" && req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30417,7 +30482,7 @@ var handler11 = async (req, res) => {
     return sendJson(res, 500, { error: "Could not update user." });
   }
 };
-var role_default = handler11;
+var role_default = handler12;
 
 // backend/admin/ambient.ts
 init_lib();
@@ -30442,7 +30507,7 @@ function sanitizeGlobalVideoUrl(raw) {
   }
   return trimmed;
 }
-var handler12 = async (req, res) => {
+var handler13 = async (req, res) => {
   if (req.method !== "PUT" && req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30524,12 +30589,12 @@ var handler12 = async (req, res) => {
     return sendJson(res, 500, { error: err?.message || "Could not save ambient settings." });
   }
 };
-var ambient_default = handler12;
+var ambient_default = handler13;
 
 // backend/admin/media.ts
 init_lib();
 var KINDS = /* @__PURE__ */ new Set(["image", "video"]);
-var handler13 = async (req, res) => {
+var handler14 = async (req, res) => {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
   try {
     const admin = await requireAdmin(req, res);
@@ -30551,7 +30616,7 @@ var handler13 = async (req, res) => {
     return sendJson(res, 500, { error: "Could not store that upload." });
   }
 };
-var media_default = handler13;
+var media_default = handler14;
 
 // backend/media/[id].ts
 init_lib();
@@ -30559,7 +30624,7 @@ import fs2 from "node:fs";
 import path2 from "node:path";
 var UPLOADS_DIR = path2.resolve(process.cwd(), "public/videos/uploads");
 var PUBLIC_VIDEOS_DIR = path2.resolve(process.cwd(), "public/videos");
-var handler14 = async (req, res) => {
+var handler15 = async (req, res) => {
   if (req.method !== "GET" && req.method !== "HEAD") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30593,10 +30658,10 @@ var handler14 = async (req, res) => {
     return sendJson(res, 500, { error: "Could not load that asset." });
   }
 };
-var id_default2 = handler14;
+var id_default2 = handler15;
 
 // backend/health.mjs
-async function handler15(_req, res) {
+async function handler16(_req, res) {
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/json");
   const health = {
@@ -30639,7 +30704,7 @@ function sanitizePublicImageUrl(url) {
   if (!trimmed) return void 0;
   return trimmed;
 }
-var handler16 = async (_req, res) => {
+var handler17 = async (_req, res) => {
   try {
     const { rows } = await qWithFallback([
       { text: "SELECT id, name, name_arabic, style, category, bio, server_url, image_url FROM global_reciters" },
@@ -30666,7 +30731,7 @@ var handler16 = async (_req, res) => {
     return sendJson(res, 200, { reciters: [] });
   }
 };
-var reciters_default3 = handler16;
+var reciters_default3 = handler17;
 
 // backend/ambient.ts
 init_lib();
@@ -30893,7 +30958,7 @@ async function getActiveBackgroundsAndVersion() {
   }
   return { backgrounds, version: version3, updated_at };
 }
-var handler17 = async (req, res) => {
+var handler18 = async (req, res) => {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -30920,7 +30985,7 @@ var handler17 = async (req, res) => {
     return sendJson(res, 500, { error: "Failed to load backgrounds" });
   }
 };
-var backgrounds_default = handler17;
+var backgrounds_default = handler18;
 
 // backend/ambient.ts
 function normalizeStoredVideoUrl(rawUrl) {
@@ -30929,7 +30994,7 @@ function normalizeStoredVideoUrl(rawUrl) {
   if (!url || url.startsWith("blob:")) return null;
   return url;
 }
-var handler18 = async (req, res) => {
+var handler19 = async (req, res) => {
   if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
   try {
     const { backgrounds, version: version3, updated_at } = await getActiveBackgroundsAndVersion();
@@ -31014,7 +31079,7 @@ var handler18 = async (req, res) => {
     });
   }
 };
-var ambient_default2 = handler18;
+var ambient_default2 = handler19;
 
 // backend/media.ts
 init_lib();
@@ -31200,7 +31265,7 @@ async function mediaHandler(req, res) {
 
 // backend/payments/verify.ts
 init_lib();
-async function handler19(req, res) {
+async function handler20(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -31323,7 +31388,7 @@ async function handler19(req, res) {
 
 // backend/payments/webhook.ts
 init_lib();
-async function handler20(req, res) {
+async function handler21(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -31449,7 +31514,7 @@ async function handler20(req, res) {
 
 // backend/payments/create-virtual-account.ts
 init_lib();
-async function handler21(req, res) {
+async function handler22(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -31662,7 +31727,7 @@ async function handler21(req, res) {
 
 // backend/payments/create-hosted-checkout.ts
 init_lib();
-async function handler22(req, res) {
+async function handler23(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -31760,7 +31825,7 @@ async function handler22(req, res) {
 
 // backend/payments/check-transfer-status.ts
 init_lib();
-async function handler23(req, res) {
+async function handler24(req, res) {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -31874,7 +31939,7 @@ async function handler23(req, res) {
 
 // backend/admin/supabase-backgrounds.ts
 init_lib();
-var handler24 = async (req, res) => {
+var handler25 = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
@@ -32434,7 +32499,7 @@ var handler24 = async (req, res) => {
     return sendJson(res, 500, { error: err?.message || "Server error" });
   }
 };
-var supabase_backgrounds_default = handler24;
+var supabase_backgrounds_default = handler25;
 
 // backend/adhan-voices.ts
 init_lib();
@@ -32911,7 +32976,7 @@ async function getActiveAdhanVoicesAndVersion(includeInactive = false) {
   }
   return { voices, version: version3, updated_at };
 }
-var handler25 = async (req, res) => {
+var handler26 = async (req, res) => {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -32938,11 +33003,11 @@ var handler25 = async (req, res) => {
     return sendJson(res, 500, { error: "Failed to load adhan voices" });
   }
 };
-var adhan_voices_default = handler25;
+var adhan_voices_default = handler26;
 
 // backend/admin/adhan-voices.ts
 init_lib();
-var handler26 = async (req, res) => {
+var handler27 = async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
@@ -33324,7 +33389,7 @@ var handler26 = async (req, res) => {
     return sendJson(res, 500, { error: err?.message || "Server error" });
   }
 };
-var adhan_voices_default2 = handler26;
+var adhan_voices_default2 = handler27;
 
 // backend/push.ts
 import crypto7 from "node:crypto";
@@ -34481,7 +34546,7 @@ var PRAYER_LABELS = {
   maghrib: { english: "Maghrib", arabic: "\u0627\u0644\u0645\u063A\u0631\u0628" },
   isha: { english: "Isha", arabic: "\u0627\u0644\u0639\u0634\u0627\u0621" }
 };
-var handler27 = async (req, res) => {
+var handler28 = async (req, res) => {
   await ensurePushTables().catch(() => {
   });
   const urlObj = new URL(req.url || "/api/push", "http://localhost");
@@ -34947,11 +35012,11 @@ var handler27 = async (req, res) => {
   }
   return sendJson(res, 404, { error: "Unknown push route" });
 };
-var push_default = handler27;
+var push_default = handler28;
 
 // backend/plans.ts
 init_lib();
-async function handler28(req, res) {
+async function handler29(req, res) {
   if (req.method !== "GET") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
@@ -34966,7 +35031,7 @@ async function handler28(req, res) {
 
 // backend/admin/plans.ts
 init_lib();
-async function handler29(req, res) {
+async function handler30(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -35010,7 +35075,7 @@ async function handler29(req, res) {
 
 // backend/admin/payments.ts
 init_lib();
-async function handler30(req, res) {
+async function handler31(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const url = new URL(req.url || "", "http://localhost");
@@ -35160,7 +35225,7 @@ async function handler30(req, res) {
 
 // backend/admin/payments-diagnostics.ts
 init_lib();
-async function handler31(req, res) {
+async function handler32(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
   const rawSecret = process.env.FLW_SECRET_KEY || "";
@@ -35364,6 +35429,7 @@ var routes = [
   [/^\/api\/auth\/me$/, me_default],
   [/^\/api\/me\/preferences$/, preferences_default],
   [/^\/api\/me\/premium-status$/, premium_status_default],
+  [/^\/api\/me\/payments$/, handler7],
   [/^\/api\/me\/reciters$/, reciters_default],
   [/^\/api\/me\/reciters\/[^/]+$/, id_default],
   [/^\/api\/admin\/overview$/, overview_default],
@@ -35372,20 +35438,20 @@ var routes = [
   [/^\/api\/admin\/ambient$/, ambient_default],
   [/^\/api\/admin\/media$/, media_default],
   [/^\/api\/media\/[^/]+$/, id_default2],
-  [/^\/api\/health$/, handler15],
+  [/^\/api\/health$/, handler16],
   [/^\/api\/reciters$/, reciters_default3],
   [/^\/api\/ambient$/, ambient_default2],
-  [/^\/api\/plans$/, handler28],
-  [/^\/api\/admin\/plans(\/.*)?$/, handler29],
-  [/^\/api\/admin\/plan-price-logs$/, handler29],
-  [/^\/api\/admin\/payments\/diagnostics$/, handler31],
-  [/^\/api\/admin\/payments$/, handler30],
-  [/^\/api\/admin\/reconcile-payments$/, handler30],
-  [/^\/api\/payments\/verify-flutterwave$/, handler19],
-  [/^\/api\/webhooks\/flutterwave$/, handler20],
-  [/^\/api\/payments\/create-virtual-account$/, handler21],
-  [/^\/api\/payments\/create-hosted-checkout$/, handler22],
-  [/^\/api\/payments\/check-transfer-status$/, handler23],
+  [/^\/api\/plans$/, handler29],
+  [/^\/api\/admin\/plans(\/.*)?$/, handler30],
+  [/^\/api\/admin\/plan-price-logs$/, handler30],
+  [/^\/api\/admin\/payments\/diagnostics$/, handler32],
+  [/^\/api\/admin\/payments$/, handler31],
+  [/^\/api\/admin\/reconcile-payments$/, handler31],
+  [/^\/api\/payments\/verify-flutterwave$/, handler20],
+  [/^\/api\/webhooks\/flutterwave$/, handler21],
+  [/^\/api\/payments\/create-virtual-account$/, handler22],
+  [/^\/api\/payments\/create-hosted-checkout$/, handler23],
+  [/^\/api\/payments\/check-transfer-status$/, handler24],
   [/^\/api\/backgrounds$/, backgrounds_default],
   [/^\/api\/admin\/supabase-backgrounds$/, supabase_backgrounds_default],
   [/^\/api\/adhan-voices$/, adhan_voices_default],
@@ -35394,7 +35460,7 @@ var routes = [
   [/^\/api\/diag$/, diagHandler],
   [/^\/api\/media(\/.*)?$/, mediaHandler]
 ];
-var handler32 = async (req, res) => {
+var handler33 = async (req, res) => {
   const url = (req.url || "").split("?")[0];
   const match = routes.find(([pattern]) => pattern.test(url));
   if (!match) {
@@ -35409,7 +35475,7 @@ var handler32 = async (req, res) => {
     }
   }
 };
-var index_default = handler32;
+var index_default = handler33;
 export {
   index_default as default
 };

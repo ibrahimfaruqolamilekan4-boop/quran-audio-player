@@ -53,23 +53,23 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
       {/* =========================================================================
           DESKTOP SIDEBAR (w-72 fixed on left, md:flex)
           ========================================================================= */}
-      <div className="hidden md:flex flex-col w-72 bg-[#020617]/70 backdrop-blur-3xl border-r border-slate-800/60 h-screen fixed top-0 left-0 pt-8 pb-20 z-40">
+      <div className="hidden md:flex flex-col w-72 bg-[var(--bg-primary)] border-r border-[var(--border-color-highlight)] h-screen fixed top-0 left-0 pt-8 pb-20 z-40 transition-colors">
         <div className="px-8 mb-8 cursor-pointer" onClick={() => navigate('/')}>
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-400 via-teal-500 to-emerald-600 flex items-center justify-center shadow-[0_0_20px_rgba(45,212,191,0.25)] shrink-0">
               <BookOpen size={20} className="text-[#020612]" />
             </div>
             <div>
-              <h1 className="text-xl font-serif text-white tracking-widest font-semibold flex items-center gap-1.5">
+              <h1 className="text-xl font-serif text-[var(--text-primary)] tracking-widest font-semibold flex items-center gap-1.5">
                 <span>NOORAYA</span>
               </h1>
-              <p className="text-[10px] text-teal-400/90 font-arabic">نُورَايَا • Quran Sanctuary</p>
+              <p className="text-[10px] text-[var(--primary-emerald)] font-arabic">نُورَايَا • Quran Sanctuary</p>
             </div>
           </div>
         </div>
 
         <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto no-scrollbar">
-          <p className="px-5 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-3 mt-1">Menu</p>
+          <p className="px-5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-3 mt-1">Menu</p>
           {desktopTabs.map(tab => {
             const active = currentTab === tab.id;
             return (
@@ -79,23 +79,23 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
                 onClick={() => setCurrentTab(tab.id)}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl transition-all duration-200 font-medium cursor-pointer ${
                   active
-                    ? 'bg-teal-500/15 text-teal-300 border border-teal-500/30 shadow-[0_0_15px_rgba(20,184,166,0.15)]'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white border border-transparent'
+                    ? 'bg-[var(--bg-surface-raised)] text-[var(--primary-emerald)] border border-[var(--primary-emerald)]/35 shadow-[0_0_15px_rgba(20,184,166,0.12)] font-semibold'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-raised)]/60 hover:text-[var(--text-primary)] border border-transparent'
                 }`}
               >
-                <tab.icon size={20} strokeWidth={active ? 2 : 1.5} className={active ? 'text-teal-400' : 'text-slate-400'} />
+                <tab.icon size={20} strokeWidth={active ? 2 : 1.5} className={active ? 'text-[var(--primary-emerald)]' : 'text-[var(--text-muted)]'} />
                 <span className="tracking-wide text-sm">{tab.label}</span>
               </button>
             );
           })}
         </nav>
 
-        <div className="px-4 mt-auto pt-4 border-t border-slate-800/60 space-y-2">
+        <div className="px-4 mt-auto pt-4 border-t border-[var(--border-color)] space-y-2">
           {role === 'admin' && (
             <button
               type="button"
               onClick={() => navigate('/admin')}
-              className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl transition-all font-medium text-amber-400 hover:bg-amber-500/10 border border-transparent cursor-pointer"
+              className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl transition-all font-medium text-[var(--accent-gold-text)] hover:bg-[var(--accent-gold-subtle)] border border-transparent cursor-pointer"
             >
               <Shield size={20} strokeWidth={1.5} />
               <span className="tracking-wide text-sm">Admin Panel</span>
@@ -107,8 +107,8 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
             onClick={() => setCurrentTab('settings')}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl transition-all font-medium cursor-pointer ${
               currentTab === 'settings'
-                ? 'bg-teal-500/15 text-teal-300 border border-teal-500/30 shadow-[0_0_15px_rgba(20,184,166,0.15)]'
-                : 'text-slate-400 hover:bg-white/5 hover:text-white border border-transparent'
+                ? 'bg-[var(--bg-surface-raised)] text-[var(--primary-emerald)] border border-[var(--primary-emerald)]/35 shadow-[0_0_15px_rgba(20,184,166,0.12)] font-semibold'
+                : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-raised)]/60 hover:text-[var(--text-primary)] border border-transparent'
             }`}
           >
             <Settings size={20} strokeWidth={currentTab === 'settings' ? 2 : 1.5} />
@@ -116,34 +116,36 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
           </button>
 
           <div className="relative group pt-1">
-            <div className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-[#030712] border border-slate-800 cursor-pointer">
+            <div className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] cursor-pointer">
               {user?.photoURL ? (
                 <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full object-cover" />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-400">
+                <div className="w-8 h-8 rounded-full bg-[var(--primary-subtle)] flex items-center justify-center text-[var(--primary-emerald)]">
                   <UserIcon size={16} />
                 </div>
               )}
               <div className="flex flex-col flex-1 truncate">
-                <span className="text-xs font-medium text-white truncate">
-                  {user?.displayName || user?.email?.split('@')[0]}
+                <span className="text-xs font-medium text-[var(--text-primary)] truncate">
+                  {user?.displayName || user?.email?.split('@')[0] || 'Guest Listener'}
                 </span>
-                <span className="text-[10px] text-slate-500 truncate">{user?.email}</span>
+                <span className="text-[10px] text-[var(--text-muted)] truncate">{user?.email || 'No account required'}</span>
               </div>
             </div>
 
             {/* Dropdown Menu */}
-            <div className="absolute bottom-full left-0 w-full mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-              <div className="bg-[#0A0F1C] border border-slate-800 rounded-xl p-2 shadow-2xl">
-                <button
-                  type="button"
-                  onClick={logOut}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-red-400 hover:bg-red-400/10 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-                >
-                  <LogOut size={16} /> Sign Out
-                </button>
+            {user && (
+              <div className="absolute bottom-full left-0 w-full mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                <div className="bg-[var(--bg-surface)] border border-[var(--border-color-highlight)] rounded-xl p-2 shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={logOut}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-[var(--status-error)] hover:bg-red-500/10 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    <LogOut size={16} /> Sign Out
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -155,7 +157,7 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
           ========================================================================= */}
       <nav
         aria-label="Mobile Navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#070B14]/95 backdrop-blur-2xl border-t border-slate-800/90 z-50 px-2 pt-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] shadow-[0_-8px_30px_rgba(0,0,0,0.6)]"
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-[var(--bg-primary)] border-t border-[var(--border-color-highlight)] z-50 px-2 pt-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] shadow-[0_-8px_30px_rgba(0,0,0,0.4)] transition-colors"
       >
         <div className="grid grid-cols-4 items-center gap-1 max-w-md mx-auto">
           {bottomNavItems.map(item => {
@@ -166,13 +168,13 @@ export function Sidebar({ currentTab, setCurrentTab }: SidebarProps) {
                 type="button"
                 onClick={() => setCurrentTab(item.id)}
                 className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl min-h-[48px] transition-all cursor-pointer ${
-                  active ? 'text-teal-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
+                  active ? 'text-[var(--primary-emerald)] font-semibold' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                <div className={`p-1 rounded-lg transition-colors ${active ? 'bg-teal-500/15' : ''}`}>
+                <div className={`p-1 rounded-lg transition-colors ${active ? 'bg-[var(--primary-subtle)]' : ''}`}>
                   <item.icon size={20} strokeWidth={active ? 2.3 : 1.7} />
                 </div>
-                <span className={`text-[11px] tracking-tight truncate max-w-full ${active ? 'text-teal-300 font-medium' : 'text-slate-400'}`}>
+                <span className={`text-[11px] tracking-tight truncate max-w-full ${active ? 'text-[var(--primary-emerald)] font-medium' : 'text-[var(--text-muted)]'}`}>
                   {item.label}
                 </span>
               </button>

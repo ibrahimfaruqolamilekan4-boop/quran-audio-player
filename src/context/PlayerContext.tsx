@@ -394,11 +394,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const chaptersRef = useRef<Chapter[]>([]);
   const currentChapterRef = useRef<Chapter | null>(null);
   const currentReciterRef = useRef<Reciter | null>(null);
+  const isPlayingRef = useRef<boolean>(false);
+  const loadedReciterIdRef = useRef<string | null>(null);
   const nextChapterRef = useRef<() => void>(() => {});
 
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
   useEffect(() => { currentReciterRef.current = currentReciter; }, [currentReciter]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   /**
    * Push all locally saved sheikhs, profile photos, and background videos from this system
@@ -578,8 +581,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         setCustomReciters(localReciters);
       }
 
-      // Automatically migrate any local sheikhs, photos, and videos saved on this system to cloud DB
-      await syncLocalAssetsToCloud();
+      // Automatically migrate any local sheikhs, photos, and videos saved on this system to cloud DB (Admin only)
+      if (user?.role === 'admin') {
+        await syncLocalAssetsToCloud();
+      }
     }
     loadCustomAssets();
   }, [user, syncLocalAssetsToCloud]);
@@ -914,6 +919,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     setPlaybackError(null);
     setCurrentChapter(chapter);
+    try { localStorage.setItem('nooraya:lastChapterId', String(chapter.id)); } catch {}
+    loadedReciterIdRef.current = reciter.id;
 
     const streamUrls =
       useAyahStream && voice
@@ -955,11 +962,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!useAyahStream) {
       getOfflineAudioUrl(chapter.id, reciter.id)
         .then(offlineUrl => {
-          if (offlineUrl && attemptRef.current?.cacheKey === cacheKey) {
-            attemptRef.current.urls = [offlineUrl, ...streamUrls];
-            if (!offlineUrl.startsWith('blob:')) {
-              setLastCanonicalStreamUrl(offlineUrl);
-            }
+          const attempt = attemptRef.current;
+          if (!offlineUrl || !attempt || attempt.cacheKey !== cacheKey) return;
+          if (!offlineUrl.startsWith('blob:')) {
+            setLastCanonicalStreamUrl(offlineUrl);
+          }
+          const isOfflineOrPreReady =
+            (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+            Boolean(quranAudioRef.current?.error) ||
+            (quranAudioRef.current?.readyState ?? 0) < 2;
+          if (isOfflineOrPreReady) {
+            attempt.urls = [offlineUrl, ...streamUrls];
+            attemptPlayback(0);
+          } else if (!attempt.urls.includes(offlineUrl)) {
+            attempt.urls = [...attempt.urls, offlineUrl];
           }
         })
         .catch(() => {});
@@ -1177,7 +1193,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // Switching sheikh mid-surah used to leave the old recitation playing, because the audio
   // element kept its src. Re-open the same surah from the new mirror, keeping the position.
-  const loadedReciterIdRef = useRef<string | null>(null);
   useEffect(() => {
     const previousId = loadedReciterIdRef.current;
     if (!currentReciter) return;
@@ -1187,9 +1202,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const chapter = currentChapterRef.current;
     if (!chapter) return;
     const resumeAt = quranAudioRef.current?.currentTime || 0;
-    const wasPlaying = isPlaying;
+    const wasPlaying = isPlayingRef.current;
     void startChapter(chapter, currentReciter, { resumeAt, autoplay: wasPlaying });
-  }, [currentReciter, isPlaying, startChapter]);
+  }, [currentReciter, startChapter]);
 
   // MediaSession API: Shows surah, reciter profile photo, and controls on phone lock screen / background
   useEffect(() => {
