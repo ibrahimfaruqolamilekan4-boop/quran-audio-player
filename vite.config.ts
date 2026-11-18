@@ -206,8 +206,11 @@ export default defineConfig(() => {
           clientsClaim: true,
           skipWaiting: true,
           cleanupOutdatedCaches: true,
+          // Never intercept crawler verification files with cached index.html
           navigateFallbackDenylist: [
             /^\/api\/.*/,
+            /^\/ads\.txt$/,
+            /^\/robots\.txt$/,
             /^\/control-audio-test\.html$/,
             /^\/offline-audio\/.*/,
             /^\/audio\/.*/,

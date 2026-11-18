@@ -18,3 +18,10 @@ View your app in AI Studio: https://ai.studio/apps/9ba2faf5-d7d8-4214-8507-7dc75
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Google AdSense Verification & Policy
+
+Only site-verification metadata (`<meta name="google-adsense-account">` in `index.html` and `public/ads.txt`) is active prior to approval. No ad script (`adsbygoogle.js`) or ad slots are loaded.
+
+- AdSense script must only be added after approval, only for free users, only after consent, never on payment/auth/admin/player screens
+
