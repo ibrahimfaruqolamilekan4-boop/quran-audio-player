@@ -5,6 +5,9 @@ import {
   getAmbientAudio,
   markDeliberateUserPause,
   isDeliberatelyPausedByUser,
+  isBackgroundAudioDuckedForAdhan,
+  markPageBackgrounded,
+  wasRecentlyBackgrounded,
   setLastCanonicalStreamUrl,
   resumeQuranPlaybackSync,
 } from '../lib/persistentAudio';
@@ -711,17 +714,107 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
     };
+    let bgRecoverTimer: number | null = null;
     const handlePause = () => {
       const qa = quranAudioRef.current;
       // Do not treat track end transition as a user pause
       if (qa && qa.ended) return;
 
-      // CRITICAL FIX (Phase 1A): Even when document.visibilityState === 'hidden'
-      // (i.e. phone screen is locked and user pressed Pause on the lock screen or
-      // unplugged headphones), we MUST update isPlaying = false, pause ambient audio,
-      // and set mediaSession.playbackState = 'paused' so the lock screen shows the
-      // Play button and pressing Play resumes synchronously!
+      // Ignore silent-wav unlock pause before any real track is loaded
+      if (qa && (!qa.src || qa.src.startsWith('data:audio/wav'))) return;
+
+      // If Adhan deliberately ducked & paused Quran, preserve that state
+      if (isBackgroundAudioDuckedForAdhan()) {
+        setIsPlaying(false);
+        return;
+      }
+
       if (isFeatureEnabled('newAudioResumeEngine')) {
+        // CRITICAL BACKGROUND PLAYBACK GUARD:
+        // If the page JUST went into background (user pressed Home, switched apps,
+        // or locked screen) and the user did NOT click Pause in UI or on the lock
+        // screen (`!isDeliberatelyPausedByUser()`), mobile browsers can fire a
+        // transient pause as the window hides or decorative <video> pauses.
+        // Recover immediately so Quran continues playing uninterrupted in background!
+        if (
+          document.hidden &&
+          !isDeliberatelyPausedByUser() &&
+          wasRecentlyBackgrounded(3000) &&
+          qa &&
+          Boolean(qa.src)
+        ) {
+          recordDiagEvent({
+            category: 'lifecycle',
+            event: 'BACKGROUND_TRANSITION_PAUSE_RECOVER',
+            elementId: 'quran',
+            readyState: qa.readyState,
+            networkState: qa.networkState,
+            currentTime: qa.currentTime,
+            src: qa.src,
+          });
+          try {
+            if ('mediaSession' in navigator) {
+              navigator.mediaSession.playbackState = 'playing';
+            }
+          } catch {}
+
+          const attemptRecover = () => {
+            if (isDeliberatelyPausedByUser() || isBackgroundAudioDuckedForAdhan()) return;
+            if (!qa.paused) return;
+            resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
+              .then(() => {
+                setIsPlaying(true);
+                if (ambientAudioRef.current && ambientAudioRef.current.getAttribute('src')) {
+                  ambientAudioRef.current.play().catch(() => {});
+                }
+                try {
+                  if ('mediaSession' in navigator) {
+                    navigator.mediaSession.playbackState = 'playing';
+                  }
+                } catch {}
+              })
+              .catch(() => {
+                // Retry once after 350ms in case the OS audio route was still settling
+                if (bgRecoverTimer) window.clearTimeout(bgRecoverTimer);
+                bgRecoverTimer = window.setTimeout(() => {
+                  bgRecoverTimer = null;
+                  if (isDeliberatelyPausedByUser() || isBackgroundAudioDuckedForAdhan() || !qa.paused) {
+                    return;
+                  }
+                  resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
+                    .then(() => {
+                      setIsPlaying(true);
+                      try {
+                        if ('mediaSession' in navigator) {
+                          navigator.mediaSession.playbackState = 'playing';
+                        }
+                      } catch {}
+                    })
+                    .catch(() => {
+                      // Genuine external interruption (phone call / another media app took exclusive focus).
+                      // Sync UI & lock-screen state, but do NOT mark deliberatePauseByUser=true so
+                      // returning to app or tapping lock-screen Play resumes cleanly.
+                      if (ambientAudioRef.current && !ambientAudioRef.current.paused) {
+                        ambientAudioRef.current.pause();
+                      }
+                      setIsPlaying(false);
+                      try {
+                        if ('mediaSession' in navigator) {
+                          navigator.mediaSession.playbackState = 'paused';
+                        }
+                      } catch {}
+                    });
+                }, 350);
+              });
+          };
+
+          attemptRecover();
+          return;
+        }
+
+        // Genuine user pause (UI button, lock-screen MediaSession pause, or hardware
+        // disconnect >3s after backgrounding): sync React state, pause ambient, and
+        // show Play button on lock screen.
         markDeliberateUserPause(true);
         if (ambientAudioRef.current && !ambientAudioRef.current.paused) {
           ambientAudioRef.current.pause();
@@ -796,10 +889,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       quranAudio.removeEventListener('canplay', handleCanPlay);
       quranAudio.removeEventListener('seeking', handleSeeking);
       quranAudio.removeEventListener('seeked', handleSeeked);
+      if (bgRecoverTimer) window.clearTimeout(bgRecoverTimer);
       quranAudio.removeEventListener('error', handleError);
-
-      quranAudio.pause();
-      ambientAudioRef.current?.pause();
     };
   }, [attemptPlayback, failAndAdvance, cacheInBackground]);
 
@@ -842,33 +933,55 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [playbackRate]);
 
   useEffect(() => {
-    if (!ambientAudioRef.current) return;
-    
+    const ambient = ambientAudioRef.current;
+    if (!ambient) return;
+
     if (currentAmbient) {
-      if (ambientAudioRef.current.src !== currentAmbient.url) {
-        ambientAudioRef.current.src = currentAmbient.url;
+      const currentAttr = ambient.getAttribute('src') || '';
+      if (currentAttr !== currentAmbient.url && ambient.src !== currentAmbient.url) {
+        ambient.src = currentAmbient.url;
       }
-      ambientAudioRef.current.volume = ambientVolume;
-      
+      ambient.volume = ambientVolume;
+
       if (isPlaying) {
-        ambientAudioRef.current.play().catch(e => console.warn('Ambient blocked:', e?.message));
-      } else {
-        ambientAudioRef.current.pause();
+        ambient.play().catch(e => console.warn('Ambient blocked:', e?.message));
+      } else if (!ambient.paused) {
+        ambient.pause();
       }
     } else {
-      ambientAudioRef.current.pause();
-      ambientAudioRef.current.src = '';
+      // Only pause/clear if an ambient track was actually loaded.
+      // Never set `ambient.src = ''` (which requests the HTML document and fires a
+      // MEDIA_ERR_SRC_NOT_SUPPORTED error right as Quran audio starts on mobile Safari!).
+      if (!ambient.paused) {
+        ambient.pause();
+      }
+      if (ambient.getAttribute('src')) {
+        ambient.removeAttribute('src');
+      }
     }
   }, [currentAmbient, isPlaying, ambientVolume]);
 
-  // Auto-resume audio ONLY if the browser throttled during tab-switch (never if user paused on lock screen)
+  // Keep MediaSession active on background transition & auto-recover if browser throttled playback
   useEffect(() => {
     const handleVisibility = () => {
-      if (isDeliberatelyPausedByUser()) return;
-      if (!document.hidden && isPlaying && quranAudioRef.current?.paused) {
+      const qa = quranAudioRef.current;
+      if (document.hidden) {
+        markPageBackgrounded();
+        if (qa && !qa.paused && Boolean(qa.src) && !isDeliberatelyPausedByUser()) {
+          try {
+            if ('mediaSession' in navigator) {
+              navigator.mediaSession.playbackState = 'playing';
+            }
+          } catch {}
+        }
+        return;
+      }
+
+      if (isDeliberatelyPausedByUser() || isBackgroundAudioDuckedForAdhan()) return;
+      if (isPlaying && qa?.paused && Boolean(qa.src) && !qa.ended) {
         resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
           .then(() => {
-            if (currentAmbient && ambientAudioRef.current?.paused) {
+            if (currentAmbient && ambientAudioRef.current?.paused && ambientAudioRef.current.getAttribute('src')) {
               ambientAudioRef.current.play().catch(() => {});
             }
           })
@@ -1206,7 +1319,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     void startChapter(chapter, currentReciter, { resumeAt, autoplay: wasPlaying });
   }, [currentReciter, startChapter]);
 
-  // MediaSession API: Shows surah, reciter profile photo, and controls on phone lock screen / background
+  // MediaSession Metadata: Only recreate when track/reciter/ayah actually changes
+  // (never on play/pause toggles, which causes OS Now Playing notifications to flicker or drop)
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
@@ -1246,14 +1360,39 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.warn('Failed to set MediaSession metadata:', e);
     }
+  }, [
+    currentChapter?.id,
+    currentChapter?.name_simple,
+    currentChapter?.name_arabic,
+    currentReciter?.id,
+    currentReciter?.name,
+    currentReciter?.nameArabic,
+    currentReciter?.imageUrl,
+    currentAyah?.surah,
+    currentAyah?.ayah,
+  ]);
 
-    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-  }, [currentChapter, currentReciter, currentAyah, isPlaying]);
+  // Keep MediaSession playbackState synchronized without rebuilding metadata
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    if (!currentChapter || !currentReciter) {
+      try { navigator.mediaSession.playbackState = 'none'; } catch {}
+      return;
+    }
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch {}
+  }, [isPlaying, currentChapter?.id, currentReciter?.id]);
 
-  // Position state for phone lock screen scrubber
+  // Position state for phone lock screen scrubber (throttled to avoid spamming OS media bridge)
+  const lastPosSyncRef = useRef<number>(0);
   useEffect(() => {
     if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
     if (!currentChapter || !duration || isNaN(duration) || duration <= 0) return;
+
+    const now = Date.now();
+    if (now - lastPosSyncRef.current < 5000 && currentTime > 1) return;
+    lastPosSyncRef.current = now;
 
     try {
       navigator.mediaSession.setPositionState({
@@ -1264,7 +1403,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Incase duration is out of range during track transitions
     }
-  }, [currentTime, duration, playbackRate, currentChapter]);
+  }, [currentTime, duration, playbackRate, currentChapter?.id, isPlaying]);
 
   // MediaSession action handlers (next, prev, play, pause, seek) — 100% synchronous inside gesture
   useEffect(() => {

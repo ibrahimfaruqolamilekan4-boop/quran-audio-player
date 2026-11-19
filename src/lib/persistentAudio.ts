@@ -27,6 +27,7 @@ let adhanAudioInstance: HTMLAudioElement | null = null;
 let deliberatePauseByUser = true;
 let lastKnownPositionSec = 0;
 let lastCanonicalStreamUrl = '';
+let lastBackgroundedAtMs = 0;
 
 export function markDeliberateUserPause(isDeliberate: boolean): void {
   deliberatePauseByUser = isDeliberate;
@@ -34,6 +35,18 @@ export function markDeliberateUserPause(isDeliberate: boolean): void {
 
 export function isDeliberatelyPausedByUser(): boolean {
   return deliberatePauseByUser;
+}
+
+export function markPageBackgrounded(ts = Date.now()): void {
+  lastBackgroundedAtMs = ts;
+}
+
+export function getLastBackgroundedAtMs(): number {
+  return lastBackgroundedAtMs;
+}
+
+export function wasRecentlyBackgrounded(windowMs = 3000): boolean {
+  return lastBackgroundedAtMs > 0 && Date.now() - lastBackgroundedAtMs <= windowMs;
 }
 
 export function setLastCanonicalStreamUrl(url: string): void {
@@ -50,9 +63,53 @@ export function getLastKnownPositionSec(): number {
   return lastKnownPositionSec;
 }
 
+function attachToPersistentDomHost(el: HTMLAudioElement, role: 'quran' | 'ambient' | 'adhan'): void {
+  if (typeof document === 'undefined' || !el || typeof (el as any).setAttribute !== 'function') {
+    return;
+  }
+  try {
+    el.setAttribute('data-nooraya-audio', role);
+    el.setAttribute('aria-hidden', 'true');
+    if (role === 'quran') {
+      el.setAttribute('x-webkit-airplay', 'allow');
+    }
+    const mount = () => {
+      if (!document.body) return;
+      let host = document.getElementById('nooraya-persistent-audio-host');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'nooraya-persistent-audio-host';
+        host.setAttribute('aria-hidden', 'true');
+        host.style.cssText =
+          'position:fixed;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;';
+        document.body.appendChild(host);
+      }
+      if (el.parentNode !== host) {
+        host.appendChild(el);
+      }
+    };
+    if (document.body) {
+      mount();
+    } else {
+      document.addEventListener('DOMContentLoaded', mount, { once: true });
+    }
+  } catch {
+    // Fallback cleanly in non-DOM test environments
+  }
+}
+
 function createSafeAudioElement(): HTMLAudioElement {
   if (typeof Audio !== 'undefined') {
-    return new Audio();
+    const el = new Audio();
+    if (el && typeof el.play === 'function') {
+      return el;
+    }
+  }
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const el = document.createElement('audio');
+    if (el && typeof el.play === 'function') {
+      return el;
+    }
   }
   const stub: any = {
     src: '',
@@ -69,6 +126,8 @@ function createSafeAudioElement(): HTMLAudioElement {
     onended: null,
     onerror: null,
     setAttribute() {},
+    removeAttribute() {},
+    getAttribute() { return null; },
     addEventListener() {},
     removeEventListener() {},
     load() {},
@@ -92,6 +151,7 @@ export function getQuranAudio(): HTMLAudioElement {
     // so CDN redirects and Range requests are never blocked by CORS preflights.
     quranAudioInstance.removeAttribute?.('crossorigin');
     (quranAudioInstance as any).x5Playsinline = true;
+    attachToPersistentDomHost(quranAudioInstance, 'quran');
 
     quranAudioInstance.addEventListener('timeupdate', () => {
       if (quranAudioInstance && quranAudioInstance.currentTime > 0) {
@@ -113,6 +173,7 @@ export function getAmbientAudio(): HTMLAudioElement {
     ambientAudioInstance.setAttribute('webkit-playsinline', 'true');
     ambientAudioInstance.removeAttribute?.('crossorigin');
     (ambientAudioInstance as any).x5Playsinline = true;
+    attachToPersistentDomHost(ambientAudioInstance, 'ambient');
     instrumentAudioElement(ambientAudioInstance, 'ambient');
   }
   return ambientAudioInstance;
@@ -126,6 +187,7 @@ export function getAdhanAudio(): HTMLAudioElement {
     adhanAudioInstance.setAttribute('webkit-playsinline', 'true');
     adhanAudioInstance.removeAttribute?.('crossorigin');
     (adhanAudioInstance as any).x5Playsinline = true;
+    attachToPersistentDomHost(adhanAudioInstance, 'adhan');
     instrumentAudioElement(adhanAudioInstance, 'adhan');
   }
   return adhanAudioInstance;
@@ -292,30 +354,28 @@ export function unlockAudio() {
   if (isAudioUnlocked) return;
   isAudioUnlocked = true;
   const quranAudio = getQuranAudio();
-  const ambientAudio = getAmbientAudio();
-  const adhanAudio = getAdhanAudio();
   const silentWav =
     'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
-  for (const el of [quranAudio, ambientAudio, adhanAudio]) {
-    if (el.paused && !el.getAttribute('src') && !el.src) {
-      el.src = silentWav;
-      el.play()
-        .then(() => {
-          // Only pause/clear if no real track took over while play() promise was resolving
-          if (el.src === silentWav || el.src.startsWith('data:audio/wav')) {
-            el.pause();
-            el.currentTime = 0;
-            el.removeAttribute('src');
-            el.load();
-          }
-        })
-        .catch(() => {
-          if (el.src === silentWav || el.src.startsWith('data:audio/wav')) {
-            el.removeAttribute('src');
-          }
-        });
-    }
+  // Only gently prime the primary Quran audio element if nothing is loaded yet.
+  // Avoid concurrently calling play()/pause()/load() on sibling elements (ambient/adhan)
+  // which can disrupt iOS WebKit AVAudioSession ownership during initial Play tap.
+  if (quranAudio.paused && !quranAudio.getAttribute('src') && !quranAudio.src) {
+    quranAudio.src = silentWav;
+    quranAudio
+      .play()
+      .then(() => {
+        if (quranAudio.src === silentWav || quranAudio.src.startsWith('data:audio/wav')) {
+          quranAudio.pause();
+          quranAudio.currentTime = 0;
+          quranAudio.removeAttribute('src');
+        }
+      })
+      .catch(() => {
+        if (quranAudio.src === silentWav || quranAudio.src.startsWith('data:audio/wav')) {
+          quranAudio.removeAttribute('src');
+        }
+      });
   }
 }
 

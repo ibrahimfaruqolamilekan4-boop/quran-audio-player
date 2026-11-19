@@ -97,6 +97,7 @@ export function NowPlayingOverlay() {
   const reduceMotion = useReducedMotion();
   const close = useCallback(() => setNowPlayingOpen(false), [setNowPlayingOpen]);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const overlayVideoRef = useRef<HTMLVideoElement>(null);
   const resolvedOverlayVideoSrc = useBackgroundVideoSrc(activeBackgroundVideoId, customVideos);
   const resolvedOverlayPoster = React.useMemo(() => {
     if (!activeBackgroundVideoId && customVideos.length === 0) return '';
@@ -147,6 +148,34 @@ export function NowPlayingOverlay() {
       window.dispatchEvent(new CustomEvent('nooraya-now-playing-visibility', { detail: false }));
     };
   }, [isOpen]);
+
+  // Immediately pause decorative overlay <video> whenever the app leaves foreground so mobile
+  // browsers (iOS Safari / PWA / Android Chrome) never suspend or steal MediaSession from Quran <audio>.
+  useEffect(() => {
+    const syncOverlayVideo = () => {
+      const vid = overlayVideoRef.current;
+      if (!vid) return;
+      if (document.hidden || !isOpen || reduceMotion) {
+        try { vid.pause(); } catch {}
+      } else {
+        try {
+          vid.muted = true;
+          vid.defaultMuted = true;
+          vid.play().catch(() => {});
+        } catch {}
+      }
+    };
+    const pauseOnPageHide = () => {
+      try { overlayVideoRef.current?.pause(); } catch {}
+    };
+    syncOverlayVideo();
+    document.addEventListener('visibilitychange', syncOverlayVideo);
+    window.addEventListener('pagehide', pauseOnPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', syncOverlayVideo);
+      window.removeEventListener('pagehide', pauseOnPageHide);
+    };
+  }, [isOpen, reduceMotion, resolvedOverlayVideoSrc]);
 
   // Check if current track is in favorites
   useEffect(() => {
@@ -309,15 +338,17 @@ export function NowPlayingOverlay() {
               {/* Layer 2B: Synced muted background video */}
               {!reduceMotion && resolvedOverlayVideoSrc && (
                 <video
+                  ref={overlayVideoRef}
                   key={resolvedOverlayVideoSrc}
                   src={resolvedOverlayVideoSrc}
                   poster={resolvedOverlayPoster || undefined}
-                  autoPlay
+                  autoPlay={!document.hidden}
                   loop
                   muted
                   playsInline
                   preload="metadata"
                   disablePictureInPicture
+                  disableRemotePlayback
                   aria-hidden="true"
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{
