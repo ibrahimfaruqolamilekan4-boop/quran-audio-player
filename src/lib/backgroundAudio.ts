@@ -9,7 +9,9 @@
 import {
   getQuranAudio,
   getAmbientAudio,
+  isBackgroundAudioDuckedForAdhan,
   isDeliberatelyPausedByUser,
+  markPageBackgrounded,
   resumeQuranPlaybackSync,
 } from './persistentAudio';
 import { isFeatureEnabled } from './featureFlags';
@@ -59,10 +61,28 @@ export function installBackgroundAudioKeepAlive(): void {
     releaseWakeLock();
   });
 
+  const handleBackgroundTransition = () => {
+    markPageBackgrounded();
+    releaseWakeLock();
+
+    // Re-assert MediaSession playing state as the app enters background so mobile OS
+    // keeps the background audio focus & lock-screen controls active.
+    if (!quran.paused && Boolean(quran.src) && !isDeliberatelyPausedByUser()) {
+      try {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing';
+        }
+      } catch {}
+    }
+  };
+
   // When returning to foreground, only re-acquire wakeLock if already playing,
   // or recover if the OS suspended playback WITHOUT a deliberate user/lock-screen pause.
-  const handleForeground = () => {
-    if (document.visibilityState !== 'visible') return;
+  const handleVisibilityOrPageShow = () => {
+    if (document.visibilityState !== 'visible') {
+      handleBackgroundTransition();
+      return;
+    }
 
     if (!quran.paused) {
       void acquireWakeLock();
@@ -72,6 +92,7 @@ export function installBackgroundAudioKeepAlive(): void {
     if (
       isFeatureEnabled('newAudioResumeEngine') &&
       !isDeliberatelyPausedByUser() &&
+      !isBackgroundAudioDuckedForAdhan() &&
       Boolean(quran.src) &&
       !quran.ended
     ) {
@@ -90,6 +111,7 @@ export function installBackgroundAudioKeepAlive(): void {
     }
   };
 
-  document.addEventListener('visibilitychange', handleForeground);
-  window.addEventListener('pageshow', handleForeground);
+  document.addEventListener('visibilitychange', handleVisibilityOrPageShow);
+  window.addEventListener('pagehide', handleBackgroundTransition);
+  window.addEventListener('pageshow', handleVisibilityOrPageShow);
 }

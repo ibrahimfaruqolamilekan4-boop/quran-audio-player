@@ -18,6 +18,8 @@ import {
   getQuranAudio,
   markDeliberateUserPause,
   isDeliberatelyPausedByUser,
+  markPageBackgrounded,
+  wasRecentlyBackgrounded,
   setLastCanonicalStreamUrl,
   getLastCanonicalStreamUrl,
   resumeQuranPlaybackSync,
@@ -204,6 +206,46 @@ describe('Production Fix Pack — Phases 0 to 5 Verification Suite', () => {
     ]);
     expect(hydrated[0].audio_url).toBe('/audio/adhan/madinah-standard.mp3');
     expect(hydrated[0].fajr_audio_url).toBe('/audio/adhan/madinah-fajr-bukhari.mp3');
+  });
+
+  it('Background Playback Solid Fix: mounts singleton Quran <audio> in DOM host, tracks background transitions, and prevents decorative <video> / ambient pipeline interference', () => {
+    const quran = getQuranAudio();
+    const host = document.getElementById('nooraya-persistent-audio-host');
+    expect(host).not.toBeNull();
+    expect(host?.contains(quran)).toBe(true);
+    expect(quran.getAttribute('data-nooraya-audio')).toBe('quran');
+
+    markPageBackgrounded();
+    expect(wasRecentlyBackgrounded(3000)).toBe(true);
+
+    const overlaySrc = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/NowPlayingOverlay.tsx'),
+      'utf8'
+    );
+    expect(overlaySrc).toContain('disableRemotePlayback');
+    expect(overlaySrc).toContain("window.addEventListener('pagehide'");
+    expect(overlaySrc).toContain("document.addEventListener('visibilitychange'");
+
+    const bgSrc = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/QuranicPremiumBackground.tsx'),
+      'utf8'
+    );
+    expect(bgSrc).toContain('disableRemotePlayback');
+    expect(bgSrc).toContain("window.addEventListener('pagehide'");
+
+    const playerCtxSrc = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/context/PlayerContext.tsx'),
+      'utf8'
+    );
+    expect(playerCtxSrc).toContain('BACKGROUND_TRANSITION_PAUSE_RECOVER');
+    expect(playerCtxSrc).not.toMatch(/^\s*ambient\.src\s*=\s*['"]['"];?/m);
+    expect(playerCtxSrc).toContain("ambient.removeAttribute('src')");
+
+    const ambientHookSrc = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/hooks/useAmbientPlayer.ts'),
+      'utf8'
+    );
+    expect(ambientHookSrc).not.toContain('navigator.mediaSession.metadata = null');
   });
 });
 

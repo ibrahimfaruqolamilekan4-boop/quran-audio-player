@@ -701,9 +701,17 @@ function getVideoPoster(url: string | null | undefined): string {
         }
       }
     };
+    const pauseAll = () => {
+      if (videoRefA.current) videoRefA.current.pause();
+      if (videoRefB.current) videoRefB.current.pause();
+    };
     handleVisibility();
     document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', pauseAll);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', pauseAll);
+    };
   }, [slotAUrl, slotBUrl, activeSlot, prefersReducedMotion, isOverlayOpen]);
 
   const activePoster = getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl);
@@ -774,6 +782,7 @@ function getVideoPoster(url: string | null | undefined): string {
             playsInline
             preload="metadata"
             disablePictureInPicture
+            disableRemotePlayback
             aria-hidden="true"
             className="fixed inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-700 ease-out"
             style={{
@@ -818,6 +827,7 @@ function getVideoPoster(url: string | null | undefined): string {
             playsInline
             preload="metadata"
             disablePictureInPicture
+            disableRemotePlayback
             aria-hidden="true"
             className="fixed inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-700 ease-out"
             style={{

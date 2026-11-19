@@ -282,4 +282,79 @@ test.describe('Nooraya Production Smoke & Visual Layer Verification', () => {
     await expect(page.getByText(/It is time for Fajr/i)).toBeVisible();
     await expect(page.getByText(/Fajr Prayer/i)).toBeVisible();
   });
+
+  test('8. Leaving the app pauses decorative <video>, keeps DOM-anchored Quran <audio> playing, and recovers transient OS background pause', async ({ page }) => {
+    await setupDashboardHarness(page, { isPremium: true });
+    await page.goto('/dashboard/library');
+
+    await page.getByText('Al-Fatihah', { exact: true }).first().click();
+    const overlay = page.getByRole('dialog', { name: 'Now playing' });
+    await expect(overlay).toBeVisible();
+
+    // Verify singleton Quran <audio> is anchored inside #nooraya-persistent-audio-host and playing
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+        return Boolean(q && !q.paused && q.src);
+      });
+    }, { timeout: 10000 }).toBe(true);
+
+    // Simulate user leaving the app / locking screen (document.hidden -> true)
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // All decorative <video> elements must immediately pause when backgrounded
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const videos = Array.from(document.querySelectorAll('video'));
+        return videos.every((v) => v.paused);
+      });
+    }, { timeout: 5000 }).toBe(true);
+
+    // Quran <audio> must remain playing with MediaSession playbackState === 'playing'
+    const bgState = await page.evaluate(() => {
+      const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+      return {
+        paused: q?.paused ?? true,
+        mediaSessionState: navigator.mediaSession?.playbackState ?? 'none',
+      };
+    });
+    expect(bgState.paused).toBe(false);
+    expect(bgState.mediaSessionState).toBe('playing');
+
+    // Simulate involuntary transient OS pause right after backgrounding (user did NOT click Pause)
+    await page.evaluate(() => {
+      const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+      q?.pause();
+    });
+
+    // Player should immediately recover playback instead of dropping background audio
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+        return Boolean(q && !q.paused);
+      });
+    }, { timeout: 5000 }).toBe(true);
+
+    // Return to foreground and verify genuine user Pause still works without auto-resuming
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    const pauseBtn = overlay.getByRole('button', { name: /Pause/i }).first();
+    await expect(pauseBtn).toBeVisible();
+    await pauseBtn.click();
+
+    await page.waitForTimeout(450);
+    const pausedAfterUserClick = await page.evaluate(() => {
+      const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+      return q?.paused ?? false;
+    });
+    expect(pausedAfterUserClick).toBe(true);
+  });
 });
