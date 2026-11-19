@@ -18,11 +18,14 @@ import {
   getQuranAudio,
   markDeliberateUserPause,
   isDeliberatelyPausedByUser,
+  getPausedDurationMs,
   markPageBackgrounded,
   wasRecentlyBackgrounded,
   setLastCanonicalStreamUrl,
   getLastCanonicalStreamUrl,
   resumeQuranPlaybackSync,
+  savePlaybackCheckpoint,
+  loadPlaybackCheckpoint,
 } from '../persistentAudio';
 import {
   selectAdaptiveVideoUrl,
@@ -246,6 +249,48 @@ describe('Production Fix Pack — Phases 0 to 5 Verification Suite', () => {
       'utf8'
     );
     expect(ambientHookSrc).not.toContain('navigator.mediaSession.metadata = null');
+  });
+
+  it('Step 4 Lock-Screen Pause->Resume Fix: gates behind lockScreenResumeEngine, persists playback checkpoint, reloads networkState===3 sockets, and guards handleError while paused', async () => {
+    expect(isFeatureEnabled('lockScreenResumeEngine')).toBe(true);
+
+    savePlaybackCheckpoint({
+      surahId: 2,
+      reciterId: 'mishary-alafasy',
+      positionSec: 185.4,
+      streamUrl: 'https://server8.mp3quran.net/afs/002.mp3',
+      playMode: 'surah',
+      ayah: null,
+    });
+
+    const ck = loadPlaybackCheckpoint();
+    expect(ck).not.toBeNull();
+    expect(ck?.surahId).toBe(2);
+    expect(ck?.positionSec).toBe(185.4);
+    expect(getLastCanonicalStreamUrl()).toBe('https://server8.mp3quran.net/afs/002.mp3');
+
+    markDeliberateUserPause(true);
+    expect(isDeliberatelyPausedByUser()).toBe(true);
+    expect(getPausedDurationMs()).toBeGreaterThanOrEqual(0);
+
+    // Simulate mobile OS dropping the idle HTTP Range socket while paused on lock screen (networkState === 3)
+    const quran = getQuranAudio();
+    Object.defineProperty(quran, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(quran, 'networkState', { value: 3, configurable: true });
+
+    await resumeQuranPlaybackSync({
+      fallbackUrls: ['https://server8.mp3quran.net/afs/002.mp3'],
+    });
+
+    expect(isDeliberatelyPausedByUser()).toBe(false);
+    expect(quran.src).toContain('002.mp3');
+
+    const playerCtxSrc = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/context/PlayerContext.tsx'),
+      'utf8'
+    );
+    expect(playerCtxSrc).toContain('PAUSED_SOCKET_CLOSED_DEFER_TO_LOCKSCREEN_RESUME');
+    expect(playerCtxSrc).toContain('lockScreenResumeEngine');
   });
 });
 

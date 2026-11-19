@@ -7,9 +7,12 @@ import {
   isDeliberatelyPausedByUser,
   isBackgroundAudioDuckedForAdhan,
   markPageBackgrounded,
+  clearPageBackgrounded,
   wasRecentlyBackgrounded,
   setLastCanonicalStreamUrl,
   resumeQuranPlaybackSync,
+  savePlaybackCheckpoint,
+  loadPlaybackCheckpoint,
 } from '../lib/persistentAudio';
 import { fetchActiveBackgrounds, subscribeToBackgrounds } from '../lib/supabase';
 import { addListeningLog } from '../lib/storage';
@@ -739,10 +742,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (
           document.hidden &&
           !isDeliberatelyPausedByUser() &&
-          wasRecentlyBackgrounded(3000) &&
+          wasRecentlyBackgrounded(1000) &&
           qa &&
           Boolean(qa.src)
         ) {
+          // Consume this background-transition window so at most one transient OS
+          // transition pause is recovered; any subsequent lock-screen Pause stays paused.
+          clearPageBackgrounded();
           recordDiagEvent({
             category: 'lifecycle',
             event: 'BACKGROUND_TRANSITION_PAUSE_RECOVER',
@@ -854,9 +860,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     // A 404 or a body that cannot be decoded surfaces here as well as in play()'s rejection;
     // failAndAdvance ignores whichever arrives second for the same URL.
+    // CRITICAL LOCK-SCREEN FIX (behind `lockScreenResumeEngine`):
+    // When the user pauses on the lock screen and waits 10s–30min, the mobile OS closes the
+    // idle HTTP Range socket and fires an `error` event while `quranAudio.paused === true`.
+    // Never advance `attemptPlayback()` (which calls `audio.play()` without a user gesture and
+    // burns all candidate URLs!) while deliberately paused. Instead, leave the track queued so
+    // `resumeQuranPlaybackSync()` reloads the stream cleanly inside the lock-screen Play gesture.
     const handleError = () => {
       const attempt = attemptRef.current;
+      const qa = quranAudioRef.current;
       if (!attempt) return;
+      if (
+        isFeatureEnabled('lockScreenResumeEngine') &&
+        (isDeliberatelyPausedByUser() || (qa?.paused && Boolean(attempt.playedUrl)))
+      ) {
+        recordDiagEvent({
+          category: 'media_session',
+          event: 'PAUSED_SOCKET_CLOSED_DEFER_TO_LOCKSCREEN_RESUME',
+          elementId: 'quran',
+          readyState: qa?.readyState,
+          networkState: qa?.networkState,
+          errorCode: qa?.error ? qa.error.code : null,
+          currentTime: qa?.currentTime,
+          src: qa?.src,
+        });
+        return;
+      }
       failAndAdvance(attempt.urls[attempt.index], 'audio element error event');
     };
 
@@ -1056,6 +1085,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playedUrl: null,
     };
     currentReciterRef.current = reciter;
+
+    if (isFeatureEnabled('lockScreenResumeEngine') && streamUrls[0]) {
+      savePlaybackCheckpoint({
+        surahId: chapter.id,
+        reciterId: reciter.id,
+        positionSec: useAyahStream ? 0 : resumeAt,
+        streamUrl: streamUrls[0],
+        playMode: playModeRef.current,
+        ayah: ayahNumber,
+      });
+    }
+
     attemptPlayback(0);
 
     // Asynchronously prepend admin-uploaded recitation if available
@@ -1319,6 +1360,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     void startChapter(chapter, currentReciter, { resumeAt, autoplay: wasPlaying });
   }, [currentReciter, startChapter]);
 
+  // Hydrate last saved playback checkpoint on cold boot so an evicted PWA process or
+  // reopened app restores the exact Surah, Reciter, and timestamp ready for one-tap or lock-screen resume
+  const hasHydratedCheckpointRef = useRef(false);
+  useEffect(() => {
+    if (hasHydratedCheckpointRef.current) return;
+    if (!isFeatureEnabled('lockScreenResumeEngine')) return;
+    if (currentChapter) {
+      hasHydratedCheckpointRef.current = true;
+      return;
+    }
+    const ck = loadPlaybackCheckpoint();
+    if (!ck) {
+      hasHydratedCheckpointRef.current = true;
+      return;
+    }
+    const list = chapters.length > 0 ? chapters : ALL_SURAHS;
+    const foundChapter = list.find((c) => Number(c.id) === Number(ck.surahId));
+    const foundReciter =
+      allReciters.find((r) => r.id === ck.reciterId) || currentReciter || allReciters[0];
+    if (!foundChapter || !foundReciter) return;
+
+    hasHydratedCheckpointRef.current = true;
+    setCurrentReciter(foundReciter);
+    setCurrentTime(ck.positionSec || 0);
+    startChapter(foundChapter, foundReciter, {
+      resumeAt: ck.positionSec || 0,
+      autoplay: false,
+      ayah: ck.ayah ?? undefined,
+    });
+  }, [chapters, allReciters, currentChapter, currentReciter, startChapter]);
+
   // MediaSession Metadata: Only recreate when track/reciter/ayah actually changes
   // (never on play/pause toggles, which causes OS Now Playing notifications to flicker or drop)
   useEffect(() => {
@@ -1425,30 +1497,60 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
         markDeliberateUserPause(false);
 
-        const playPromise = isFeatureEnabled('newAudioResumeEngine')
-          ? resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
+        const useResumeEngine =
+          isFeatureEnabled('lockScreenResumeEngine') || isFeatureEnabled('newAudioResumeEngine');
+        const playPromise = useResumeEngine
+          ? resumeQuranPlaybackSync({
+              fallbackUrls: attemptRef.current?.urls,
+            })
           : audio.play();
 
         playPromise
           .then(() => {
+            setPlaybackError(null);
             setIsPlaying(true);
-            if (ambientAudioRef.current && ambientAudioRef.current.src) {
+            if (ambientAudioRef.current && ambientAudioRef.current.getAttribute('src')) {
               ambientAudioRef.current.play().catch(() => {});
             }
             try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
           })
-          .catch(() => {
+          .catch((firstErr) => {
             try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
             window.setTimeout(() => {
               const retry = quranAudioRef.current;
               if (!retry) return;
-              resumeQuranPlaybackSync({ fallbackUrls: attemptRef.current?.urls })
+              resumeQuranPlaybackSync({
+                fallbackUrls: attemptRef.current?.urls,
+                forceReload: true,
+              })
                 .then(() => {
+                  setPlaybackError(null);
                   setIsPlaying(true);
+                  if (ambientAudioRef.current && ambientAudioRef.current.getAttribute('src')) {
+                    ambientAudioRef.current.play().catch(() => {});
+                  }
                   try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
                 })
-                .catch(() => {});
-            }, 200);
+                .catch((retryErr) => {
+                  setIsPlaying(false);
+                  setPlaybackError(
+                    'Playback paused while locked — tap Play to continue from your saved position.'
+                  );
+                  recordDiagEvent({
+                    category: 'error',
+                    event: 'MEDIASSESSION_PLAY_FINAL_FAILURE',
+                    elementId: 'quran',
+                    readyState: retry.readyState,
+                    networkState: retry.networkState,
+                    errorCode: retry.error ? retry.error.code : null,
+                    errorMessage: `${retryErr?.name || firstErr?.name || 'Error'}: ${
+                      retryErr?.message || firstErr?.message || 'Resume blocked'
+                    }`,
+                    currentTime: retry.currentTime,
+                    src: retry.src,
+                  });
+                });
+            }, 150);
           });
       }],
       ['pause', () => {
@@ -1539,13 +1641,30 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }],
     ];
 
-    for (const [action, handler] of actionHandlers) {
-      try {
-        navigator.mediaSession.setActionHandler(action, handler);
-      } catch {
-        /* Some actions not supported on all devices */
+    const registerHandlers = () => {
+      for (const [action, handler] of actionHandlers) {
+        try {
+          navigator.mediaSession.setActionHandler(action, handler);
+        } catch {
+          /* Some actions not supported on all devices */
+        }
       }
-    }
+    };
+
+    registerHandlers();
+
+    // Re-assert MediaSession action handlers once audio actually enters `playing` so iOS
+    // standalone PWA (WKWebView) binds them to the active lock-screen Now Playing session.
+    const qa = getQuranAudio();
+    const onPlayingRebind = () => {
+      if (isFeatureEnabled('lockScreenResumeEngine')) {
+        registerHandlers();
+      }
+    };
+    qa.addEventListener('playing', onPlayingRebind);
+    return () => {
+      qa.removeEventListener('playing', onPlayingRebind);
+    };
   }, []);
 
   return (
