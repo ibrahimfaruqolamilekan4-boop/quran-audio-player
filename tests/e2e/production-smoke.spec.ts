@@ -339,6 +339,43 @@ test.describe('Nooraya Production Smoke & Visual Layer Verification', () => {
       });
     }, { timeout: 5000 }).toBe(true);
 
+    // Simulate LOCK-SCREEN PAUSE -> idle socket close error while locked -> LOCK-SCREEN PLAY (still hidden!)
+    await page.evaluate(() => {
+      const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+      if (!q) return;
+      // User pauses from lock screen
+      q.pause();
+      // While paused in background for >10s, mobile OS closes idle HTTP Range socket and fires `error`
+      q.dispatchEvent(new Event('error'));
+    });
+
+    const afterLockScreenPause = await page.evaluate(() => {
+      const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+      return {
+        paused: q?.paused ?? false,
+        mediaSessionState: navigator.mediaSession?.playbackState ?? 'none',
+        checkpointRaw: localStorage.getItem('nooraya:playbackCheckpoint:v1'),
+      };
+    });
+    expect(afterLockScreenPause.paused).toBe(true);
+    expect(afterLockScreenPause.mediaSessionState).toBe('paused');
+    expect(afterLockScreenPause.checkpointRaw).toBeTruthy();
+
+    // User presses PLAY on lock screen / Control Center while app is still hidden
+    await page.evaluate(async () => {
+      const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+      if (q) {
+        await q.play();
+      }
+    });
+
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const q = document.querySelector('#nooraya-persistent-audio-host audio[data-nooraya-audio="quran"]') as HTMLAudioElement | null;
+        return Boolean(q && !q.paused && navigator.mediaSession?.playbackState === 'playing');
+      });
+    }, { timeout: 5000 }).toBe(true);
+
     // Return to foreground and verify genuine user Pause still works without auto-resuming
     await page.evaluate(() => {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });

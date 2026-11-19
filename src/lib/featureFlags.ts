@@ -14,6 +14,8 @@ export interface FeatureFlagsState {
   productionDiagLogger: boolean;
   /** Phase 1: Synchronous MediaSession lock-screen resume & stream recovery engine */
   newAudioResumeEngine: boolean;
+  /** Lock-Screen Pause->Resume & Reopen Checkpoint Engine (STEP 4 fix) */
+  lockScreenResumeEngine: boolean;
   /** Phase 2: Portrait/Landscape smart HD rendition selector & compositor-isolated video */
   hdPortraitVideoEngine: boolean;
   /** Phase 3: 4-layer opaque Medina Emerald backdrop & non-bleed Now Playing screen */
@@ -56,6 +58,17 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagMetadata[] = [
       'Toggle off `newAudioResumeEngine` in /diag or revert PR #1 (`phase-1-background-playback-resume`) to restore legacy play/pause handlers.',
   },
   {
+    key: 'lockScreenResumeEngine',
+    label: 'Lock-Screen Pause->Resume & Reopen Checkpoint Engine',
+    phase: 'Step 4 Fix',
+    description:
+      'Module-level singleton MediaSession resume engine: stops handleError from advancing URLs during lock-screen pause, reloads stalled network sockets (networkState===3 / paused >12s) with currentTime restoration, and persists/hydrates playback checkpoint every 3s.',
+    rolloutPercentage: 100,
+    defaultEnabled: true,
+    rollbackPlan:
+      'Toggle off `lockScreenResumeEngine` in /diag or revert PR (`fix/lockscreen-pause-resume-pwa`) to disable module-level lock-screen socket recovery and checkpoint hydration.',
+  },
+  {
     key: 'hdPortraitVideoEngine',
     label: 'Smart HD Portrait/Landscape Video & Compositor Engine',
     phase: 'Phase 2',
@@ -96,6 +109,7 @@ const DEVICE_BUCKET_KEY = 'nooraya_rollout_bucket_v1';
 const DEFAULT_FLAGS: FeatureFlagsState = {
   productionDiagLogger: true,
   newAudioResumeEngine: true,
+  lockScreenResumeEngine: true,
   hdPortraitVideoEngine: true,
   opaqueBackdropStack: true,
   scheduledAdhanEngine: true,

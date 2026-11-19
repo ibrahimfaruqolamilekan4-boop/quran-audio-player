@@ -28,24 +28,84 @@ let deliberatePauseByUser = true;
 let lastKnownPositionSec = 0;
 let lastCanonicalStreamUrl = '';
 let lastBackgroundedAtMs = 0;
+let lastPausedAtMs = 0;
+let lastCheckpointSaveMs = 0;
+
+export const PLAYBACK_CHECKPOINT_KEY = 'nooraya:playbackCheckpoint:v1';
+
+export interface PlaybackCheckpoint {
+  surahId: number;
+  reciterId: string;
+  positionSec: number;
+  streamUrl: string;
+  playMode?: 'surah' | 'ayah';
+  ayah?: number | null;
+  updatedAt: number;
+}
+
+export function savePlaybackCheckpoint(checkpoint: Omit<PlaybackCheckpoint, 'updatedAt'>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: PlaybackCheckpoint = {
+      ...checkpoint,
+      positionSec: Number((checkpoint.positionSec || 0).toFixed(2)),
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(PLAYBACK_CHECKPOINT_KEY, JSON.stringify(payload));
+    if (payload.streamUrl) {
+      setLastCanonicalStreamUrl(payload.streamUrl);
+    }
+    if (payload.positionSec > 0) {
+      lastKnownPositionSec = payload.positionSec;
+    }
+  } catch {}
+}
+
+export function loadPlaybackCheckpoint(): PlaybackCheckpoint | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(PLAYBACK_CHECKPOINT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PlaybackCheckpoint;
+    if (!parsed || typeof parsed.surahId !== 'number' || !parsed.reciterId) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 export function markDeliberateUserPause(isDeliberate: boolean): void {
   deliberatePauseByUser = isDeliberate;
+  if (isDeliberate) {
+    lastPausedAtMs = Date.now();
+  } else {
+    lastPausedAtMs = 0;
+  }
 }
 
 export function isDeliberatelyPausedByUser(): boolean {
   return deliberatePauseByUser;
 }
 
+export function getPausedDurationMs(): number {
+  return lastPausedAtMs > 0 ? Math.max(0, Date.now() - lastPausedAtMs) : 0;
+}
+
 export function markPageBackgrounded(ts = Date.now()): void {
   lastBackgroundedAtMs = ts;
+}
+
+export function clearPageBackgrounded(): void {
+  lastBackgroundedAtMs = 0;
 }
 
 export function getLastBackgroundedAtMs(): number {
   return lastBackgroundedAtMs;
 }
 
-export function wasRecentlyBackgrounded(windowMs = 3000): boolean {
+export function wasRecentlyBackgrounded(windowMs = 1000): boolean {
   return lastBackgroundedAtMs > 0 && Date.now() - lastBackgroundedAtMs <= windowMs;
 }
 
@@ -153,9 +213,38 @@ export function getQuranAudio(): HTMLAudioElement {
     (quranAudioInstance as any).x5Playsinline = true;
     attachToPersistentDomHost(quranAudioInstance, 'quran');
 
+    quranAudioInstance.addEventListener('pause', () => {
+      if (!lastPausedAtMs) {
+        lastPausedAtMs = Date.now();
+      }
+      if (quranAudioInstance && quranAudioInstance.currentTime > 0) {
+        lastKnownPositionSec = quranAudioInstance.currentTime;
+      }
+    });
+
+    quranAudioInstance.addEventListener('playing', () => {
+      lastPausedAtMs = 0;
+    });
+
     quranAudioInstance.addEventListener('timeupdate', () => {
       if (quranAudioInstance && quranAudioInstance.currentTime > 0) {
         lastKnownPositionSec = quranAudioInstance.currentTime;
+        const now = Date.now();
+        if (now - lastCheckpointSaveMs >= 3000) {
+          lastCheckpointSaveMs = now;
+          const existing = loadPlaybackCheckpoint();
+          if (existing) {
+            savePlaybackCheckpoint({
+              ...existing,
+              positionSec: quranAudioInstance.currentTime,
+              streamUrl:
+                lastCanonicalStreamUrl ||
+                quranAudioInstance.currentSrc ||
+                quranAudioInstance.src ||
+                existing.streamUrl,
+            });
+          }
+        }
       }
     });
 
@@ -193,76 +282,124 @@ export function getAdhanAudio(): HTMLAudioElement {
   return adhanAudioInstance;
 }
 
+function reloadAudioSourceAtPosition(
+  audio: HTMLAudioElement,
+  recoveryUrl: string,
+  targetPos: number
+): void {
+  audio.src = recoveryUrl;
+  if (targetPos > 0) {
+    const restorePos = () => {
+      try {
+        if (Math.abs((audio.currentTime || 0) - targetPos) > 1) {
+          audio.currentTime = targetPos;
+        }
+      } catch {}
+    };
+    try {
+      audio.currentTime = targetPos;
+    } catch {}
+    audio.addEventListener('loadedmetadata', restorePos, { once: true });
+    audio.addEventListener('canplay', restorePos, { once: true });
+  }
+}
+
 /**
  * Synchronously resumes the singleton Quran `<audio>` element inside a MediaSession
  * or UI gesture with ZERO `await` before `audio.play()`.
  *
  * If the browser evicted the media buffer or closed the HTTP socket while paused
- * on the lock screen (`readyState === 0`, `error !== null`, or `blob:` revoked),
- * it synchronously reloads the canonical HTTPS stream URL and restores `currentTime`
- * before calling `audio.play()`.
+ * on the lock screen (`readyState === 0`, `networkState === 3`, `error !== null`,
+ * `blob:` revoked, or paused >12s with low buffer), it synchronously reloads the
+ * canonical HTTPS stream URL and restores `currentTime` before calling `audio.play()`.
+ * If `audio.play()` rejects on a stale socket, it retries once with a fresh source reload.
  */
 export function resumeQuranPlaybackSync(options?: {
   fallbackUrls?: string[];
   resumePositionSec?: number;
+  forceReload?: boolean;
 }): Promise<void> {
   const audio = getQuranAudio();
+  const pausedForMs = getPausedDurationMs();
   deliberatePauseByUser = false;
+  lastPausedAtMs = 0;
 
+  const checkpoint = loadPlaybackCheckpoint();
   const targetPos =
     options?.resumePositionSec !== undefined && options.resumePositionSec > 0
       ? options.resumePositionSec
       : audio.currentTime > 0
       ? audio.currentTime
-      : lastKnownPositionSec;
+      : lastKnownPositionSec > 0
+      ? lastKnownPositionSec
+      : checkpoint?.positionSec || 0;
 
   const currentSrc = audio.src || '';
-  const isBrokenBlob = currentSrc.startsWith('blob:') && (audio.readyState === 0 || Boolean(audio.error));
+  const isBrokenBlob =
+    currentSrc.startsWith('blob:') &&
+    (audio.readyState === 0 || Boolean(audio.error) || pausedForMs > 10000);
+  // HTMLMediaElement.NETWORK_NO_SOURCE === 3
+  const isSocketStaleAfterPause =
+    pausedForMs >= 12000 && (audio.readyState < 3 || audio.networkState === 3);
+
   const needsReload =
+    Boolean(options?.forceReload) ||
     !currentSrc ||
     Boolean(audio.error) ||
     audio.readyState === 0 ||
-    isBrokenBlob;
+    audio.networkState === 3 ||
+    isBrokenBlob ||
+    isSocketStaleAfterPause;
 
-  if (needsReload) {
-    const recoveryUrl =
-      lastCanonicalStreamUrl ||
-      options?.fallbackUrls?.find((u) => u && !u.startsWith('blob:')) ||
-      options?.fallbackUrls?.[0] ||
-      currentSrc;
+  const recoveryUrl =
+    lastCanonicalStreamUrl ||
+    options?.fallbackUrls?.find((u) => u && !u.startsWith('blob:')) ||
+    checkpoint?.streamUrl ||
+    options?.fallbackUrls?.[0] ||
+    currentSrc;
 
-    if (recoveryUrl) {
-      recordDiagEvent({
-        category: 'media_session',
-        event: 'SYNC_STREAM_RECOVERY_BEFORE_PLAY',
-        elementId: 'quran',
-        src: recoveryUrl,
-        readyState: audio.readyState,
-        networkState: audio.networkState,
-        errorCode: audio.error ? audio.error.code : null,
-        currentTime: targetPos,
-      });
-
-      audio.src = recoveryUrl;
-      if (targetPos > 0) {
-        try {
-          audio.currentTime = targetPos;
-        } catch {
-          audio.addEventListener(
-            'loadedmetadata',
-            () => {
-              try {
-                audio.currentTime = targetPos;
-              } catch {}
-            },
-            { once: true }
-          );
-        }
-      }
-    }
+  if (needsReload && recoveryUrl) {
+    recordDiagEvent({
+      category: 'media_session',
+      event: 'SYNC_STREAM_RECOVERY_BEFORE_PLAY',
+      elementId: 'quran',
+      src: recoveryUrl,
+      readyState: audio.readyState,
+      networkState: audio.networkState,
+      errorCode: audio.error ? audio.error.code : null,
+      currentTime: targetPos,
+      details: {
+        pausedForMs,
+        forceReload: Boolean(options?.forceReload),
+      },
+    });
+    reloadAudioSourceAtPosition(audio, recoveryUrl, targetPos);
   }
 
-  return audio.play();
+  const playPromise = audio.play();
+  if (!playPromise || typeof playPromise.catch !== 'function') {
+    return Promise.resolve();
+  }
+
+  return playPromise.catch((firstErr) => {
+    // If initial play() rejected and we have a canonical stream URL, reload source once and retry
+    if (!recoveryUrl) {
+      throw firstErr;
+    }
+    recordDiagEvent({
+      category: 'media_session',
+      event: 'RESUME_PLAY_REJECTED_RETRY_RELOAD',
+      elementId: 'quran',
+      src: recoveryUrl,
+      readyState: audio.readyState,
+      networkState: audio.networkState,
+      errorCode: audio.error ? audio.error.code : null,
+      errorMessage: `${firstErr?.name || 'Error'}: ${firstErr?.message || String(firstErr)}`,
+      currentTime: targetPos,
+    });
+    reloadAudioSourceAtPosition(audio, recoveryUrl, targetPos);
+    return audio.play();
+  });
 }
 
 interface DuckedPlaybackSnapshot {
