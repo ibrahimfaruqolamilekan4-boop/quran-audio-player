@@ -11,7 +11,14 @@
     "LocalNotifications": {
       "smallIcon": "ic_stat_nooraya",
       "iconColor": "#D4AF37",
-      "sound": "madinah_adhan_30s.caf"
+      "sound": "madinah_standard_28s.wav"
+    },
+    "NoorayaAdhan": {
+      "defaultSoundResource": "madinah_standard_28s.wav",
+      "defaultFajrSoundResource": "madinah_fajr_bukhari_28s.wav",
+      "iosMaxPendingCap": 64,
+      "rollingScheduleDays": 10,
+      "iosBackgroundRefreshIdentifier": "com.nooraya.quranaudio.refreshPrayers"
     }
   },
   "ios": {
