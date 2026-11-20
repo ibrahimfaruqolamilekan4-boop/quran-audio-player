@@ -103,6 +103,20 @@ export function PushNotificationsPanel({
     };
   }, []);
 
+  const [showPermissionIntro, setShowPermissionIntro] = useState(false);
+
+  // Listen for live Service Worker push receipts so Diagnostics updates immediately
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NOORAYA_PUSH_RECEIVED') {
+        void loadDiagnostics();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [loadDiagnostics]);
+
   // Keep server subscription in sync when user is already subscribed and changes location or settings
   useEffect(() => {
     if (!diag?.pushSubscribed) return;
@@ -123,32 +137,29 @@ export function PushNotificationsPanel({
     settings.highLatitudeRule,
     settings.reminderMinutesBefore,
     settings.prayerReminders,
+    settings.prayerVoices,
+    settings.prayerReminderOffsets,
+    settings.prayerVibrate,
+    settings.is24Hour,
     loadDiagnostics,
   ]);
 
-  const handleToggleSubscription = async () => {
+  const executeSubscribeFlow = async () => {
+    setShowPermissionIntro(false);
     setStatusMessage(null);
     setSubscribing(true);
     try {
-      if (diag?.pushSubscribed) {
-        await unsubscribeFromPrayerPushNotifications();
+      const res = await subscribeToPrayerPushNotifications(location, settings);
+      if (res.ok) {
         setStatusMessage({
-          text: 'Background push notifications disabled and your coordinates were deleted from the server.',
-          type: 'info',
+          text: `Closed-App Push Notifications enabled for ${location.cityName} (${location.timezone})!`,
+          type: 'success',
         });
       } else {
-        const res = await subscribeToPrayerPushNotifications(location, settings);
-        if (res.ok) {
-          setStatusMessage({
-            text: `Background Push Notifications enabled for ${location.cityName} (${location.timezone})!`,
-            type: 'success',
-          });
-        } else {
-          setStatusMessage({
-            text: res.error || 'Could not enable background push notifications.',
-            type: 'error',
-          });
-        }
+        setStatusMessage({
+          text: res.error || 'Could not enable background push notifications.',
+          type: 'error',
+        });
       }
       await loadDiagnostics();
     } finally {
@@ -156,11 +167,41 @@ export function PushNotificationsPanel({
     }
   };
 
+  const handleToggleSubscription = async () => {
+    setStatusMessage(null);
+    if (diag?.pushSubscribed) {
+      setSubscribing(true);
+      try {
+        await unsubscribeFromPrayerPushNotifications();
+        setStatusMessage({
+          text: 'Background push notifications disabled and your coordinates were deleted from the server.',
+          type: 'info',
+        });
+        await loadDiagnostics();
+      } finally {
+        setSubscribing(false);
+      }
+      return;
+    }
+
+    // Show clear explanation before triggering browser permission prompt on user tap
+    if (diag?.capabilities.permission === 'default' && !diag.capabilities.iosRequiresHomeScreenInstall) {
+      setShowPermissionIntro(true);
+      return;
+    }
+
+    await executeSubscribeFlow();
+  };
+
   const handleSendTest = async () => {
     setStatusMessage(null);
     setTestingPush(true);
     try {
-      const res = await sendTestPushNotification(location.cityName);
+      const res = await sendTestPushNotification(location.cityName, {
+        delaySeconds: 0,
+        timezone: location.timezone,
+        is24Hour: settings.is24Hour,
+      });
       setStatusMessage({
         text: res.message,
         type: res.ok ? 'success' : 'error',
@@ -178,17 +219,32 @@ export function PushNotificationsPanel({
         countdownTimerRef.current = null;
       }
       setCountdownSeconds(null);
-      setStatusMessage({
-        text: '10-second delayed notification test cancelled.',
-        type: 'info',
-      });
       return;
     }
 
     setStatusMessage({
-      text: '10-second countdown started — lock your screen or switch apps now to test the closed-app notification path.',
+      text: 'Server 10-second push scheduled — lock your screen or close Nooraya right now. The server will push the notification in 10 seconds even while closed.',
       type: 'info',
     });
+
+    // Fire server-delayed push immediately (with keepalive: true) so closing/locking the app does NOT cancel delivery
+    setTestingPush(true);
+    void sendTestPushNotification(location.cityName, {
+      delaySeconds: 10,
+      timezone: location.timezone,
+      is24Hour: settings.is24Hour,
+    })
+      .then((res) => {
+        setStatusMessage({
+          text: res.message,
+          type: res.ok ? 'success' : 'error',
+        });
+        void loadDiagnostics();
+      })
+      .finally(() => {
+        setTestingPush(false);
+      });
+
     let remaining = 10;
     setCountdownSeconds(remaining);
 
@@ -202,7 +258,6 @@ export function PushNotificationsPanel({
           countdownTimerRef.current = null;
         }
         setCountdownSeconds(null);
-        void handleSendTest();
       }
     }, 1000);
   };
@@ -307,18 +362,51 @@ export function PushNotificationsPanel({
           <button
             type="button"
             onClick={handleSendTestIn10Seconds}
-            disabled={testingPush}
+            disabled={testingPush && countdownSeconds === null}
+            data-testid="test-push-10s-btn"
             className="px-3.5 py-2.5 rounded-2xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/35 text-teal-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
           >
             <Timer size={13} />
             <span>
               {countdownSeconds !== null
-                ? `Sending in ${countdownSeconds}s (Cancel)`
+                ? `Lock phone now (${countdownSeconds}s)`
                 : 'Test Notification in 10s'}
             </span>
           </button>
         </div>
       </div>
+
+      {/* Clear Pre-Permission Explanation Card (User-Gesture Requirement) */}
+      {showPermissionIntro && (
+        <div
+          data-testid="push-permission-explanation"
+          className="bg-emerald-950/75 border border-emerald-400/50 rounded-2xl p-4 space-y-3"
+        >
+          <div className="text-xs font-bold text-white flex items-center gap-2">
+            <BellRing size={15} className="text-emerald-400" />
+            <span>Allow Closed-App Prayer Notifications for {location.cityName}</span>
+          </div>
+          <p className="text-xs text-emerald-100/85 leading-relaxed">
+            When you tap <strong>Allow Notifications</strong> below, your browser will ask for permission so Nooraya can send timely prayer alerts even when the app is closed or locked (while online). On the web version, closed-app push notifications use your phone&apos;s standard alert sound; tapping the alert opens Nooraya to play the full real Muezzin Adhan. If your phone was offline and a push arrives late, Nooraya shows the true prayer time and will not play the Adhan late.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void executeSubscribeFlow()}
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold cursor-pointer"
+            >
+              Continue &amp; Allow Notifications
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPermissionIntro(false)}
+              className="px-3.5 py-2 rounded-xl bg-[#020B07] border border-emerald-800/80 text-emerald-200 text-xs font-semibold cursor-pointer"
+            >
+              Not Now
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Device Delivery Path Status Line (Step 2.7 Requirement) */}
       <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-2">
@@ -625,18 +713,28 @@ export function PushNotificationsPanel({
             </div>
 
             <div className="bg-[#020B07] border border-emerald-950 rounded-xl p-3">
-              <div className="text-[10px] uppercase text-emerald-400/60 font-bold">Last Push Status</div>
+              <div className="text-[10px] uppercase text-emerald-400/60 font-bold">Last Delivery</div>
               <div className="font-mono font-bold text-white mt-1 truncate">
-                {diag.serverSubscription?.lastStatus || 'None yet'}
+                {diag.lastClientDelivery
+                  ? diag.lastClientDelivery.isLate
+                    ? `Late (${diag.lastClientDelivery.prayerNameEn})`
+                    : `Received (${diag.lastClientDelivery.prayerNameEn})`
+                  : diag.serverSubscription?.lastStatus || 'None yet'}
               </div>
               <div className="text-[10px] text-emerald-300/60 truncate mt-0.5">
-                {diag.serverSubscription?.lastSentAt
+                {diag.lastClientDelivery?.receivedAt
+                  ? new Date(diag.lastClientDelivery.receivedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })
+                  : diag.serverSubscription?.lastSentAt
                   ? new Date(diag.serverSubscription.lastSentAt).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
                       second: '2-digit',
                     })
-                  : 'Use Test button'}
+                  : 'Use Test 10s button'}
               </div>
             </div>
           </div>

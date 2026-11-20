@@ -22,6 +22,10 @@ export interface FeatureFlagsState {
   opaqueBackdropStack: boolean;
   /** Phase 4: Real Muezzin Adhan scheduler, wake-catchup & push notification engine */
   scheduledAdhanEngine: boolean;
+  /** Phase 1 (PR #1): Closed-app PWA Web Push with server scheduler, late-delivery guard & 10s delayed test */
+  closedAppWebPushEngine: boolean;
+  /** Phase 2 (PR #2): Native Capacitor offline 10-day on-device Adhan scheduler & Reliability Check */
+  nativeOfflineAdhanEngine: boolean;
 }
 
 export interface FeatureFlagMetadata {
@@ -101,6 +105,28 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagMetadata[] = [
     rollbackPlan:
       'Toggle off `scheduledAdhanEngine` in /diag or revert PR #4 (`phase-4-5-adhan-prod-safety`).',
   },
+  {
+    key: 'closedAppWebPushEngine',
+    label: 'Closed-App PWA Web Push, Late-Delivery Guard & 10s Server Test',
+    phase: 'Closed-App Phase 1',
+    description:
+      'Per-minute server push dispatch with deduplication, retry/backoff, 404/410 cleanup, late-delivery detection (shows true prayer time and suppresses late Adhan), and server-delayed 10s closed-app push test.',
+    rolloutPercentage: 100,
+    defaultEnabled: true,
+    rollbackPlan:
+      'Toggle off `closedAppWebPushEngine` in /diag, unschedule pg_cron job `nooraya-prayer-push-every-minute`, or revert PR (`feat/phase1-pwa-closed-app-push`).',
+  },
+  {
+    key: 'nativeOfflineAdhanEngine',
+    label: 'Native Offline 10-Day Adhan Scheduler & Reliability Check',
+    phase: 'Closed-App Phase 2',
+    description:
+      'On-device 10-day rolling prayer alarm scheduling (<=55 pending for iOS 64-cap safety), per-prayer voice/offset/volume/vibrate controls, Android Exact Alarm + Foreground Full-Adhan service, iOS <=28s real clips + timeSensitive, and Adhan Reliability Check.',
+    rolloutPercentage: 100,
+    defaultEnabled: true,
+    rollbackPlan:
+      'Toggle off `nativeOfflineAdhanEngine` in /diag to fall back to in-app + web push scheduling, or revert PR (`feat/phase2-native-offline-adhan`).',
+  },
 ];
 
 const STORAGE_KEY = 'nooraya_feature_flags_v1';
@@ -113,6 +139,8 @@ const DEFAULT_FLAGS: FeatureFlagsState = {
   hdPortraitVideoEngine: true,
   opaqueBackdropStack: true,
   scheduledAdhanEngine: true,
+  closedAppWebPushEngine: true,
+  nativeOfflineAdhanEngine: true,
 };
 
 /**

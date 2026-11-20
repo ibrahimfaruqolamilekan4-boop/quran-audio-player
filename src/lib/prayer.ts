@@ -184,6 +184,14 @@ export interface PrayerSettings {
   notificationsEnabled: boolean;
   prayerReminders: Record<string, boolean>;
   prayerAdhanModes?: Record<string, PrayerAdhanMode>;
+  /** Per-prayer voice override (empty/undefined = use global activeAdhanVoiceId) */
+  prayerVoices?: Record<string, string>;
+  /** Per-prayer reminder minutes before prayer (undefined = use global reminderMinutesBefore) */
+  prayerReminderOffsets?: Record<string, number>;
+  /** Per-prayer volume 0.1–1.0 (default 1.0) */
+  prayerVolumes?: Record<string, number>;
+  /** Per-prayer vibration toggle (default true for 5 daily prayers, false for sunrise) */
+  prayerVibrate?: Record<string, boolean>;
   useFajrAdhan?: boolean;
   reminderMinutesBefore?: number;
   activeAdhanVoiceId?: string;
@@ -224,6 +232,24 @@ export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
     asr: 'full',
     maghrib: 'full',
     isha: 'full',
+  },
+  prayerVoices: {},
+  prayerReminderOffsets: {},
+  prayerVolumes: {
+    fajr: 1,
+    sunrise: 0.8,
+    dhuhr: 1,
+    asr: 1,
+    maghrib: 1,
+    isha: 1,
+  },
+  prayerVibrate: {
+    fajr: true,
+    sunrise: false,
+    dhuhr: true,
+    asr: true,
+    maghrib: true,
+    isha: true,
   },
   useFajrAdhan: true,
   reminderMinutesBefore: 0,

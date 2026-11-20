@@ -141,6 +141,34 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+const PUSH_DIAG_CACHE = 'nooraya-push-diag-v1';
+const PUSH_DIAG_LAST_DELIVERY_URL = '/__nooraya_push_last_delivery.json';
+
+async function recordLastPushDelivery(entry) {
+  try {
+    const cache = await caches.open(PUSH_DIAG_CACHE);
+    await cache.put(
+      PUSH_DIAG_LAST_DELIVERY_URL,
+      new Response(JSON.stringify(entry), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      })
+    );
+  } catch {}
+
+  try {
+    const clients = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    });
+    for (const client of clients) {
+      client.postMessage({
+        type: 'NOORAYA_PUSH_RECEIVED',
+        delivery: entry,
+      });
+    }
+  } catch {}
+}
+
 self.addEventListener('push', (event) => {
   const handlePush = async () => {
     let payload = null;
@@ -155,40 +183,99 @@ self.addEventListener('push', (event) => {
       }
     }
 
-    const title = (payload && payload.title) || 'Hayya ’ala-s-Salah • Prayer Time';
-    const body =
+    const receivedAtMs = Date.now();
+    const prayerKey = (payload && payload.prayerKey) || 'fajr';
+    const prayerNameEn =
+      (payload && payload.prayerNameEn) ||
+      (prayerKey.charAt(0).toUpperCase() + prayerKey.slice(1));
+    const prayerTimeIso = (payload && payload.prayerTimeIso) || null;
+    const prayerTimeFormatted = (payload && payload.prayerTimeFormatted) || '';
+    const lateThresholdMs = (payload && payload.lateThresholdMs) || 10 * 60 * 1000;
+    const isTest = Boolean(payload && payload.isTest);
+    const scheduledMs = prayerTimeIso ? Date.parse(prayerTimeIso) : NaN;
+    const delayMs = !Number.isNaN(scheduledMs) ? receivedAtMs - scheduledMs : 0;
+
+    // Late delivery check: if the phone was offline and the push arrives late (>10 min after prayer time),
+    // show the true prayer time ("Dhuhr was at 12:35") and NEVER auto-play the Adhan late.
+    const isLate =
+      Boolean(payload && payload.simulateLate) ||
+      (!isTest && !Number.isNaN(scheduledMs) && delayMs > lateThresholdMs);
+
+    let title = (payload && payload.title) || 'Hayya ’ala-s-Salah • Prayer Time';
+    let body =
       (payload && payload.body) ||
       'It is time for prayer. Tap to open Nooraya and listen to the Adhan.';
-    const prayerKey = (payload && payload.prayerKey) || 'fajr';
-    const tag = (payload && payload.tag) || `nooraya-prayer-${prayerKey}-${Date.now()}`;
-    const targetUrl =
-      (payload && payload.url) || `/dashboard/prayer-times?playAdhan=${encodeURIComponent(prayerKey)}`;
+    let targetUrl =
+      (payload && payload.url) ||
+      `/dashboard/prayer-times?playAdhan=${encodeURIComponent(prayerKey)}`;
+
+    if (isLate) {
+      const timeLabel = prayerTimeFormatted || (prayerTimeIso ? new Date(prayerTimeIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'earlier');
+      title = `${prayerNameEn} was at ${timeLabel}`;
+      body = `${prayerNameEn} was at ${timeLabel} (notification arrived late while your device was offline). Adhan will not play late.`;
+      const sep = targetUrl.includes('?') ? '&' : '?';
+      targetUrl = `${targetUrl}${sep}late=1&prayerTime=${encodeURIComponent(timeLabel)}`;
+    }
+
+    const tag = (payload && payload.tag) || `nooraya-prayer-${prayerKey}-${receivedAtMs}`;
+    const shouldVibrate = payload && payload.vibrate === false ? false : true;
+
+    const deliveryEntry = {
+      receivedAt: new Date(receivedAtMs).toISOString(),
+      sentAt: (payload && payload.sentAt) || null,
+      prayerKey,
+      prayerNameEn,
+      prayerTimeIso,
+      prayerTimeFormatted,
+      isLate,
+      isTest,
+      delayMinutes: Math.max(0, Math.round(delayMs / 60000)),
+      title,
+    };
+
+    await recordLastPushDelivery(deliveryEntry);
 
     // Note: Web Push on Android/iOS uses the OS notification channel sound (not a synthetic oscillator horn).
-    // When tapped, it opens `/dashboard/prayer-times?playAdhan=<prayer>` to play the full real Muezzin recording.
+    // When tapped (and on time), it opens `/dashboard/prayer-times?playAdhan=<prayer>` to play the full real Muezzin recording.
     const options = {
       body,
       icon: '/pwa-192x192.png',
       badge: '/favicon-64.png',
       tag,
-      renotify: true,
-      requireInteraction: true,
-      vibrate: [200, 100, 250, 100, 400],
+      renotify: !isLate,
+      requireInteraction: !isLate,
+      silent: isLate,
+      ...(shouldVibrate && !isLate ? { vibrate: [200, 100, 250, 100, 400] } : {}),
       data: {
         url: targetUrl,
         prayerKey,
-        sentAt: (payload && payload.sentAt) || new Date().toISOString(),
+        prayerNameEn,
+        prayerTimeFormatted,
+        isLate,
+        sentAt: (payload && payload.sentAt) || new Date(receivedAtMs).toISOString(),
+        receivedAt: deliveryEntry.receivedAt,
       },
-      actions: [
-        {
-          action: 'play_adhan',
-          title: 'Open & Play Adhan',
-        },
-        {
-          action: 'dismiss',
-          title: 'Silence',
-        },
-      ],
+      actions: isLate
+        ? [
+            {
+              action: 'view_times',
+              title: 'View Prayer Times',
+            },
+            {
+              action: 'dismiss',
+              title: 'Dismiss',
+            },
+          ]
+        : [
+            {
+              action: 'play_adhan',
+              title: 'Open & Play Adhan',
+            },
+            {
+              action: 'dismiss',
+              title: 'Silence',
+            },
+          ],
     };
 
     await self.registration.showNotification(title, options);
@@ -201,13 +288,17 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
-  const action = event.action || 'play_adhan';
+  const action = event.action || (data.isLate ? 'view_times' : 'play_adhan');
   if (action === 'dismiss') {
     return;
   }
 
   const prayerKey = data.prayerKey || 'fajr';
-  const targetUrl = data.url || `/dashboard/prayer-times?playAdhan=${encodeURIComponent(prayerKey)}`;
+  const isLate = Boolean(data.isLate);
+  const prayerTime = data.prayerTimeFormatted || '';
+  const targetUrl =
+    data.url ||
+    `/dashboard/prayer-times?playAdhan=${encodeURIComponent(prayerKey)}${isLate ? `&late=1&prayerTime=${encodeURIComponent(prayerTime)}` : ''}`;
 
   const focusOrOpen = async () => {
     const clientList = await self.clients.matchAll({
@@ -222,6 +313,8 @@ self.addEventListener('notificationclick', (event) => {
           type: 'NOORAYA_PUSH_NOTIFICATION_CLICK',
           action,
           prayerKey,
+          isLate,
+          prayerTime,
           url: targetUrl,
         });
         return;

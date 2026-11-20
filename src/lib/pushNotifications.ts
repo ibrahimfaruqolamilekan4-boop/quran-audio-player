@@ -25,6 +25,19 @@ export interface PlatformPushCapabilities {
   permission: NotificationPermission | 'unsupported';
 }
 
+export interface LastSwPushDelivery {
+  receivedAt: string;
+  sentAt: string | null;
+  prayerKey: string;
+  prayerNameEn: string;
+  prayerTimeIso: string | null;
+  prayerTimeFormatted: string;
+  isLate: boolean;
+  isTest: boolean;
+  delayMinutes: number;
+  title: string;
+}
+
 export interface PushDiagnosticsReport {
   capabilities: PlatformPushCapabilities;
   serviceWorkerState: 'active' | 'installing' | 'none' | 'unsupported';
@@ -54,6 +67,7 @@ export interface PushDiagnosticsReport {
     timeIso: string;
     minutesBefore: number;
   } | null;
+  lastClientDelivery: LastSwPushDelivery | null;
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -231,6 +245,11 @@ export async function subscribeToPrayerPushNotifications(
         adjustments: settings.adjustments,
         prayerReminders: settings.prayerReminders,
         prayerAdhanModes: settings.prayerAdhanModes,
+        prayerVoices: settings.prayerVoices || {},
+        prayerReminderOffsets: settings.prayerReminderOffsets || {},
+        prayerVolumes: settings.prayerVolumes || {},
+        prayerVibrate: settings.prayerVibrate || {},
+        is24Hour: Boolean(settings.is24Hour),
         reminderMinutesBefore: settings.reminderMinutesBefore || 0,
         activeAdhanVoiceId: settings.activeAdhanVoiceId,
         useFajrAdhan: settings.useFajrAdhan !== false,
@@ -291,13 +310,25 @@ export async function unsubscribeFromPrayerPushNotifications(): Promise<{ ok: bo
 }
 
 /**
- * Sends a test push notification via `/api/push/test` (and also triggers the local Service Worker
- * `showNotification` if the user wants immediate verification).
+ * Sends a real server Web Push test notification via `/api/push/test`.
+ * When `delaySeconds > 0` (e.g., 10 seconds), the server holds the timer and delivers
+ * the push even if the user immediately locks their phone or closes the PWA.
  */
-export async function sendTestPushNotification(cityName: string): Promise<{
+export async function sendTestPushNotification(
+  cityName: string,
+  options?: {
+    delaySeconds?: number;
+    timezone?: string;
+    is24Hour?: boolean;
+    simulateLate?: boolean;
+    prayerKey?: string;
+  }
+): Promise<{
   ok: boolean;
   message: string;
+  viaServer?: boolean;
 }> {
+  const delaySeconds = Math.max(0, Math.min(15, Math.floor(Number(options?.delaySeconds || 0))));
   const reg = await ensurePushServiceWorker();
   const sub = await reg?.pushManager?.getSubscription();
 
@@ -305,34 +336,55 @@ export async function sendTestPushNotification(cityName: string): Promise<{
     try {
       const res = await fetch('/api/push/test', {
         method: 'POST',
+        keepalive: true,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subscription: sub.toJSON(),
           cityName,
+          delaySeconds,
+          timezone: options?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          is24Hour: Boolean(options?.is24Hour),
+          simulateLate: Boolean(options?.simulateLate),
+          prayerKey: options?.prayerKey || 'dhuhr',
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         return {
           ok: true,
-          message: `Server Web Push delivered (HTTP ${data.status}) for ${cityName}! Check your device notification shade.`,
+          viaServer: true,
+          message:
+            delaySeconds > 0
+              ? `Server Web Push delivered after ${delaySeconds}s delay (HTTP ${data.status}) for ${cityName}!`
+              : `Server Web Push delivered (HTTP ${data.status}) for ${cityName}! Check your device notification shade.`,
+        };
+      }
+      if (data?.error) {
+        return {
+          ok: false,
+          viaServer: true,
+          message: String(data.error),
         };
       }
     } catch {}
   }
 
-  // Fallback: Service Worker showNotification if browser is granted
+  // Local fallback if user hasn't subscribed to PushManager yet (requires page to remain open)
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    if (delaySeconds > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+    }
     if (reg && reg.showNotification) {
       await reg.showNotification('Nooraya Prayer Notification Test • حي على الصلاة', {
-        body: `Notifications are active for ${cityName}. Tap to open Nooraya and listen to the Adhan.`,
+        body: `Local browser notification active for ${cityName}. Enable Closed-App Push above for server delivery when closed.`,
         icon: '/pwa-192x192.png',
         badge: '/favicon-64.png',
         tag: `nooraya-local-test-${Date.now()}`,
       });
       return {
         ok: true,
-        message: `Test notification displayed via Service Worker for ${cityName}!`,
+        viaServer: false,
+        message: `Local Service Worker notification displayed for ${cityName}. Enable Closed-App Push to test true server push while closed.`,
       };
     }
 
@@ -342,14 +394,30 @@ export async function sendTestPushNotification(cityName: string): Promise<{
     });
     return {
       ok: true,
+      viaServer: false,
       message: `Test notification displayed for ${cityName}!`,
     };
   }
 
   return {
     ok: false,
-    message: 'Enable Background Push Notifications first to send a test notification.',
+    message: 'Enable Closed-App Push Notifications first to send a real closed-app test notification.',
   };
+}
+
+/**
+ * Reads the last Web Push receipt saved by `public/push-sw.js` in Cache Storage.
+ */
+export async function readLastSwPushDelivery(): Promise<LastSwPushDelivery | null> {
+  if (typeof window === 'undefined' || !('caches' in window)) return null;
+  try {
+    const cache = await caches.open('nooraya-push-diag-v1');
+    const resp = await cache.match('/__nooraya_push_last_delivery.json');
+    if (!resp) return null;
+    return (await resp.json()) as LastSwPushDelivery;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -390,14 +458,17 @@ export async function fetchPushDiagnostics(): Promise<PushDiagnosticsReport> {
     } catch {}
   }
 
-  let serverDiag: any = null;
-  try {
-    const qParam = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
-    const res = await fetch(`/api/push/diagnostics${qParam}`, { cache: 'no-store' });
-    if (res.ok) {
-      serverDiag = await res.json();
-    }
-  } catch {}
+  const [serverDiag, lastClientDelivery] = await Promise.all([
+    (async () => {
+      try {
+        const qParam = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
+        const res = await fetch(`/api/push/diagnostics${qParam}`, { cache: 'no-store' });
+        if (res.ok) return await res.json();
+      } catch {}
+      return null;
+    })(),
+    readLastSwPushDelivery(),
+  ]);
 
   return {
     capabilities,
@@ -412,5 +483,6 @@ export async function fetchPushDiagnostics(): Promise<PushDiagnosticsReport> {
     totalActiveSubscriptions: Number(serverDiag?.totalActiveSubscriptions || 0),
     serverSubscription: serverDiag?.subscription || null,
     nextScheduledPrayer: serverDiag?.nextScheduledPrayer || null,
+    lastClientDelivery,
   };
 }
