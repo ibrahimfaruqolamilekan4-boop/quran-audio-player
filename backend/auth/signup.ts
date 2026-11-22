@@ -1,8 +1,8 @@
 // POST /api/auth/signup  { email, password, name? }
 import crypto from 'node:crypto';
 import {
-  type Handler, q, hashPassword, createSessionToken, sessionCookie,
-  sendJson, readJson, isSecureRequest, validEmail, adminEmail, mapUser,
+  type Handler, qStrict, hashPassword, createSessionToken, sessionCookie,
+  sendJson, readJson, isSecureRequest, validEmail, adminEmail,
 } from '../_lib.mjs';
 import { getSupabaseAdmin } from '../lib/supabase-server';
 
@@ -22,40 +22,12 @@ const handler: Handler = async (req, res) => {
     if (!validEmail(email)) return sendJson(res, 400, { error: 'Please enter a valid email address.' });
     if (password.length < 8) return sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
 
-    const existing = await q<UserRow>('SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1', [email]);
-
-    // Account with no password hash set yet: claim it and set password.
-    if (existing.rows[0] && !existing.rows[0].password_hash) {
-      const row = existing.rows[0];
-      const displayName = name || row.display_name;
-      await q(
-        'UPDATE users SET password_hash = $1, display_name = $2, last_login_at = now() WHERE uid = $3',
-        [hashPassword(password), displayName, row.uid]
-      );
-
-      // Sync to Supabase Auth
-      const sb = getSupabaseAdmin();
-      if (sb) {
-        try {
-          await sb.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: { full_name: displayName, name: displayName },
-            app_metadata: { role: row.role },
-          });
-        } catch {}
-      }
-
-      const user = mapUser({ ...row, display_name: displayName });
-      res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user), isSecureRequest(req)));
-      return sendJson(res, 200, { user });
-    }
+    const existing = await qStrict<UserRow>('SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1', [email]);
 
     if (existing.rows[0]) return sendJson(res, 409, { error: 'An account with this email already exists. Please sign in instead.' });
 
     let uid = crypto.randomUUID();
-    const role = email === adminEmail() ? 'admin' : 'user';
+    const role = adminEmail() && email === adminEmail() ? 'admin' : 'user';
     const displayName = name || email.split('@')[0];
 
     // 1. Create in Supabase Auth (Primary source of truth)
@@ -80,16 +52,22 @@ const handler: Handler = async (req, res) => {
     }
 
     // 2. Insert into Neon Postgres & server store
-    await q(
+    await qStrict(
       'INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())',
       [uid, email, hashPassword(password), displayName, role]
     );
-    await q('INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING', [uid]);
+    await qStrict('INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING', [uid]);
 
     const user = { uid, email, displayName, photoURL: null, role } as const;
     res.setHeader('Set-Cookie', sessionCookie(createSessionToken(user), isSecureRequest(req)));
     return sendJson(res, 201, { user });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === 'DB_UNAVAILABLE') {
+      return sendJson(res, 503, { error: 'Sign-up is temporarily unavailable. Please try again shortly.' });
+    }
+    if (err?.code === 'AUTH_MISCONFIGURED') {
+      return sendJson(res, 503, { error: 'Sign-up is not configured on this server.' });
+    }
     console.error('signup failed:', err);
     return sendJson(res, 500, { error: 'Could not create your account. Please try again.' });
   }

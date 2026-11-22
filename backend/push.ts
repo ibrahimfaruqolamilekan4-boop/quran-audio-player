@@ -781,11 +781,9 @@ const handler: Handler = async (req, res) => {
   // 6. POST or GET /api/push/dispatch -> Per-minute scheduler (invoked by Supabase pg_cron)
   if ((req.method === 'POST' || req.method === 'GET') && pathname === '/api/push/dispatch') {
     const cronSecret = (process.env.CRON_SECRET || '').trim();
-    if (cronSecret && cronSecret !== 'change-me-cron-secret') {
-      const authHeader = String(req.headers.authorization || '');
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return sendJson(res, 401, { error: 'Unauthorized cron invocation' });
-      }
+    const authHeader = String(req.headers.authorization || '');
+    if (!cronSecret || cronSecret === 'change-me-cron-secret' || authHeader !== `Bearer ${cronSecret}`) {
+      return sendJson(res, 401, { error: 'Unauthorized cron invocation' });
     }
 
     const byEndpoint = new Map<string, any>();

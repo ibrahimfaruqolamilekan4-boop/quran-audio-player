@@ -1,5 +1,5 @@
 import { DiagnosticsView } from './views/DiagnosticsView';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
@@ -30,6 +30,26 @@ import { PWAInstallHeader } from './components/PWAInstallHeader';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdhanSchedulerOverlay } from './components/AdhanSchedulerOverlay';
 
+const THEME_STORAGE_KEY = 'nooraya-premium-theme';
+
+function readStoredTheme(): string {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved && THEME_LIBRARY[saved]) return saved;
+  } catch {
+    /* private mode */
+  }
+  return 'midnight-scholar';
+}
+
+const ThemeContext = createContext<{
+  themeName: string;
+  setThemeName: (name: string) => void;
+}>({
+  themeName: 'midnight-scholar',
+  setThemeName: () => {},
+});
+
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
   const { user, role, loading } = useAuth();
   if (loading) return <div className="h-screen flex items-center justify-center text-teal-500">Loading...</div>;
@@ -43,7 +63,7 @@ function DashboardLayout() {
   const currentTab = location.pathname.split('/').pop() || 'home';
   const navigate = useNavigate();
   const setCurrentTab = (tab: string) => navigate(`/dashboard/${tab}`);
-  const [currentTheme, setCurrentTheme] = useState('midnight-scholar');
+  const { themeName: currentTheme, setThemeName } = useContext(ThemeContext);
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   
   const { 
@@ -127,7 +147,7 @@ function DashboardLayout() {
                 <button
                   key={themeName}
                   onClick={() => {
-                    setCurrentTheme(themeName);
+                    setThemeName(themeName);
                     setShowThemeSwitcher(false);
                   }}
                   className={`px-4 py-3 text-xs font-medium rounded-xl transition-all text-left flex items-center justify-between ${
@@ -157,12 +177,24 @@ function DashboardLayout() {
 }
 
 export default function App() {
+  const [themeName, setThemeNameState] = useState(readStoredTheme);
+  const setThemeName = (name: string) => {
+    if (!THEME_LIBRARY[name]) return;
+    setThemeNameState(name);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, name);
+    } catch {
+      /* private mode */
+    }
+  };
+
   return (
     <BrowserRouter>
       <AuthProvider>
         <PlayerProvider>
+          <ThemeContext.Provider value={{ themeName, setThemeName }}>
           <div className="flex flex-col min-h-screen relative selection:bg-teal-500/30 selection:text-teal-200">
-            <QuranicPremiumBackground />
+            <QuranicPremiumBackground themeName={themeName} />
             <PWAInstallHeader />
             <AdhanSchedulerOverlay />
             <div className="flex-1 flex flex-col relative z-10">
@@ -179,6 +211,7 @@ export default function App() {
             </div>
             <OfflineIndicator />
           </div>
+          </ThemeContext.Provider>
         </PlayerProvider>
       </AuthProvider>
     </BrowserRouter>

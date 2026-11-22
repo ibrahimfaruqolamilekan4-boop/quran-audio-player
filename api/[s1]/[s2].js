@@ -32,6 +32,7 @@ __export(lib_exports, {
   isSecureRequest: () => isSecureRequest,
   mapUser: () => mapUser,
   q: () => q,
+  qStrict: () => qStrict,
   qWithFallback: () => qWithFallback,
   readJson: () => readJson,
   readSessionToken: () => readSessionToken,
@@ -103,6 +104,9 @@ function loadStore() {
         if (!data.global_media_chunks) data.global_media_chunks = {};
         if (!data.user_preferences) data.user_preferences = {};
         if (!Array.isArray(data.users)) data.users = [];
+        for (const u of data.users) {
+          if (u && typeof u === "object") delete u.password_hash;
+        }
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
         if (!Array.isArray(data.backgrounds)) data.backgrounds = [];
@@ -129,13 +133,19 @@ function mergeCloudIntoServerStore(remote) {
   if (Array.isArray(remote.users)) {
     const byEmail = /* @__PURE__ */ new Map();
     for (const u of serverStore.users || []) {
-      if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...byEmail.get(u.email.toLowerCase()), ...u });
+      if (u && u.email) {
+        const copy = { ...byEmail.get(u.email.toLowerCase()), ...u };
+        delete copy.password_hash;
+        byEmail.set(u.email.toLowerCase(), copy);
+      }
     }
     for (const u of remote.users) {
       if (u && u.email) {
         const key = u.email.toLowerCase();
         const prev = byEmail.get(key);
-        byEmail.set(key, prev ? { ...prev, ...u, password_hash: u.password_hash || prev.password_hash } : u);
+        const merged = prev ? { ...prev, ...u } : { ...u };
+        delete merged.password_hash;
+        byEmail.set(key, merged);
       }
     }
     serverStore.users = Array.from(byEmail.values());
@@ -233,7 +243,12 @@ async function syncStoreFromCloud(force = false) {
 async function persistStoreToCloud() {
   try {
     const snapshot = {
-      users: serverStore.users || [],
+      users: (serverStore.users || []).map((u) => {
+        if (!u || typeof u !== "object") return u;
+        const copy = { ...u };
+        delete copy.password_hash;
+        return copy;
+      }),
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
       backgrounds: serverStore.backgrounds || [],
@@ -459,6 +474,28 @@ async function ensureDbInitialized(p) {
   }
   dbInitialized = true;
 }
+function markDbDown(dbErr) {
+  lastDbError = dbErr?.message || String(dbErr);
+  neonDownUntil = Date.now() + 18e4;
+  console.warn("[db] Query execution failed, switching to cloud store fallback:", lastDbError);
+}
+async function qStrict(text, params = []) {
+  if (!isDbConfigured()) {
+    const err = new Error("Database unavailable");
+    err.code = "DB_UNAVAILABLE";
+    throw err;
+  }
+  try {
+    const p = await getPool();
+    await ensureDbInitialized(p);
+    return await p.query(text, params);
+  } catch (dbErr) {
+    markDbDown(dbErr);
+    const err = new Error("Database unavailable");
+    err.code = "DB_UNAVAILABLE";
+    throw err;
+  }
+}
 async function q(text, params = []) {
   if (isDbConfigured() && Date.now() >= neonDownUntil) {
     try {
@@ -466,9 +503,7 @@ async function q(text, params = []) {
       await ensureDbInitialized(p);
       return await p.query(text, params);
     } catch (dbErr) {
-      lastDbError = dbErr?.message || String(dbErr);
-      neonDownUntil = Date.now() + 18e4;
-      console.warn("[db] Query execution failed, switching to cloud store fallback:", lastDbError);
+      markDbDown(dbErr);
     }
   }
   await syncStoreFromCloud();
@@ -507,40 +542,10 @@ async function q(text, params = []) {
       }
       return { rowCount: before - serverStore.users.length, rows: [] };
     }
-    if (qStr.includes("UPDATE users SET")) {
-      const lookup = params[params.length - 1];
-      const u = serverStore.users.find((x) => x.uid === lookup || x.email && x.email.toLowerCase() === String(lookup).toLowerCase());
-      if (u) {
-        if (qStr.includes("password_hash") && params[0]) u.password_hash = params[0];
-        if (qStr.includes("display_name") && params[1]) u.display_name = params[1];
-        u.last_login_at = (/* @__PURE__ */ new Date()).toISOString();
-        await saveStore();
-      }
-      return { rowCount: u ? 1 : 0, rows: [] };
+    if (qStr.startsWith("INSERT INTO users") || qStr.includes("UPDATE users SET")) {
+      return { rowCount: 0, rows: [] };
     }
-    if (qStr.startsWith("INSERT INTO users")) {
-      const [uid, email, passHash, dispName, role] = params;
-      const cleanEmail = String(email || "").trim().toLowerCase();
-      const existingIdx = serverStore.users.findIndex((x) => x.email && x.email.toLowerCase() === cleanEmail || x.uid === uid);
-      const newUser = {
-        uid: uid || `usr_${Date.now()}`,
-        email: cleanEmail,
-        password_hash: passHash || (existingIdx >= 0 ? serverStore.users[existingIdx].password_hash : null),
-        display_name: dispName || (existingIdx >= 0 ? serverStore.users[existingIdx].display_name : cleanEmail.split("@")[0]),
-        photo_url: existingIdx >= 0 ? serverStore.users[existingIdx].photo_url : null,
-        role: role || (cleanEmail === "ibrahimfaruqolamilekan4@gmail.com" ? "admin" : "user"),
-        created_at: existingIdx >= 0 ? serverStore.users[existingIdx].created_at : (/* @__PURE__ */ new Date()).toISOString(),
-        last_login_at: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      if (existingIdx >= 0) {
-        serverStore.users[existingIdx] = newUser;
-      } else {
-        serverStore.users.unshift(newUser);
-      }
-      await saveStore();
-      return { rowCount: 1, rows: [newUser] };
-    }
-    return { rows: serverStore.users };
+    return { rows: [], rowCount: 0 };
   }
   if (qStr.includes("global_reciters") || qStr.includes("custom_reciters")) {
     if (qStr.startsWith("SELECT")) {
@@ -1001,12 +1006,15 @@ function verifyPassword(password, stored) {
   return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
 }
 function getSecret() {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) return "nooraya-local-secret-for-session-signing";
+  const secret = typeof process.env.AUTH_SECRET === "string" ? process.env.AUTH_SECRET.trim() : "";
+  if (secret.length < 16) return null;
+  if (secret === "nooraya-local-secret-for-session-signing") return null;
   return secret;
 }
 function sign(data) {
-  return crypto.createHmac("sha256", getSecret()).update(data).digest("base64url");
+  const secret = getSecret();
+  if (!secret) return null;
+  return crypto.createHmac("sha256", secret).update(data).digest("base64url");
 }
 function createSessionToken(userOrUid) {
   const payload = typeof userOrUid === "object" && userOrUid !== null ? {
@@ -1020,7 +1028,13 @@ function createSessionToken(userOrUid) {
     exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1e3
   };
   const data = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url") + "." + Buffer.from(JSON.stringify(payload)).toString("base64url");
-  return `${data}.${sign(data)}`;
+  const signature = sign(data);
+  if (!signature) {
+    const err = new Error("AUTH_SECRET is not configured");
+    err.code = "AUTH_MISCONFIGURED";
+    throw err;
+  }
+  return `${data}.${signature}`;
 }
 function readSessionToken(req) {
   const authHeader = req.headers.authorization;
@@ -1039,6 +1053,7 @@ function verifySessionTokenPayload(token) {
   if (parts.length !== 3) return null;
   const data = `${parts[0]}.${parts[1]}`;
   const expected = sign(data);
+  if (!expected) return null;
   const a = Buffer.from(expected);
   const b = Buffer.from(parts[2]);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
@@ -1053,46 +1068,17 @@ function verifySessionTokenPayload(token) {
 }
 async function getAuthUser(req) {
   const token = readSessionToken(req);
-  if (token) {
-    const payload = verifySessionTokenPayload(token);
-    if (payload && payload.uid) {
-      try {
-        const { rows } = await q(
-          "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
-          [payload.uid]
-        );
-        if (rows[0]) return mapUser(rows[0]);
-      } catch {
-      }
-      if (payload.email) {
-        try {
-          const { rows } = await q(
-            "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1",
-            [payload.email]
-          );
-          if (rows[0]) return mapUser(rows[0]);
-          const restoredRole = payload.email.toLowerCase() === adminEmail() ? "admin" : payload.role || "user";
-          const restoredName = payload.displayName || payload.email.split("@")[0];
-          await q(
-            "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
-            [payload.uid, payload.email.toLowerCase(), null, restoredName, restoredRole]
-          );
-          return {
-            uid: payload.uid,
-            email: payload.email.toLowerCase(),
-            displayName: restoredName,
-            photoURL: null,
-            role: restoredRole
-          };
-        } catch {
-        }
-      }
-      if (serverStore.users) {
-        const matching = serverStore.users.find((u) => u.uid === payload.uid);
-        if (matching) return mapUser(matching);
-      }
-      return null;
-    }
+  if (!token) return null;
+  const payload = verifySessionTokenPayload(token);
+  if (!payload || !payload.uid) return null;
+  try {
+    const { rows } = await qStrict(
+      "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1",
+      [payload.uid]
+    );
+    if (rows[0]) return mapUser(rows[0]);
+  } catch (err) {
+    console.warn("[auth] session lookup failed:", err?.message || err);
   }
   return null;
 }
@@ -1164,7 +1150,7 @@ function validEmail(email) {
   return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 255;
 }
 function adminEmail() {
-  return (process.env.ADMIN_EMAIL || "ibrahimfaruqolamilekan4@gmail.com").toLowerCase();
+  return (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 }
 function cleanImageUrl(value) {
   if (typeof value !== "string") return null;
@@ -2129,34 +2115,10 @@ var handler = async (req, res) => {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!validEmail(email)) return sendJson(res, 400, { error: "Please enter a valid email address." });
     if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
-    const existing = await q("SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1", [email]);
-    if (existing.rows[0] && !existing.rows[0].password_hash) {
-      const row = existing.rows[0];
-      const displayName2 = name || row.display_name;
-      await q(
-        "UPDATE users SET password_hash = $1, display_name = $2, last_login_at = now() WHERE uid = $3",
-        [hashPassword(password), displayName2, row.uid]
-      );
-      const sb2 = getSupabaseAdmin();
-      if (sb2) {
-        try {
-          await sb2.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: { full_name: displayName2, name: displayName2 },
-            app_metadata: { role: row.role }
-          });
-        } catch {
-        }
-      }
-      const user2 = mapUser({ ...row, display_name: displayName2 });
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user2), isSecureRequest(req)));
-      return sendJson(res, 200, { user: user2 });
-    }
+    const existing = await qStrict("SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1", [email]);
     if (existing.rows[0]) return sendJson(res, 409, { error: "An account with this email already exists. Please sign in instead." });
     let uid = crypto2.randomUUID();
-    const role = email === adminEmail() ? "admin" : "user";
+    const role = adminEmail() && email === adminEmail() ? "admin" : "user";
     const displayName = name || email.split("@")[0];
     const sb = getSupabaseAdmin();
     if (sb) {
@@ -2177,15 +2139,21 @@ var handler = async (req, res) => {
         console.warn("Supabase auth signup exception:", sbEx);
       }
     }
-    await q(
+    await qStrict(
       "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
       [uid, email, hashPassword(password), displayName, role]
     );
-    await q("INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING", [uid]);
+    await qStrict("INSERT INTO user_preferences (user_uid) VALUES ($1) ON CONFLICT DO NOTHING", [uid]);
     const user = { uid, email, displayName, photoURL: null, role };
     res.setHeader("Set-Cookie", sessionCookie(createSessionToken(user), isSecureRequest(req)));
     return sendJson(res, 201, { user });
   } catch (err) {
+    if (err?.code === "DB_UNAVAILABLE") {
+      return sendJson(res, 503, { error: "Sign-up is temporarily unavailable. Please try again shortly." });
+    }
+    if (err?.code === "AUTH_MISCONFIGURED") {
+      return sendJson(res, 503, { error: "Sign-up is not configured on this server." });
+    }
     console.error("signup failed:", err);
     return sendJson(res, 500, { error: "Could not create your account. Please try again." });
   }
@@ -2194,66 +2162,32 @@ var signup_default = handler;
 
 // backend/auth/login.ts
 init_lib();
-import crypto3 from "node:crypto";
+function authFailureStatus(err) {
+  if (err?.code === "DB_UNAVAILABLE") return { status: 503, error: "Sign-in is temporarily unavailable. Please try again shortly." };
+  if (err?.code === "AUTH_MISCONFIGURED") return { status: 503, error: "Sign-in is not configured on this server." };
+  return null;
+}
 var handler2 = async (req, res) => {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
   try {
     const body = await readJson(req);
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body.password === "string" ? body.password : "";
-    if (!validEmail(email)) return sendJson(res, 400, { error: "Please enter a valid email address." });
-    let row;
-    try {
-      const { rows } = await q(
-        "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1",
-        [email]
-      );
-      row = rows[0];
-    } catch (e) {
-      console.warn("DB query in login fallback notice:", e);
-    }
-    if (!row && email === adminEmail()) {
-      row = {
-        uid: "usr_admin_ibrahim",
-        email: adminEmail(),
-        password_hash: null,
-        display_name: "Ibrahim Faruq (Admin)",
-        photo_url: null,
-        role: "admin"
-      };
-    }
-    if (!row && isNeonFallbackActive() && password.length >= 4) {
-      const uid = `usr_${crypto3.randomUUID().slice(0, 8)}`;
-      const displayName = email.split("@")[0];
-      const role = email === adminEmail() ? "admin" : "user";
-      const passHash = hashPassword(password);
-      await q(
-        "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())",
-        [uid, email, passHash, displayName, role]
-      );
-      const restoredUser = { uid, email, displayName, photoURL: null, role };
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(restoredUser), isSecureRequest(req)));
-      return sendJson(res, 200, { user: restoredUser });
-    }
-    if (!row) {
+    if (!validEmail(email) || password.length < 8) {
       return sendJson(res, 401, { error: "Incorrect email or password." });
     }
-    if (!row.password_hash) {
-      try {
-        await q("UPDATE users SET password_hash = $1, last_login_at = now() WHERE uid = $2", [hashPassword(password), row.uid]);
-      } catch (e) {
-        console.warn("Password save notice:", e);
-      }
-      const mapped2 = mapUser(row);
-      res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped2), isSecureRequest(req)));
-      return sendJson(res, 200, { user: mapped2 });
-    }
-    if (!verifyPassword(password, row.password_hash)) {
+    const { rows } = await qStrict(
+      "SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1",
+      [email]
+    );
+    const row = rows[0];
+    if (!row?.password_hash || !verifyPassword(password, row.password_hash)) {
       return sendJson(res, 401, { error: "Incorrect email or password." });
     }
     try {
-      await q("UPDATE users SET last_login_at = now() WHERE uid = $1", [row.uid]);
-    } catch {
+      await qStrict("UPDATE users SET last_login_at = now() WHERE uid = $1", [row.uid]);
+    } catch (err) {
+      console.warn("[auth] last_login update skipped:", err?.message || err);
     }
     const sb = getSupabaseAdmin();
     if (sb) {
@@ -2284,8 +2218,10 @@ var handler2 = async (req, res) => {
     res.setHeader("Set-Cookie", sessionCookie(createSessionToken(mapped), isSecureRequest(req)));
     return sendJson(res, 200, { user: mapped });
   } catch (err) {
+    const unavailable = authFailureStatus(err);
+    if (unavailable) return sendJson(res, unavailable.status, { error: unavailable.error });
     console.error("login failed:", err);
-    return sendJson(res, 500, { error: err?.message || "Could not sign you in. Please try again." });
+    return sendJson(res, 500, { error: "Could not sign you in. Please try again." });
   }
 };
 var login_default = handler2;
@@ -2825,7 +2761,7 @@ var reciters_default2 = handler10;
 
 // backend/admin/role.ts
 init_lib();
-import crypto4 from "node:crypto";
+import crypto3 from "node:crypto";
 var handler11 = async (req, res) => {
   if (req.method !== "PUT" && req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
@@ -2848,7 +2784,7 @@ var handler11 = async (req, res) => {
       if (!validEmail(email)) {
         return sendJson(res, 400, { error: "Please enter a valid email address." });
       }
-      const uid = `usr_${crypto4.randomUUID().slice(0, 8)}`;
+      const uid = `usr_${crypto3.randomUUID().slice(0, 8)}`;
       await q(
         "INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name, role = EXCLUDED.role",
         [uid, email, null, displayName, role2]
@@ -3471,7 +3407,7 @@ var ambient_default2 = handler18;
 init_lib();
 import fs3 from "node:fs";
 import path3 from "node:path";
-import crypto5 from "node:crypto";
+import crypto4 from "node:crypto";
 var UPLOADS_DIR2 = path3.resolve(process.cwd(), "public/videos/uploads");
 function ensureUploadsDir() {
   try {
@@ -3583,7 +3519,7 @@ async function mediaHandler(req, res) {
         else if (mediaType.includes("png")) ext = ".png";
         else ext = ".jpg";
       }
-      const safeId = `media_${kind}_${Date.now()}_${crypto5.randomBytes(4).toString("hex")}`;
+      const safeId = `media_${kind}_${Date.now()}_${crypto4.randomBytes(4).toString("hex")}`;
       const safeFilename = `${safeId}${ext}`;
       const saved = await saveInlineMedia(
         `data:${mediaType};base64,${base64Data}`,
@@ -3664,7 +3600,10 @@ async function handler19(req, res) {
       return sendJson(res, 400, { error: "Transaction ID is required." });
     }
     const txIdStr = String(transaction_id).trim();
-    const flwSecretKey = process.env.FLW_SECRET_KEY;
+    const flwSecretKey = (process.env.FLW_SECRET_KEY || "").trim();
+    if (!flwSecretKey || flwSecretKey.includes("placeholder")) {
+      return sendJson(res, 503, { error: "Payment verification is not configured." });
+    }
     const plan = await getPlanByCode(plan_code);
     if (!plan || !plan.is_active) {
       return sendJson(res, 400, { error: "Selected plan is not currently available." });
@@ -3674,7 +3613,7 @@ async function handler19(req, res) {
     let verifiedCurrency = "NGN";
     let verifiedTxRef = tx_ref || "";
     let flwRef = null;
-    if (flwSecretKey && !flwSecretKey.includes("placeholder")) {
+    {
       const flwRes = await fetch(
         `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(txIdStr)}/verify`,
         {
@@ -3701,11 +3640,6 @@ async function handler19(req, res) {
       verifiedTxRef = flwData?.data?.tx_ref || verifiedTxRef;
       flwRef = flwData?.data?.flw_ref || null;
       isVerified = true;
-    } else {
-      console.warn("[Payments] FLW_SECRET_KEY not set. Operating in resilient test verification mode.");
-      isVerified = Boolean(txIdStr);
-      verifiedAmount = plan.amount;
-      verifiedCurrency = plan.currency || "NGN";
     }
     if (!isVerified) {
       return sendJson(res, 400, { error: "Payment verification failed." });
@@ -3778,10 +3712,10 @@ async function handler20(req, res) {
   if (req.method !== "POST") {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
-  const secretHash = process.env.FLW_WEBHOOK_HASH;
+  const secretHash = (process.env.FLW_WEBHOOK_HASH || "").trim();
   const signature = req.headers["verif-hash"];
-  if (secretHash && signature !== secretHash) {
-    console.warn("[flw-webhook] Signature mismatch received:", signature);
+  if (!secretHash || signature !== secretHash) {
+    console.warn("[flw-webhook] Rejected webhook: signature missing or mismatch");
     return sendJson(res, 401, { error: "Invalid webhook signature hash." });
   }
   try {
@@ -3805,34 +3739,45 @@ async function handler20(req, res) {
     if (payment.status === "successful" || payment.status === "overpaid") {
       return sendJson(res, 200, { received: true, message: "Payment already processed" });
     }
-    const flwSecretKey = process.env.FLW_SECRET_KEY;
-    let verifiedStatus = data.status;
-    let verifiedAmount = Number(data.amount) || 0;
-    let verifiedCurrency = (data.currency || "NGN").toUpperCase();
-    let flwRef = data.flw_ref || null;
-    if (flwSecretKey && !flwSecretKey.includes("placeholder")) {
-      try {
-        const verifyRes = await fetch(
-          `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(txId)}/verify`,
-          {
-            headers: {
-              Authorization: `Bearer ${flwSecretKey}`,
-              "Content-Type": "application/json"
-            }
-          }
-        );
-        if (verifyRes.ok) {
-          const verifyData = await verifyRes.json();
-          if (verifyData?.status === "success" && verifyData?.data) {
-            verifiedStatus = verifyData.data.status;
-            verifiedAmount = Number(verifyData.data.amount);
-            verifiedCurrency = (verifyData.data.currency || "NGN").toUpperCase();
-            flwRef = verifyData.data.flw_ref || flwRef;
+    const flwSecretKey = (process.env.FLW_SECRET_KEY || "").trim();
+    if (!flwSecretKey || flwSecretKey.includes("placeholder") || !txId) {
+      console.error("[flw-webhook] FLW_SECRET_KEY is not configured or transaction id is missing");
+      return sendJson(res, 503, { error: "Payment verification is not configured." });
+    }
+    let verifiedStatus = "";
+    let verifiedAmount = 0;
+    let verifiedCurrency = "";
+    let verifiedTxRef = "";
+    let flwRef = null;
+    try {
+      const verifyRes = await fetch(
+        `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(txId)}/verify`,
+        {
+          headers: {
+            Authorization: `Bearer ${flwSecretKey}`,
+            "Content-Type": "application/json"
           }
         }
-      } catch (err) {
-        console.warn("[flw-webhook] Flutterwave server verification call error:", err);
+      );
+      if (!verifyRes.ok) {
+        console.warn("[flw-webhook] Flutterwave verify rejected transaction", txId);
+        return sendJson(res, 400, { error: "Unable to verify transaction with Flutterwave." });
       }
+      const verifyData = await verifyRes.json();
+      if (verifyData?.status !== "success" || !verifyData?.data) {
+        return sendJson(res, 400, { error: "Unable to verify transaction with Flutterwave." });
+      }
+      verifiedStatus = verifyData.data.status;
+      verifiedAmount = Number(verifyData.data.amount);
+      verifiedCurrency = (verifyData.data.currency || "").toUpperCase();
+      verifiedTxRef = String(verifyData.data.tx_ref || "");
+      flwRef = verifyData.data.flw_ref || null;
+    } catch (err) {
+      console.warn("[flw-webhook] Flutterwave server verification call error:", err);
+      return sendJson(res, 502, { error: "Unable to verify transaction with Flutterwave." });
+    }
+    if (!verifiedTxRef || verifiedTxRef !== txRef) {
+      return sendJson(res, 400, { error: "Transaction reference mismatch." });
     }
     if (verifiedStatus !== "successful") {
       await updatePaymentStatus(txRef, {
@@ -4236,42 +4181,38 @@ async function handler23(req, res) {
         txRef: payment.tx_ref
       });
     }
-    const flwSecretKey = process.env.FLW_SECRET_KEY;
+    const flwSecretKey = (process.env.FLW_SECRET_KEY || "").trim();
+    if (!flwSecretKey || flwSecretKey.includes("placeholder")) {
+      return sendJson(res, 503, { error: "Payment verification is not configured." });
+    }
     let isSuccess = false;
     let flwTxId = void 0;
     let flwRef = void 0;
     let amountPaid = 0;
-    if (flwSecretKey && !flwSecretKey.includes("placeholder")) {
-      try {
-        const flwRes = await fetch(
-          `https://api.flutterwave.com/v3/transactions/verify-by-reference?tx_ref=${encodeURIComponent(txRef)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${flwSecretKey}`,
-              "Content-Type": "application/json"
-            }
-          }
-        );
-        if (flwRes.ok) {
-          const flwData = await flwRes.json();
-          if (flwData?.status === "success" && flwData?.data?.status === "successful") {
-            const data = flwData.data;
-            if ((data.currency || "NGN").toUpperCase() === (payment.currency || "NGN").toUpperCase()) {
-              amountPaid = Number(data.amount);
-              flwTxId = String(data.id || "");
-              flwRef = data.flw_ref;
-              isSuccess = true;
-            }
+    try {
+      const flwRes = await fetch(
+        `https://api.flutterwave.com/v3/transactions/verify-by-reference?tx_ref=${encodeURIComponent(txRef)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${flwSecretKey}`,
+            "Content-Type": "application/json"
           }
         }
-      } catch (err) {
-        console.warn("[Payments] Flutterwave check status call error:", err);
+      );
+      if (flwRes.ok) {
+        const flwData = await flwRes.json();
+        if (flwData?.status === "success" && flwData?.data?.status === "successful") {
+          const data = flwData.data;
+          if ((data.currency || "NGN").toUpperCase() === (payment.currency || "NGN").toUpperCase()) {
+            amountPaid = Number(data.amount);
+            flwTxId = String(data.id || "");
+            flwRef = data.flw_ref;
+            isSuccess = true;
+          }
+        }
       }
-    }
-    const forceSimulate = parsedUrl.searchParams.get("simulate") === "true";
-    if (!isSuccess && (!flwSecretKey || flwSecretKey.includes("placeholder")) && forceSimulate) {
-      isSuccess = true;
-      amountPaid = payment.amount;
+    } catch (err) {
+      console.warn("[Payments] Flutterwave check status call error:", err);
     }
     if (isSuccess) {
       const requiredAmount = payment.amount;
@@ -5779,7 +5720,7 @@ var adhan_voices_default2 = handler26;
 
 // backend/push.ts
 init_lib();
-import crypto6 from "node:crypto";
+import crypto5 from "node:crypto";
 import {
   Coordinates,
   CalculationMethod,
@@ -5871,7 +5812,7 @@ async function getVapidKeys() {
     }
   } catch {
   }
-  const ecdh = crypto6.createECDH("prime256v1");
+  const ecdh = crypto5.createECDH("prime256v1");
   ecdh.generateKeys();
   const pubKey = base64UrlEncode(ecdh.getPublicKey());
   const privKey = base64UrlEncode(ecdh.getPrivateKey());
@@ -5909,7 +5850,7 @@ function createVapidAuthHeader(endpoint, vapid) {
   const x = base64UrlEncode(pubBytes.subarray(1, 33));
   const y = base64UrlEncode(pubBytes.subarray(33, 65));
   const d = vapid.privateKey;
-  const privateKeyObj = crypto6.createPrivateKey({
+  const privateKeyObj = crypto5.createPrivateKey({
     key: {
       kty: "EC",
       crv: "P-256",
@@ -5919,7 +5860,7 @@ function createVapidAuthHeader(endpoint, vapid) {
     },
     format: "jwk"
   });
-  const signer = crypto6.createSign("SHA256");
+  const signer = crypto5.createSign("SHA256");
   signer.update(unsignedToken);
   signer.end();
   const signature = signer.sign({ key: privateKeyObj, dsaEncoding: "ieee-p1363" });
@@ -5932,23 +5873,23 @@ function createVapidAuthHeader(endpoint, vapid) {
 function encryptWebPushPayload(payloadText, userPublicKeyB64, userAuthB64) {
   const clientPublicKey = base64UrlDecode(userPublicKeyB64);
   const userAuth = base64UrlDecode(userAuthB64);
-  const serverEcdh = crypto6.createECDH("prime256v1");
+  const serverEcdh = crypto5.createECDH("prime256v1");
   serverEcdh.generateKeys();
   const serverPublicKey = serverEcdh.getPublicKey();
   const sharedSecret = serverEcdh.computeSecret(clientPublicKey);
-  const salt = crypto6.randomBytes(16);
+  const salt = crypto5.randomBytes(16);
   const keyInfo = Buffer.concat([
     Buffer.from("WebPush: info\0", "ascii"),
     clientPublicKey,
     serverPublicKey
   ]);
-  const ikm = Buffer.from(crypto6.hkdfSync("sha256", sharedSecret, userAuth, keyInfo, 32));
+  const ikm = Buffer.from(crypto5.hkdfSync("sha256", sharedSecret, userAuth, keyInfo, 32));
   const cekInfo = Buffer.from("Content-Encoding: aes128gcm\0", "ascii");
   const nonceInfo = Buffer.from("Content-Encoding: nonce\0", "ascii");
-  const cek = Buffer.from(crypto6.hkdfSync("sha256", ikm, salt, cekInfo, 16));
-  const nonce = Buffer.from(crypto6.hkdfSync("sha256", ikm, salt, nonceInfo, 12));
+  const cek = Buffer.from(crypto5.hkdfSync("sha256", ikm, salt, cekInfo, 16));
+  const nonce = Buffer.from(crypto5.hkdfSync("sha256", ikm, salt, nonceInfo, 12));
   const plaintext = Buffer.concat([Buffer.from(payloadText, "utf8"), Buffer.from([2])]);
-  const cipher = crypto6.createCipheriv("aes-128-gcm", cek, nonce);
+  const cipher = crypto5.createCipheriv("aes-128-gcm", cek, nonce);
   const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
   const rsBuf = Buffer.alloc(4);
   rsBuf.writeUInt32BE(4096, 0);
@@ -6207,7 +6148,7 @@ var handler27 = async (req, res) => {
       return sendJson(res, 400, { error: "Valid PushSubscription (endpoint, p256dh, auth) is required." });
     }
     const user = await getAuthUser(req).catch(() => null);
-    const id = `push_${crypto6.createHash("sha256").update(endpoint).digest("hex").slice(0, 24)}`;
+    const id = `push_${crypto5.createHash("sha256").update(endpoint).digest("hex").slice(0, 24)}`;
     const record = {
       id,
       user_id: user?.uid || null,
@@ -6426,11 +6367,9 @@ var handler27 = async (req, res) => {
   }
   if ((req.method === "POST" || req.method === "GET") && pathname === "/api/push/dispatch") {
     const cronSecret = (process.env.CRON_SECRET || "").trim();
-    if (cronSecret && cronSecret !== "change-me-cron-secret") {
-      const authHeader = String(req.headers.authorization || "");
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return sendJson(res, 401, { error: "Unauthorized cron invocation" });
-      }
+    const authHeader = String(req.headers.authorization || "");
+    if (!cronSecret || cronSecret === "change-me-cron-secret" || authHeader !== `Bearer ${cronSecret}`) {
+      return sendJson(res, 401, { error: "Unauthorized cron invocation" });
     }
     const byEndpoint = /* @__PURE__ */ new Map();
     const sb = getSupabaseAdmin();
