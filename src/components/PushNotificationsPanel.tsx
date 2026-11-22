@@ -19,9 +19,24 @@ import {
   Play,
   Square,
   Timer,
+  DownloadCloud,
+  ShieldAlert,
 } from 'lucide-react';
 import type { UserLocation } from '../lib/location';
 import type { PrayerSettings } from '../lib/prayer';
+import { BatteryOptimizationModal } from './BatteryOptimizationModal';
+import {
+  isNativePlatform,
+  getNativePlatform,
+  scheduleNativeOfflinePrayers,
+  getNativeNotificationDiagnostics,
+  requestNativeNotificationPermissions,
+  type NativeNotificationDiagnostics,
+} from '../lib/nativeNotifications';
+import {
+  downloadVoiceForOffline,
+  isVoiceAvailableOffline,
+} from '../lib/offlineAdhanStore';
 import {
   subscribeToPrayerPushNotifications,
   unsubscribeFromPrayerPushNotifications,
@@ -66,10 +81,76 @@ export function PushNotificationsPanel({
     type: 'success' | 'error' | 'info';
   } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(true);
+  const [showBatteryModal, setShowBatteryModal] = useState(false);
+  const [nativeDiag, setNativeDiag] = useState<NativeNotificationDiagnostics | null>(null);
+  const [schedulingNative, setSchedulingNative] = useState(false);
+  const [downloadingOfflineVoice, setDownloadingOfflineVoice] = useState(false);
+  const [isVoiceOfflineCached, setIsVoiceOfflineCached] = useState(false);
   const [adhanState, setAdhanState] = useState(getAdhanPlaybackState());
   const [latestAdhanLog, setLatestAdhanLog] = useState<AdhanDiagnosticEntry | null>(
     () => getAdhanDiagnosticLogs()[0] || null
   );
+
+  useEffect(() => {
+    void isVoiceAvailableOffline(settings.activeAdhanVoiceId).then(setIsVoiceOfflineCached);
+    if (isNativePlatform()) {
+      void getNativeNotificationDiagnostics().then(setNativeDiag);
+    }
+  }, [settings.activeAdhanVoiceId]);
+
+  const handleScheduleNativeOffline = async () => {
+    setSchedulingNative(true);
+    try {
+      const perm = await requestNativeNotificationPermissions();
+      if (!perm.granted) {
+        setStatusMessage({
+          text: 'Notification permission is required to schedule offline exact alarms.',
+          type: 'error',
+        });
+        return;
+      }
+      const res = await scheduleNativeOfflinePrayers(location, settings, 14);
+      if (res.ok) {
+        setStatusMessage({
+          text: `Scheduled ${res.scheduledCount} exact offline prayer alarms for the next 14 days (Airplane Mode Ready)!`,
+          type: 'success',
+        });
+      } else {
+        setStatusMessage({
+          text: res.error || 'Failed to schedule native offline alarms.',
+          type: 'error',
+        });
+      }
+      const nDiag = await getNativeNotificationDiagnostics();
+      setNativeDiag(nDiag);
+    } finally {
+      setSchedulingNative(false);
+    }
+  };
+
+  const handleDownloadOfflineVoice = async () => {
+    setDownloadingOfflineVoice(true);
+    try {
+      const selected = (voices || []).find((v) => v.id === settings.activeAdhanVoiceId);
+      if (!selected) {
+        setStatusMessage({ text: 'Selected voice not found in library.', type: 'error' });
+        return;
+      }
+      const res = await downloadVoiceForOffline(selected);
+      if (res.ok) {
+        setIsVoiceOfflineCached(true);
+        const mb = (res.cachedSizeBytes / (1024 * 1024)).toFixed(1);
+        setStatusMessage({
+          text: `Authentic recording for ${selected.muezzin_name_en} cached locally (${mb} MB)! Available in Airplane Mode with zero network.`,
+          type: 'success',
+        });
+      } else {
+        setStatusMessage({ text: res.error || 'Failed to download voice.', type: 'error' });
+      }
+    } finally {
+      setDownloadingOfflineVoice(false);
+    }
+  };
 
   const loadDiagnostics = useCallback(async () => {
     setLoadingDiag(true);
@@ -328,37 +409,95 @@ export function PushNotificationsPanel({
         </div>
       </div>
 
-      {/* Device Delivery Path Status Line (Step 2.7 Requirement) */}
-      <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-2">
-        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
-          <Volume2 size={14} className="text-emerald-400" />
-          <span>Active Delivery Path on This Device</span>
+      {/* Device Delivery Path Status Line (Phase 1 PWA + Phase 2 Native Offline) */}
+      <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
+            <Volume2 size={14} className="text-emerald-400" />
+            <span>Active Delivery Paths (Foreground • Closed App • Offline)</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowBatteryModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+            >
+              <ShieldAlert size={13} />
+              <span>Battery Saver / AutoStart Guide</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadOfflineVoice}
+              disabled={downloadingOfflineVoice || isVoiceOfflineCached}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                isVoiceOfflineCached
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-teal-500/20 hover:bg-teal-500/30 text-teal-200 border border-teal-500/40'
+              }`}
+            >
+              <DownloadCloud size={13} />
+              <span>
+                {isVoiceOfflineCached
+                  ? 'Voice Cached for Airplane Mode'
+                  : downloadingOfflineVoice
+                  ? 'Downloading...'
+                  : 'Download Voice for Offline'}
+              </span>
+            </button>
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
             <div className="text-[10px] font-bold uppercase text-emerald-400/70">
-              1. When App is Open / Foreground
+              1. Open App / Foreground
             </div>
             <div className="font-semibold text-white mt-0.5">
-              Single HTML5 Audio Engine (Real Muezzin Audio File Only — Zero Synthetic Tone)
+              HTML5 Audio Engine (Real Voice Only)
             </div>
             <div className="text-[11px] text-emerald-200/70 mt-0.5">
-              Ducks Quran &amp; ambient audio, preloads &amp; caches Adhan 15 min before prayer, and restores previous playback when finished.
+              Ducks ambient/Quran audio, preloads Adhan 15 min early, and restores playback when done.
             </div>
           </div>
 
           <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
             <div className="text-[10px] font-bold uppercase text-amber-400/80">
-              2. When App is Closed / Screen Locked
+              2. Closed App &amp; Online (PWA)
             </div>
             <div className="font-semibold text-white mt-0.5">
               {diag?.pushSubscribed
-                ? 'VAPID Web Push Active (OS Default Notification Sound; Tap Plays Full Adhan)'
-                : 'Web Push Off (Enable Above to Receive Closed-App Prayer Alerts)'}
+                ? 'VAPID Web Push Active (OS Chime)'
+                : 'Web Push Off (Enable Above)'}
             </div>
             <div className="text-[11px] text-emerald-200/70 mt-0.5">
-              Web browsers do not support custom MP3/WAV notification sounds when closed; tapping the notification opens the full-screen Adhan player.
+              Per-minute scheduler pushes on time. Tapping notification opens full-screen Adhan player.
             </div>
+          </div>
+
+          <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-teal-400/80">
+              3. Closed App &amp; Offline (Airplane Mode)
+            </div>
+            <div className="font-semibold text-white mt-0.5">
+              {isNativePlatform()
+                ? 'Native Exact Alarms Active'
+                : 'Native Shell (Capacitor Ready)'}
+            </div>
+            <div className="text-[11px] text-emerald-200/70 mt-0.5">
+              Exact alarms (SCHEDULE_EXACT_ALARM) + UNNotificationSound play authentic Adhan with zero network.
+            </div>
+            {isNativePlatform() && (
+              <button
+                type="button"
+                onClick={handleScheduleNativeOffline}
+                disabled={schedulingNative}
+                className="mt-2 w-full py-1.5 px-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold cursor-pointer transition-all"
+              >
+                {schedulingNative ? 'Rescheduling...' : 'Reschedule 14-Day Offline Alarms'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -637,6 +776,11 @@ export function PushNotificationsPanel({
           </div>
         )}
       </div>
+
+      <BatteryOptimizationModal
+        isOpen={showBatteryModal}
+        onClose={() => setShowBatteryModal(false)}
+      />
     </div>
   );
 }

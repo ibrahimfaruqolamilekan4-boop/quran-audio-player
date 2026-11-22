@@ -32,6 +32,11 @@ import {
   type AdhanVoiceRow,
   type ActiveAdhanPlaybackState,
 } from '../lib/adhanAudio';
+import {
+  isNativePlatform,
+  scheduleNativeOfflinePrayers,
+  initNativeNotificationHandlers,
+} from '../lib/nativeNotifications';
 
 export const SCHEDULED_PRAYERS = [
   { key: 'fajr', english: 'Fajr', arabic: 'الفجر' },
@@ -307,11 +312,47 @@ export function AdhanSchedulerOverlay() {
       }
     };
 
+    // Phase 2: Native Capacitor notification action taps
+    const unsubNative = initNativeNotificationHandlers((prayerKey) => {
+      triggerFromNotification(prayerKey);
+    });
+
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', onSwMessage);
-      return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', onSwMessage);
+        unsubNative();
+      };
     }
+
+    return () => unsubNative();
   }, [settings.activeAdhanVoiceId, settings.useFajrAdhan]);
+
+  // Phase 2: Replenish next 14 days of exact offline prayer alarms in native shell
+  useEffect(() => {
+    if (!isNativePlatform() || !settings.notificationsEnabled) return;
+
+    const replenishSchedule = () => {
+      void scheduleNativeOfflinePrayers(location, settings, 14);
+    };
+
+    replenishSchedule();
+    window.addEventListener('nooraya_native_resume_replenish', replenishSchedule);
+    return () => {
+      window.removeEventListener('nooraya_native_resume_replenish', replenishSchedule);
+    };
+  }, [
+    location.latitude,
+    location.longitude,
+    location.timezone,
+    location.cityName,
+    settings.method,
+    settings.madhab,
+    settings.highLatitudeRule,
+    settings.reminderMinutesBefore,
+    settings.prayerReminders,
+    settings.notificationsEnabled,
+  ]);
 
   // Drift-corrected wall-clock scheduler: re-checks Date.now() every 1,000ms
   useEffect(() => {
