@@ -176,6 +176,11 @@ function DashboardLayout() {
   );
 }
 
+function PrayerTimesRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/dashboard/prayer-times${location.search}`} replace />;
+}
+
 export default function App() {
   const [themeName, setThemeNameState] = useState(readStoredTheme);
   const setThemeName = (name: string) => {
@@ -205,6 +210,7 @@ export default function App() {
                 <Route path="/diag" element={<DiagnosticsView />} />
                 <Route path="/dashboard/diag" element={<DiagnosticsView />} />
                 <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
+                <Route path="/prayer-times" element={<PrayerTimesRedirect />} />
                 <Route path="/premium" element={<Navigate to="/dashboard/premium" replace />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>

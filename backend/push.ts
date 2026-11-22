@@ -250,12 +250,19 @@ export async function sendWebPushNotification(
     p256dh: string;
     auth: string;
   },
-  payloadObj: Record<string, any>
+  payloadObj: Record<string, any>,
+  options?: {
+    ttlSeconds?: number;
+    urgency?: 'very-low' | 'low' | 'normal' | 'high';
+  }
 ): Promise<{ ok: boolean; status: number; expired: boolean; error?: string }> {
   try {
     const vapid = await getVapidKeys();
     const { authorization } = createVapidAuthHeader(sub.endpoint, vapid);
     const bodyBuffer = encryptWebPushPayload(JSON.stringify(payloadObj), sub.p256dh, sub.auth);
+
+    const ttl = String(options?.ttlSeconds ?? 900);
+    const urgency = options?.urgency ?? 'high';
 
     const res = await fetch(sub.endpoint, {
       method: 'POST',
@@ -263,8 +270,8 @@ export async function sendWebPushNotification(
         Authorization: authorization,
         'Content-Encoding': 'aes128gcm',
         'Content-Type': 'application/octet-stream',
-        TTL: '3600',
-        Urgency: 'high',
+        TTL: ttl,
+        Urgency: urgency,
       },
       body: new Uint8Array(bodyBuffer),
     });
@@ -700,7 +707,7 @@ const handler: Handler = async (req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
-  // 5. POST /api/push/test -> Immediate test push notification
+  // 5. POST /api/push/test -> Immediate or delayed (10s) test push notification
   if (req.method === 'POST' && pathname === '/api/push/test') {
     const body = (await readJson(req)) as Record<string, any>;
     const sub = (body.subscription || {}) as Record<string, any>;
@@ -708,6 +715,7 @@ const handler: Handler = async (req, res) => {
     let p256dh = String(sub.keys?.p256dh || body.p256dh || '').trim();
     let auth = String(sub.keys?.auth || body.auth || '').trim();
     const cityName = String(body.cityName || 'your city');
+    const delaySeconds = Math.max(0, Math.min(Number(body.delaySeconds || 0), 30));
 
     if (endpoint && (!p256dh || !auth)) {
       const dbRes = await q(`SELECT p256dh, auth FROM push_subscriptions WHERE endpoint = $1`, [endpoint]).catch(
@@ -725,16 +733,36 @@ const handler: Handler = async (req, res) => {
       });
     }
 
+    // If a delay was requested (e.g. 10s so user can lock their screen), wait server-side
+    if (delaySeconds > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+    }
+
+    const now = new Date();
+    const formattedTime = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(now);
+
     const payload = {
       title: 'Nooraya Prayer Notification Test • حي على الصلاة',
       body: `Background push notifications are active for ${cityName}. Tap to open Nooraya and preview Adhan.`,
       prayerKey: 'fajr',
+      prayerName: 'Fajr',
+      cityName: cityName,
+      scheduledTimeIso: now.toISOString(),
+      scheduledTimeMs: now.getTime(),
+      formattedTime,
       url: '/dashboard/prayer-times?playAdhan=fajr',
       tag: `nooraya-test-${Date.now()}`,
-      sentAt: new Date().toISOString(),
+      sentAt: now.toISOString(),
     };
 
-    const pushRes = await sendWebPushNotification({ endpoint, p256dh, auth }, payload);
+    const pushRes = await sendWebPushNotification({ endpoint, p256dh, auth }, payload, {
+      ttlSeconds: 120,
+      urgency: 'high',
+    });
     const statusLabel = pushRes.ok ? `delivered_${pushRes.status}` : `error_${pushRes.status}`;
 
     await q(
@@ -784,6 +812,16 @@ const handler: Handler = async (req, res) => {
     const authHeader = String(req.headers.authorization || '');
     if (!cronSecret || cronSecret === 'change-me-cron-secret' || authHeader !== `Bearer ${cronSecret}`) {
       return sendJson(res, 401, { error: 'Unauthorized cron invocation' });
+    }
+
+    // Feature Flag: ENABLE_PWA_WEB_PUSH
+    const enablePush = process.env.ENABLE_PWA_WEB_PUSH !== 'false';
+    if (!enablePush) {
+      return sendJson(res, 200, {
+        ok: true,
+        disabledByFlag: true,
+        message: 'PWA Web Push dispatch is temporarily disabled via ENABLE_PWA_WEB_PUSH=false flag.',
+      });
     }
 
     const byEndpoint = new Map<string, any>();
@@ -862,15 +900,36 @@ const handler: Handler = async (req, res) => {
               ? 'As-salatu khayrun min an-nawm (الصلاة خير من النوم) • Tap to listen to the Fajr Adhan.'
               : 'Hayya ’ala-s-Salah (حي على الصلاة) • Tap to open Nooraya and listen to the Adhan.';
 
-          const pushRes = await sendWebPushNotification(sub, {
-            title,
-            body: bodyText,
-            prayerKey: key,
-            cityName: sub.city_name,
-            url: `/dashboard/prayer-times?playAdhan=${key}`,
-            tag: `adhan-${fireKey}`,
-            sentAt: now.toISOString(),
-          });
+          let formattedTime = '';
+          try {
+            formattedTime = new Intl.DateTimeFormat('en-US', {
+              timeZone: sub.timezone || 'Asia/Riyadh',
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+            }).format(pTime);
+          } catch {}
+
+          const pushRes = await sendWebPushNotification(
+            sub,
+            {
+              title,
+              body: bodyText,
+              prayerKey: key,
+              prayerName: label.english,
+              cityName: sub.city_name,
+              scheduledTimeIso: pTime.toISOString(),
+              scheduledTimeMs: targetMs,
+              formattedTime,
+              url: `/dashboard/prayer-times?playAdhan=${key}`,
+              tag: `adhan-${fireKey}`,
+              sentAt: now.toISOString(),
+            },
+            {
+              ttlSeconds: 900,
+              urgency: 'high',
+            }
+          );
 
           if (pushRes.ok) {
             sent++;
@@ -880,15 +939,18 @@ const handler: Handler = async (req, res) => {
           }
 
           const statusLabel = pushRes.ok ? `delivered_${pushRes.status}` : `error_${pushRes.status}`;
+          const shouldDeactivate = pushRes.expired || (!pushRes.ok && Number(sub.failure_count || 0) >= 5);
+
           await q(
             `UPDATE push_subscriptions
              SET last_sent_prayer_key = $2,
                  last_sent_at = now(),
                  last_status = $3,
                  is_active = CASE WHEN $4 THEN false ELSE is_active END,
+                 failure_count = CASE WHEN $5 THEN 0 ELSE failure_count + 1 END,
                  updated_at = now()
              WHERE endpoint = $1`,
-            [sub.endpoint, fireKey, statusLabel, pushRes.expired]
+            [sub.endpoint, fireKey, statusLabel, shouldDeactivate, pushRes.ok]
           ).catch(() => {});
 
           if (sb) {
@@ -899,7 +961,8 @@ const handler: Handler = async (req, res) => {
                   last_sent_prayer_key: fireKey,
                   last_sent_at: now.toISOString(),
                   last_status: statusLabel,
-                  ...(pushRes.expired ? { is_active: false } : {}),
+                  ...(shouldDeactivate ? { is_active: false } : {}),
+                  failure_count: pushRes.ok ? 0 : Number(sub.failure_count || 0) + 1,
                   updated_at: now.toISOString(),
                 })
                 .eq('endpoint', sub.endpoint);

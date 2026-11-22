@@ -286,10 +286,12 @@ export function AdhanSchedulerOverlay() {
 
     try {
       const params = new URLSearchParams(window.location.search);
-      const playAdhanParam = params.get('playAdhan');
+      const playAdhanParam = params.get('playAdhan') || params.get('autoPlayAdhan');
       if (playAdhanParam) {
-        triggerFromNotification(playAdhanParam);
+        const prayerKey = playAdhanParam === 'true' ? 'fajr' : playAdhanParam;
+        triggerFromNotification(prayerKey);
         params.delete('playAdhan');
+        params.delete('autoPlayAdhan');
         const nextQuery = params.toString();
         const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
         window.history.replaceState({}, '', nextUrl);
@@ -297,8 +299,11 @@ export function AdhanSchedulerOverlay() {
     } catch {}
 
     const onSwMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'NOORAYA_PUSH_NOTIFICATION_CLICK' && event.data?.prayerKey) {
-        triggerFromNotification(String(event.data.prayerKey));
+      if (
+        (event.data?.type === 'NOORAYA_PUSH_NOTIFICATION_CLICK' || event.data?.type === 'NOORAYA_ADHAN_START') &&
+        (event.data?.prayerKey || event.data?.prayer)
+      ) {
+        triggerFromNotification(String(event.data.prayerKey || event.data.prayer));
       }
     };
 
