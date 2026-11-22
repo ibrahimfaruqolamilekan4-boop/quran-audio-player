@@ -36,7 +36,6 @@ export function SurahDownloadButton({
   const [errorMessage, setErrorMessage] = useState('');
   const [showSubModal, setShowSubModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showMeteredConfirm, setShowMeteredConfirm] = useState(false);
 
   // Check download state on mount and on 'quran-downloads-changed' event
   useEffect(() => {
@@ -80,8 +79,23 @@ export function SurahDownloadButton({
     };
   }, [chapter.id, reciter.id, moshafId]);
 
-  const startSurahDownload = async () => {
-    setShowMeteredConfirm(false);
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // 1. Paywall Gate: Free users prompt upgrade modal
+    if (!isPremiumActive(user)) {
+      setShowSubModal(true);
+      return;
+    }
+
+    // 2. Metered data warning
+    if (isMeteredConnection() && chapter.verses_count > 100) {
+      const confirmMetered = window.confirm(
+        `You are on a metered/cellular data connection. Download ${chapter.name_simple} now?`
+      );
+      if (!confirmMetered) return;
+    }
+
     try {
       setFailed(false);
       setDownloading(true);
@@ -106,24 +120,6 @@ export function SurahDownloadButton({
       }
       setDownloading(false);
     }
-  };
-
-  const handleDownload = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    // 1. Paywall Gate: Free users prompt upgrade modal
-    if (!isPremiumActive(user)) {
-      setShowSubModal(true);
-      return;
-    }
-
-    // 2. Metered data warning
-    if (isMeteredConnection() && chapter.verses_count > 100 && !showMeteredConfirm) {
-      setShowMeteredConfirm(true);
-      return;
-    }
-
-    await startSurahDownload();
   };
 
   const handleCancel = async (e: React.MouseEvent) => {
@@ -210,39 +206,15 @@ export function SurahDownloadButton({
           </button>
         ) : (
           /* State 4: DEFAULT (Download button) */
-          <div className="relative inline-flex items-center">
-            <button
-              type="button"
-              onClick={handleDownload}
-              title="Download for offline listening (Premium)"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-slate-400 hover:text-teal-300 hover:bg-white/5 transition-all cursor-pointer min-h-[36px]"
-            >
-              <Download size={16} />
-              {showText && <span className="text-xs font-medium">Download</span>}
-            </button>
-            {showMeteredConfirm && (
-              <div
-                className="absolute right-0 bottom-full mb-1 z-30 p-2 bg-[#0A0F1D] border border-amber-500/40 rounded-xl shadow-2xl flex items-center gap-2 whitespace-nowrap animate-in fade-in"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <span className="text-[11px] text-amber-200">Cellular data?</span>
-                <button
-                  type="button"
-                  onClick={() => void startSurahDownload()}
-                  className="px-2 py-0.5 rounded bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 text-[11px] font-semibold cursor-pointer"
-                >
-                  Download
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowMeteredConfirm(false)}
-                  className="p-0.5 text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={handleDownload}
+            title="Download for offline listening (Premium)"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-slate-400 hover:text-teal-300 hover:bg-white/5 transition-all cursor-pointer min-h-[36px]"
+          >
+            <Download size={16} />
+            {showText && <span className="text-xs font-medium">Download</span>}
+          </button>
         )}
       </div>
 

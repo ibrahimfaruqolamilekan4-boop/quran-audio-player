@@ -23,13 +23,12 @@
 }
 
 @layer base {
-  html, body, #root {
-    background-color: var(--bg-primary, #06150F);
-    color: var(--text-primary, #F6F1E4);
+  html, body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
     font-family: var(--font-sans);
     letter-spacing: -0.01em;
-    min-height: 100dvh;
-    overscroll-behavior: none;
+    min-height: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

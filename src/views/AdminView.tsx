@@ -39,12 +39,11 @@ import { RecitationsAdmin } from './admin/RecitationsAdmin';
 import { BackgroundsAdmin } from './admin/BackgroundsAdmin';
 import { PlansAdmin } from './admin/PlansAdmin';
 import { PaymentsAdmin } from './admin/PaymentsAdmin';
-import { AdhanVoicesAdmin } from './admin/AdhanVoicesAdmin';
-import { Coins, CreditCard, Volume2 } from 'lucide-react';
+import { Coins, CreditCard } from 'lucide-react';
 import localforage from 'localforage';
 import type { Reciter } from '../types';
 
-type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'adhan' | 'media' | 'users' | 'plans' | 'payments';
+type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'media' | 'users' | 'plans' | 'payments';
 
 type Toast = (message: string, type?: 'success' | 'error') => void;
 type AskConfirm = (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
@@ -311,7 +310,7 @@ export function AdminView() {
       return;
     }
     setEditPhotoData(dataUrl);
-    showToast('Photo ready — save the reciter to apply it.', 'success');
+    showToast('Photo ready Ã¢â‚¬â€ save the reciter to apply it.', 'success');
   };
 
   const handleSaveReciter = async () => {
@@ -332,7 +331,7 @@ export function AdminView() {
         bio: editBio.trim() || undefined,
         ...(photoUrl ? { imageUrl: photoUrl } : {}),
       });
-      // 2) Global catalog — visible to every visitor and device (phones, tablets, and computers).
+      // 2) Global catalog Ã¢â‚¬â€ visible to every visitor and device (phones, tablets, and computers).
       let publicPhotoUrl = photoUrl;
       if (photoUrl && photoUrl.startsWith('data:image/')) {
         try {
@@ -390,7 +389,7 @@ export function AdminView() {
       showToast(`Saved and synced ${name || editing.name} to all phones, tablets, and computers!`, 'success');
       setEditing(null);
     } catch (e: any) {
-      showToast(e?.message || 'Saved on this device only — the server rejected the change.', 'error');
+      showToast(e?.message || 'Saved on this device only Ã¢â‚¬â€ the server rejected the change.', 'error');
     } finally {
       setEditSaving(false);
     }
@@ -407,7 +406,7 @@ export function AdminView() {
             body: { id: reciter.id, action: 'delete' },
           });
         } catch {
-          // Not in the global catalog (device-local only) — local removal is enough.
+          // Not in the global catalog (device-local only) Ã¢â‚¬â€ local removal is enough.
         }
         const updated = customReciters.filter((r) => r.id !== reciter.id);
         setCustomReciters(updated);
@@ -564,7 +563,6 @@ export function AdminView() {
             ['reciters', 'Reciters', Users],
             ['recitations', 'Recitations', Music],
             ['backgrounds', 'Backgrounds', Video],
-            ['adhan', 'Adhan Voices', Volume2],
             ['media', 'File Library', Upload],
             ['users', 'Community & Users', Shield],
             ['plans', 'Pricing Plans', Coins],
@@ -621,7 +619,7 @@ export function AdminView() {
                     </div>
                     <p className="text-xs text-slate-500 truncate">
                       {reciter.style || 'Reciter'}
-                      {reciter.serverUrl ? ` · ${reciter.serverUrl}` : ''}
+                      {reciter.serverUrl ? ` Ã‚Â· ${reciter.serverUrl}` : ''}
                     </p>
                     {reciter.bio && <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{reciter.bio}</p>}
                   </div>
@@ -679,11 +677,6 @@ export function AdminView() {
           onSaveAmbient={handleSaveAmbient}
           savingAmbient={saving}
         />
-      )}
-
-      {/* TAB: ADHAN VOICES */}
-      {activeTab === 'adhan' && (
-        <AdhanVoicesAdmin showToast={showToast} askConfirm={askConfirm} />
       )}
 
       {/* TAB: MEDIA LIBRARY */}
@@ -815,7 +808,7 @@ export function AdminView() {
                       </div>
                       <h4 className="text-xs font-semibold text-white truncate mb-1" title={item.name}>{item.name}</h4>
                       <p className="text-[10px] text-slate-500">
-                        {(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB • {new Date(item.createdAt).toLocaleDateString()}
+                        {(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB Ã¢â‚¬Â¢ {new Date(item.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-800/60">

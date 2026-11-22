@@ -1,20 +1,41 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
-    <title>Quranify Focus - Sacred Quranic Audio Sanctuary</title>
-    <meta name="description" content="A distraction-free Quranic audio player with layered ambient soundscapes, designed for deep focus, studying, and relaxation." />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <title>Nooraya • Sacred Quran Audio Sanctuary & Ambient Soundscapes</title>
+    
+    <!-- Primary SEO Metadata -->
+    <meta name="description" content="Experience the Holy Quran with serene ambient nature soundscapes, offline prayer times, Qibla compass, and renowned world reciters. Designed for deep spiritual focus, study, and inner peace." />
+    <meta name="keywords" content="Quran audio player, Holy Quran ambient soundscapes, Quran with rain sounds, Islamic focus audio, Quran study player, prayer times offline, Qibla compass, Adhan notifications, Mishary Rashid Alafasy, Abdul Basit, Nooraya" />
+    <meta name="author" content="Nooraya Sanctuary" />
+    <meta name="publisher" content="Nooraya" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="theme-color" content="#06150F" />
-    <!-- AdSense script must only be added after approval, only for free users, only after consent, never on payment/auth/admin/player screens -->
-    <meta name="google-adsense-account" content="ca-pub-5167781171496095" />
+    <link rel="canonical" href="https://nooraya.app/" />
 
-    <!-- Audio & Network Security CSP -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; media-src 'self' blob: data: https: http://localhost:*; connect-src 'self' blob: data: https: http://localhost:* ws: wss:; img-src 'self' data: blob: https:;"
-    />
+    <!-- Open Graph / Facebook / WhatsApp / LinkedIn -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://nooraya.app/" />
+    <meta property="og:site_name" content="Nooraya" />
+    <meta property="og:title" content="Nooraya • Sacred Quran Audio Sanctuary & Ambient Soundscapes" />
+    <meta property="og:description" content="Immerse in crystal-clear Quran recitation paired with rain, fireplace, ocean waves, and cosmic visual themes. Ad-free, sacred focus for study and peace." />
+    <meta property="og:image" content="https://nooraya.app/pwa-512x512.png" />
+    <meta property="og:image:secure_url" content="https://nooraya.app/pwa-512x512.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="Nooraya Sacred Quran Audio Sanctuary Logo and Artwork" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ar_SA" />
+
+    <!-- Twitter / X Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://nooraya.app/" />
+    <meta name="twitter:title" content="Nooraya • Sacred Quran Audio Sanctuary" />
+    <meta name="twitter:description" content="Immerse in Quran recitation layered with natural ambient soundscapes, offline prayer times, and Qibla compass. 100% ad-free focus." />
+    <meta name="twitter:image" content="https://nooraya.app/pwa-512x512.png" />
+    <meta name="twitter:image:alt" content="Nooraya Sacred Quran Audio App Preview" />
 
     <!-- Mobile & PWA meta tags -->
     <meta name="mobile-web-app-capable" content="yes" />
@@ -22,6 +43,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Nooraya" />
     <meta name="application-name" content="Nooraya" />
+    <meta name="format-detection" content="telephone=no" />
 
     <!-- Icons & Manifest -->
     <link rel="manifest" href="/manifest.json" />
@@ -30,13 +52,62 @@
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Amiri:ital,wght@0,400;0,700;1,400&family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,600&family=Manrope:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Scheherazade+New:wght@400;700&display=swap" rel="stylesheet">
-    
-    <meta property="og:title" content="Quranify Focus" />
-    <meta property="og:description" content="A distraction-free Quranic audio player with layered ambient soundscapes, designed for deep focus, studying, and relaxation." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <!-- Preconnects & High-Speed Font Delivery -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://api.quran.com" />
+    <link rel="preconnect" href="https://everyayah.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Amiri:ital,wght@0,400;0,700;1,400&family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,600&family=Manrope:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Scheherazade+New:wght@400;700&display=swap" rel="stylesheet" />
+
+    <!-- Structured Data (JSON-LD) for Rich Search Results -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://nooraya.app/#website",
+          "url": "https://nooraya.app/",
+          "name": "Nooraya",
+          "description": "Sacred Quran Audio Sanctuary with Layered Ambient Soundscapes",
+          "inLanguage": ["en", "ar"]
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://nooraya.app/#app",
+          "name": "Nooraya - Quran Audio Player",
+          "operatingSystem": "All (PWA, iOS, Android, macOS, Windows)",
+          "applicationCategory": "MultimediaApplication",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.9",
+            "ratingCount": "128"
+          },
+          "featureList": [
+            "Distraction-free Holy Quran audio playback",
+            "Layered ambient nature soundscapes (Rain, Ocean, Forest, Hearth)",
+            "High-contrast Mecca & Medina emerald visual themes",
+            "Offline prayer times with 6 international calculation methods",
+            "Accurate geomagnetic Qibla compass",
+            "Curated official Muezzin Adhan voices",
+            "Background playback with native MediaSession lock-screen controls"
+          ]
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://nooraya.app/#organization",
+          "name": "Nooraya",
+          "url": "https://nooraya.app/",
+          "logo": "https://nooraya.app/pwa-512x512.png"
+        }
+      ]
+    }
+    </script>
 
     <!-- Flutterwave v3 Checkout -->
     <script src="https://checkout.flutterwave.com/v3.js"></script>

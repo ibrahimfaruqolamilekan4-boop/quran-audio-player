@@ -36,52 +36,15 @@ export function extensionOf(url: string): string | null {
   return match ? match[1].toLowerCase() : null;
 }
 
-export function isSurahAvailable(reciter: Pick<Reciter, 'availableSurahs'> | null | undefined, chapterId: number): boolean {
-  if (!reciter || !reciter.availableSurahs || !Array.isArray(reciter.availableSurahs)) return true;
-  return reciter.availableSurahs.includes(chapterId);
-}
-
 /**
- * Ensures a server URL is safe, starts with https://, and ends with a trailing slash.
+ * Every URL to try for one surah, best first. MP4 leads (see AUDIO_FORMATS); mirrors that only
+ * publish MP3 answer 404 and the player falls through to the next candidate on its own.
  */
-export function normalizeServerUrl(url: string): string {
-  let clean = url.trim().replace(/^http:\/\//i, 'https://');
-  if (!clean.endsWith('/')) clean += '/';
-  return clean;
-}
-
-/**
- * Every URL to try for one surah, best first.
- * Primary serverUrl first, followed by configured fallback mirrors.
- * MP3 is always the primary format to prevent failed probes and avoid breaking browser user gestures.
- */
-export function candidateUrls(reciter: Pick<Reciter, 'id' | 'serverUrl' | 'formats' | 'fallbackServerUrls'>, chapterId: number): string[] {
+export function candidateUrls(reciter: Pick<Reciter, 'id' | 'serverUrl' | 'formats'>, chapterId: number): string[] {
   if (!reciter.serverUrl) return [];
-
-  const surahStr = String(chapterId).padStart(SURAH_WIDTH, '0');
-  const urls: string[] = [];
-
-  // Primary URL
-  const primaryBase = normalizeServerUrl(reciter.serverUrl);
-  urls.push(`${primaryBase}${surahStr}.mp3`);
-
-  // Fallback mirrors
-  if (Array.isArray(reciter.fallbackServerUrls)) {
-    for (const fb of reciter.fallbackServerUrls) {
-      if (fb && fb.trim()) {
-        const fbBase = normalizeServerUrl(fb);
-        const fbUrl = `${fbBase}${surahStr}.mp3`;
-        if (!urls.includes(fbUrl)) {
-          urls.push(fbUrl);
-        }
-      }
-    }
-  }
-
-  // If the server is an mp3quran CDN / server, provide alternate CDN mirror
-  if (primaryBase.includes('cdn.mp3quran.net/audio/')) {
-    // If it's cdn.mp3quran.net, the server mirror is already in fallbacks or can be fallback
-  }
-
-  return urls;
+  const base = reciter.serverUrl.endsWith('/') ? reciter.serverUrl : `${reciter.serverUrl}/`;
+  const preferred = reciter.formats?.length ? reciter.formats : AUDIO_FORMATS;
+  const remembered = rememberedFormat(reciter.id);
+  const order = remembered ? [remembered, ...preferred.filter(f => f !== remembered)] : preferred;
+  return order.map(ext => `${base}${String(chapterId).padStart(SURAH_WIDTH, '0')}.${ext}`);
 }

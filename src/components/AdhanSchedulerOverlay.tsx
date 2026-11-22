@@ -160,7 +160,7 @@ export async function evaluateAdhanSchedulerTick(params: {
     }
   } catch {}
 
-  const defaultOffsetMins = settings.reminderMinutesBefore || 0;
+  const offsetMs = (settings.reminderMinutesBefore || 0) * 60 * 1000;
   let preloadedUrl: string | null = null;
 
   for (const p of SCHEDULED_PRAYERS) {
@@ -174,20 +174,13 @@ export async function evaluateAdhanSchedulerTick(params: {
     const rawTime: Date = (todayPrayers as any)[p.key];
     if (!rawTime || isNaN(rawTime.getTime())) continue;
 
-    const perPrayerOffset = settings.prayerReminderOffsets?.[p.key];
-    const effectiveOffsetMins =
-      typeof perPrayerOffset === 'number' && !Number.isNaN(perPrayerOffset)
-        ? perPrayerOffset
-        : defaultOffsetMins;
-    const effectiveVoiceId = settings.prayerVoices?.[p.key] || settings.activeAdhanVoiceId;
-
-    const targetTimeMs = rawTime.getTime() - effectiveOffsetMins * 60 * 1000;
+    const targetTimeMs = rawTime.getTime() - offsetMs;
     const deltaMs = nowMs - targetTimeMs;
 
     // Preload & cache the next prayer's Adhan file when 0 to 15 minutes before prayer time
     if (deltaMs < 0 && deltaMs >= -15 * 60_000 && mode !== 'silent') {
       const isFajr = p.key === 'fajr' && settings.useFajrAdhan !== false;
-      const resolved = resolveVoiceForPlayback(voices, effectiveVoiceId, isFajr);
+      const resolved = resolveVoiceForPlayback(voices, settings.activeAdhanVoiceId, isFajr);
       if (resolved.audioUrl) {
         preloadedUrl = resolved.audioUrl;
         void preloadAndCacheAdhanAudio(resolved.audioUrl);
@@ -196,7 +189,7 @@ export async function evaluateAdhanSchedulerTick(params: {
 
     // Trigger within a 45-second window of exact prayer wall-clock time
     if (deltaMs >= 0 && deltaMs < 45_000) {
-      const fireKey = `${dateKey}:${p.key}:${effectiveOffsetMins}`;
+      const fireKey = `${dateKey}:${p.key}:${settings.reminderMinutesBefore || 0}`;
       if (hasFiredKey(fireKey)) continue;
 
       markKeyFired(fireKey);
@@ -218,7 +211,7 @@ export async function evaluateAdhanSchedulerTick(params: {
         return { triggeredPrayerKey: p.key, preloadedUrl };
       }
 
-      await playAdhan(effectiveVoiceId, p.key, {
+      await playAdhan(settings.activeAdhanVoiceId, p.key, {
         mode,
         useFajrAdhan: settings.useFajrAdhan !== false,
         voices,
@@ -240,12 +233,6 @@ export function AdhanSchedulerOverlay() {
   const [silentAlertBanner, setSilentAlertBanner] = useState<{
     english: string;
     arabic: string;
-  } | null>(null);
-  const [lateDeliveryNotice, setLateDeliveryNotice] = useState<{
-    prayerKey: string;
-    english: string;
-    arabic: string;
-    prayerTimeFormatted: string;
   } | null>(null);
 
   const voicesRef = useRef<AdhanVoiceRow[]>([]);
@@ -282,33 +269,13 @@ export function AdhanSchedulerOverlay() {
     return subscribeToAdhanPlaybackState(setPlayback);
   }, []);
 
-  // Step 2.4 & Phase 1 Late-Delivery Guard:
-  // Listen for Service Worker notification clicks and ?playAdhan=<prayerKey> URL triggers.
-  // - If ON TIME: opens full-screen "It is time for <Prayer>" modal and plays the real Muezzin Adhan.
-  // - If LATE (`?late=1&prayerTime=12:35` or SW `isLate: true`): displays "<Prayer> was at <time>"
-  //   and NEVER auto-plays the Adhan late.
+  // Step 2.4: Listen for Service Worker notification clicks and ?playAdhan=<prayerKey> URL triggers
+  // Opens a full-screen "It is time for <Prayer>" modal with a big Play Adhan button and auto-starts if allowed.
   useEffect(() => {
-    const triggerFromNotification = (
-      prayerKeyRaw: string,
-      opts?: { isLate?: boolean; prayerTime?: string }
-    ) => {
+    const triggerFromNotification = (prayerKeyRaw: string) => {
       const key = prayerKeyRaw.toLowerCase();
       const matched = SCHEDULED_PRAYERS.find((p) => p.key === key) || SCHEDULED_PRAYERS[0];
-
-      if (opts?.isLate) {
-        stopAdhanPlayback();
-        setLateDeliveryNotice({
-          prayerKey: matched.key,
-          english: matched.english,
-          arabic: matched.arabic,
-          prayerTimeFormatted: opts.prayerTime || 'earlier',
-        });
-        return;
-      }
-
-      setLateDeliveryNotice(null);
-      const voiceId = settings.prayerVoices?.[matched.key] || settings.activeAdhanVoiceId;
-      void playAdhan(voiceId, matched.key, {
+      void playAdhan(settings.activeAdhanVoiceId, matched.key, {
         mode: 'full',
         useFajrAdhan: settings.useFajrAdhan !== false,
         voices: voicesRef.current.length > 0 ? voicesRef.current : undefined,
@@ -319,22 +286,10 @@ export function AdhanSchedulerOverlay() {
 
     try {
       const params = new URLSearchParams(window.location.search);
-      const playAdhanParam =
-        params.get('playAdhan') ||
-        (params.get('adhan_tap') === '1' ? params.get('prayer') || 'fajr' : null);
-      const isLateParam = params.get('late') === '1' || params.get('late') === 'true';
-      const prayerTimeParam = params.get('prayerTime') || '';
-
+      const playAdhanParam = params.get('playAdhan');
       if (playAdhanParam) {
-        triggerFromNotification(playAdhanParam, {
-          isLate: isLateParam,
-          prayerTime: prayerTimeParam,
-        });
+        triggerFromNotification(playAdhanParam);
         params.delete('playAdhan');
-        params.delete('adhan_tap');
-        params.delete('prayer');
-        params.delete('late');
-        params.delete('prayerTime');
         const nextQuery = params.toString();
         const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
         window.history.replaceState({}, '', nextUrl);
@@ -343,10 +298,7 @@ export function AdhanSchedulerOverlay() {
 
     const onSwMessage = (event: MessageEvent) => {
       if (event.data?.type === 'NOORAYA_PUSH_NOTIFICATION_CLICK' && event.data?.prayerKey) {
-        triggerFromNotification(String(event.data.prayerKey), {
-          isLate: Boolean(event.data.isLate),
-          prayerTime: event.data.prayerTime ? String(event.data.prayerTime) : '',
-        });
+        triggerFromNotification(String(event.data.prayerKey));
       }
     };
 
@@ -354,7 +306,7 @@ export function AdhanSchedulerOverlay() {
       navigator.serviceWorker.addEventListener('message', onSwMessage);
       return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
     }
-  }, [settings.activeAdhanVoiceId, settings.prayerVoices, settings.useFajrAdhan]);
+  }, [settings.activeAdhanVoiceId, settings.useFajrAdhan]);
 
   // Drift-corrected wall-clock scheduler: re-checks Date.now() every 1,000ms
   useEffect(() => {
@@ -398,60 +350,12 @@ export function AdhanSchedulerOverlay() {
   const hasTopBanner =
     playback.isPlaying || Boolean(playback.errorMessage) || Boolean(silentAlertBanner);
 
-  if (!showFullScreenModal && !hasTopBanner && !lateDeliveryNotice) {
+  if (!showFullScreenModal && !hasTopBanner) {
     return null;
   }
 
   return (
     <>
-      {/* Phase 1 Late-Delivery Modal: Shows true prayer time & NEVER auto-plays Adhan late */}
-      {lateDeliveryNotice && !showFullScreenModal && (
-        <div
-          data-testid="late-prayer-delivery-modal"
-          className="fixed inset-0 z-[95] bg-[#020B07]/95 backdrop-blur-2xl flex items-center justify-center p-4 animate-in fade-in duration-300"
-        >
-          <div className="w-full max-w-md bg-gradient-to-b from-[#07261C] to-[#04150F] border border-amber-400/35 rounded-3xl p-6 sm:p-8 shadow-[0_24px_80px_rgba(0,0,0,0.85)] text-center relative">
-            <button
-              type="button"
-              onClick={() => setLateDeliveryNotice(null)}
-              className="absolute top-4 right-4 p-2 rounded-full bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200/70 hover:text-white transition-colors cursor-pointer"
-              title="Dismiss"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="w-14 h-14 rounded-2xl bg-amber-400/15 border border-amber-400/35 flex items-center justify-center text-amber-300 mx-auto mb-4">
-              <Bell size={26} />
-            </div>
-
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-bold uppercase tracking-widest">
-              Delayed Push Delivery (Offline Catch-Up)
-            </span>
-
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mt-3">
-              {lateDeliveryNotice.english} was at {lateDeliveryNotice.prayerTimeFormatted}
-            </h2>
-            <p className="text-lg font-arabic text-amber-300 mt-1" dir="rtl">
-              وقت صلاة {lateDeliveryNotice.arabic}
-            </p>
-
-            <p className="text-xs text-emerald-200/80 mt-4 leading-relaxed bg-[#020B07]/80 border border-emerald-900/70 rounded-2xl p-3.5">
-              This notification arrived late because your device was offline or restricted when prayer time began. To respect the true prayer time, the Adhan was <strong>not</strong> played automatically.
-            </p>
-
-            <div className="mt-5 flex flex-col gap-2.5">
-              <button
-                type="button"
-                onClick={() => setLateDeliveryNotice(null)}
-                className="w-full py-3.5 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-[#03120C] font-extrabold text-sm cursor-pointer transition-all"
-              >
-                Dismiss &amp; View Prayer Times
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Step 2.3 & 2.4: Full-screen "It is time for <Prayer>" Notification Tap / Autoplay-Blocked Screen */}
       {showFullScreenModal && (
         <div className="fixed inset-0 z-[95] bg-[#020B07]/95 backdrop-blur-2xl flex items-center justify-center p-4 animate-in fade-in duration-300">

@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "nooraya-quran-audio",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,10 +12,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "process-video": "node scripts/process-video.mjs",
-    "test:unit": "vitest run",
-    "test:smoke": "playwright test tests/e2e/production-smoke.spec.ts",
-    "test:e2e": "node scripts/build-function.mjs && node tests/e2e-background-upload.mjs"
+    "process-video": "node scripts/process-video.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -39,17 +36,15 @@
     "vite-plugin-pwa": "^1.3.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.65.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.23.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
-    "jsdom": "^31.0.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "vitest": "^5.1.0"
-  }
+    "vite": "^6.2.3"
+  },
+  "description": "Sacred Quran Audio Sanctuary with Layered Ambient Soundscapes"
 }

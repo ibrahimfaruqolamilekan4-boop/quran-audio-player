@@ -119,40 +119,11 @@ export function HomeView() {
             <p className="text-sm text-teal-200/60 font-light mt-1">Rain & Al-Kahf</p>
           </div>
 
-          {(() => {
-            const lastId = (() => {
-              try {
-                const raw = localStorage.getItem('nooraya:lastChapterId');
-                return raw ? Number(raw) : 2;
-              } catch {
-                return 2;
-              }
-            })();
-            const recentChapter = chapters.find(c => c.id === lastId) || chapters[1] || chapters[0];
-            return (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  if (recentChapter) playChapter(recentChapter);
-                }}
-                onKeyDown={(e) => {
-                  if ((e.key === 'Enter' || e.key === ' ') && recentChapter) {
-                    e.preventDefault();
-                    playChapter(recentChapter);
-                  }
-                }}
-                className="group cursor-pointer relative overflow-hidden rounded-3xl aspect-[2/1] bg-[#0F172A]/80 border border-white/5 p-6 flex flex-col justify-end transition-all hover:border-teal-500/40"
-              >
-                <div className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity translate-y-4 group-hover:translate-y-0">
-                  <Play size={18} className="text-white fill-current ml-1" />
-                </div>
-                <Clock size={24} className="text-slate-400 mb-3" />
-                <h4 className="text-xl font-serif text-white">Recently Played</h4>
-                <p className="text-sm text-slate-400 font-light mt-1">{recentChapter?.name_simple || 'Al-Baqarah'}</p>
-              </div>
-            );
-          })()}
+          <div className="group cursor-pointer relative overflow-hidden rounded-3xl aspect-[2/1] bg-[#0F172A]/80 border border-white/5 p-6 flex flex-col justify-end transition-all hover:border-white/10">
+            <Clock size={24} className="text-slate-400 mb-3" />
+            <h4 className="text-xl font-serif text-white">Recently Played</h4>
+            <p className="text-sm text-slate-500 font-light mt-1">Al-Baqarah</p>
+          </div>
         </div>
       </section>
 

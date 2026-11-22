@@ -75,6 +75,7 @@ export const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KE
 export const STORAGE_BUCKET = 'ambient-backgrounds';
 
 let supabaseInstance: SupabaseClient | null = null;
+export { supabaseInstance };
 
 export function getSupabaseClient(): SupabaseClient | null {
   if (supabaseInstance) return supabaseInstance;
@@ -726,7 +727,8 @@ export function selectAdaptiveRendition(bg: {
   const url480p = bg.video_url_480p || bg.renditions?.find((r) => r.resolution === '480p')?.url;
   const url720p = bg.video_url_720p || bg.renditions?.find((r) => r.resolution === '720p')?.url;
 
-  if ((isSlowConnection || isMobileScreen) && url480p) {
+  // Only downgrade to 480p on slow cellular or save-data connections; modern smartphones have high-DPI displays.
+  if (isSlowConnection && url480p) {
     return url480p;
   }
 

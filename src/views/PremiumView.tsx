@@ -82,7 +82,6 @@ export function PremiumView() {
   const [loadingHosted, setLoadingHosted] = useState(false);
   const [isPollingStatus, setIsPollingStatus] = useState(false);
   const [pollingError, setPollingError] = useState<string | null>(null);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(3600);
   const [successNotice, setSuccessNotice] = useState(false);
@@ -291,7 +290,6 @@ export function PremiumView() {
     if (!activePlan) return;
 
     setLoadingHosted(true);
-    setCheckoutError(null);
     try {
       const res = await appApi<{
         success: boolean;
@@ -305,10 +303,10 @@ export function PremiumView() {
       if (res.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       } else {
-        setCheckoutError('Could not initialize Flutterwave checkout gateway. Please try again.');
+        alert('Could not initialize Flutterwave checkout gateway. Please try again.');
       }
     } catch (e: any) {
-      setCheckoutError(`Checkout initialization: ${e?.message || 'Failed to connect to Flutterwave'}`);
+      alert(`Checkout initialization: ${e?.message || 'Failed to connect to Flutterwave'}`);
     } finally {
       setLoadingHosted(false);
     }
@@ -324,14 +322,6 @@ export function PremiumView() {
 
   return (
     <div className="min-h-screen bg-[#060913] text-slate-100 p-4 sm:p-8 space-y-8 max-w-5xl mx-auto pb-32">
-      {checkoutError && (
-        <div className="p-4 rounded-2xl bg-red-950/70 border border-red-500/40 text-red-200 text-xs flex items-center justify-between gap-3">
-          <span>{checkoutError}</span>
-          <button type="button" onClick={() => setCheckoutError(null)} className="text-red-300 hover:text-white">
-            Dismiss
-          </button>
-        </div>
-      )}
       {/* SUCCESS BANNER */}
       <AnimatePresence>
         {successNotice && (

@@ -24,7 +24,6 @@ import logout from './auth/logout';
 import me from './auth/me';
 import preferences from './me/preferences';
 import premiumStatus from './me/premium-status';
-import mePayments from './me/payments';
 import reciters from './me/reciters';
 import reciterById from './me/reciters/[id]';
 import adminOverview from './admin/overview';
@@ -51,7 +50,6 @@ import publicPlans from './plans';
 import adminPlans from './admin/plans';
 import adminPayments from './admin/payments';
 import paymentsDiagnostics from './admin/payments-diagnostics';
-import diagHandler from './diag';
 import { sendJson } from './_lib.mjs';
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -64,7 +62,6 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/auth\/me$/, me],
   [/^\/api\/me\/preferences$/, preferences],
   [/^\/api\/me\/premium-status$/, premiumStatus],
-  [/^\/api\/me\/payments$/, mePayments],
   [/^\/api\/me\/reciters$/, reciters],
   [/^\/api\/me\/reciters\/[^/]+$/, reciterById],
   [/^\/api\/admin\/overview$/, adminOverview],
@@ -92,7 +89,6 @@ const routes: Array<[RegExp, Handler]> = [
   [/^\/api\/adhan-voices$/, publicAdhanVoices],
   [/^\/api\/admin\/adhan-voices$/, adminAdhanVoices],
   [/^\/api\/push(\/.*)?$/, pushHandler],
-  [/^\/api\/diag$/, diagHandler],
   [/^\/api\/media(\/.*)?$/, media],
 ];
 

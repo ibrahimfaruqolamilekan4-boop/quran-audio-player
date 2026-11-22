@@ -25,6 +25,7 @@ export function isNeonFallbackActive(): boolean;
 export function getLastDbError(): string | null;
 export function syncStoreFromCloud(force?: boolean): Promise<void>;
 export function getPool(): Promise<{ query: (text: string, params?: unknown[]) => Promise<QueryResult> }>;
+export function qStrict<T = any>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
 export function q<T = any>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
 export function qWithFallback<T = any>(queries: Array<{ text: string; params?: unknown[] }>): Promise<QueryResult<T>>;
 export function mapUser(row: {

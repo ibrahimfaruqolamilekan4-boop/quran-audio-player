@@ -1,117 +1,106 @@
 /**
- * Background Audio & Wake Lock Coordinator (Phase 1A Fixed)
+ * Background playback guard for the Quran player.
  *
- * Manages Screen Wake Lock while visible and playing, without monkey-patching
- * `window.Audio`, ignoring lock-screen `pause` events when hidden, or overwriting
- * `PlayerContext`'s authoritative `navigator.mediaSession` action handlers.
+ * Coordinates foreground/background transitions, prevents fighting deliberate user pauses,
+ * and maintains MediaSession state synchronization.
  */
 
-import {
-  getQuranAudio,
-  getAmbientAudio,
-  isBackgroundAudioDuckedForAdhan,
-  isDeliberatelyPausedByUser,
-  markPageBackgrounded,
-  resumeQuranPlaybackSync,
-} from './persistentAudio';
-import { isFeatureEnabled } from './featureFlags';
-import { recordDiagEvent } from './prodDiagnostics';
+import { recordDiagnosticEvent } from './diagnostics';
 
-let wakeLock: any = null;
-let installed = false;
+type TrackedEntry = { wasPlaying: boolean };
 
-async function acquireWakeLock(): Promise<void> {
-  if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
-  if (document.visibilityState !== 'visible') return;
-  if (wakeLock) return;
-  try {
-    wakeLock = await (navigator as any).wakeLock.request('screen');
-    wakeLock.addEventListener?.('release', () => {
-      wakeLock = null;
-    });
-  } catch {
-    // Wake lock is optional and can be denied in low-power mode
+const tracked = new Map<HTMLAudioElement, TrackedEntry>();
+
+export function markUserPaused(paused: boolean) {
+  if (typeof window !== 'undefined') {
+    (window as any).__noorayaUserPaused = paused;
+    if (paused) {
+      tracked.forEach((entry) => {
+        entry.wasPlaying = false;
+      });
+    }
   }
 }
 
-function releaseWakeLock(): void {
-  if (!wakeLock) return;
-  try {
-    wakeLock.release?.();
-  } catch {}
-  wakeLock = null;
+function track(el: HTMLAudioElement, entry: TrackedEntry) {
+  if (tracked.has(el)) return;
+  tracked.set(el, entry);
+
+  el.addEventListener('playing', () => {
+    entry.wasPlaying = true;
+    (window as any).__noorayaUserPaused = false;
+    recordDiagnosticEvent('audio', 'guard:playing', { src: el.src ? el.src.slice(0, 100) : '' });
+  });
+
+  el.addEventListener('play', () => {
+    entry.wasPlaying = true;
+    (window as any).__noorayaUserPaused = false;
+  });
+
+  el.addEventListener('ended', () => {
+    entry.wasPlaying = false;
+    recordDiagnosticEvent('audio', 'guard:ended');
+  });
+
+  el.addEventListener('pause', () => {
+    // If user explicitly triggered pause or if visible, update wasPlaying to false
+    if ((window as any).__noorayaUserPaused || document.visibilityState === 'visible') {
+      entry.wasPlaying = false;
+      recordDiagnosticEvent('audio', 'guard:user_pause');
+    } else {
+      recordDiagnosticEvent('audio', 'guard:background_os_pause');
+    }
+  });
 }
 
-export function installBackgroundAudioKeepAlive(): void {
-  if (typeof window === 'undefined' || installed) return;
-  installed = true;
+if (typeof window !== 'undefined' && !(window as any).__noorayaAudioGuard) {
+  (window as any).__noorayaAudioGuard = true;
 
-  const quran = getQuranAudio();
-  const ambient = getAmbientAudio();
+  const NativeAudio = window.Audio;
+  const GuardedAudio = function (this: unknown, src?: string) {
+    const el = src === undefined ? new NativeAudio() : new NativeAudio(src);
+    track(el, { wasPlaying: false });
+    return el;
+  } as unknown as typeof Audio;
+  GuardedAudio.prototype = NativeAudio.prototype;
+  try {
+    window.Audio = GuardedAudio;
+  } catch {
+    /* Some embedded webviews freeze window.Audio; degrade to best effort. */
+  }
 
-  quran.addEventListener('play', () => {
-    void acquireWakeLock();
-  });
+  const resumeSuspended = () => {
+    if (document.visibilityState !== 'visible') return;
 
-  quran.addEventListener('pause', () => {
-    releaseWakeLock();
-  });
+    // Never auto-resume if the user intentionally paused!
+    if ((window as any).__noorayaUserPaused) return;
 
-  quran.addEventListener('ended', () => {
-    releaseWakeLock();
-  });
+    const toResume: HTMLAudioElement[] = [];
+    tracked.forEach((entry, el) => {
+      if (entry.wasPlaying && el.paused && (el.src || el.currentSrc)) {
+        toResume.push(el);
+      }
+    });
+    if (toResume.length === 0) return;
 
-  const handleBackgroundTransition = () => {
-    markPageBackgrounded();
-    releaseWakeLock();
+    recordDiagnosticEvent('audio', 'guard:auto_resuming_interrupted_tracks', { count: toResume.length });
 
-    // Re-assert MediaSession playing state as the app enters background so mobile OS
-    // keeps the background audio focus & lock-screen controls active.
-    if (!quran.paused && Boolean(quran.src) && !isDeliberatelyPausedByUser()) {
+    toResume.forEach((el) => {
+      el.play().catch((err) => {
+        recordDiagnosticEvent('audio', 'guard:auto_resume_failed', { message: err?.message });
+      });
+    });
+
+    if ('mediaSession' in navigator) {
       try {
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.playbackState = 'playing';
-        }
+        navigator.mediaSession.playbackState = 'playing';
       } catch {}
     }
   };
 
-  // When returning to foreground, only re-acquire wakeLock if already playing,
-  // or recover if the OS suspended playback WITHOUT a deliberate user/lock-screen pause.
-  const handleVisibilityOrPageShow = () => {
-    if (document.visibilityState !== 'visible') {
-      handleBackgroundTransition();
-      return;
-    }
-
-    if (!quran.paused) {
-      void acquireWakeLock();
-      return;
-    }
-
-    if (
-      isFeatureEnabled('newAudioResumeEngine') &&
-      !isDeliberatelyPausedByUser() &&
-      !isBackgroundAudioDuckedForAdhan() &&
-      Boolean(quran.src) &&
-      !quran.ended
-    ) {
-      recordDiagEvent({
-        category: 'lifecycle',
-        event: 'FOREGROUND_AUTO_RECOVER_AFTER_OS_INTERRUPT',
-        elementId: 'quran',
-      });
-      resumeQuranPlaybackSync()
-        .then(() => {
-          if (ambient.src && ambient.paused) {
-            ambient.play().catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }
-  };
-
-  document.addEventListener('visibilitychange', handleVisibilityOrPageShow);
-  window.addEventListener('pagehide', handleBackgroundTransition);
-  window.addEventListener('pageshow', handleVisibilityOrPageShow);
+  window.addEventListener('visibilitychange', resumeSuspended);
+  window.addEventListener('pageshow', resumeSuspended);
+  window.addEventListener('focus', resumeSuspended);
 }
+
+export {};
