@@ -78,7 +78,7 @@ export default defineConfig(() => {
       apiDevPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'favicon-64.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'manifest.json'],
+        includeAssets: ['favicon.ico', 'favicon-64.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'manifest.json', 'robots.txt', 'sitemap.xml'],
         manifest: {
           id: '/',
           name: 'Nooraya - Quran Audio Player',
