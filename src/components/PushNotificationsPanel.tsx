@@ -186,7 +186,7 @@ export function PushNotificationsPanel({
     }
 
     setStatusMessage({
-      text: '10-second countdown started — lock your screen or switch apps now to test the closed-app notification path.',
+      text: '10-second delayed test initiated from server — lock your screen or switch apps now to test closed-app delivery!',
       type: 'info',
     });
     let remaining = 10;
@@ -202,9 +202,17 @@ export function PushNotificationsPanel({
           countdownTimerRef.current = null;
         }
         setCountdownSeconds(null);
-        void handleSendTest();
       }
     }, 1000);
+
+    // Send to server with delaySeconds = 10 so server pushes over the network while screen is locked
+    void sendTestPushNotification(location.cityName, 10).then((res) => {
+      setStatusMessage({
+        text: res.message,
+        type: res.ok ? 'success' : 'error',
+      });
+      void loadDiagnostics();
+    });
   };
 
   const handleTestAdhanNow = async (prayer: 'dhuhr' | 'fajr') => {

@@ -125,9 +125,12 @@ export async function ensurePushServiceWorker(): Promise<ServiceWorkerRegistrati
     if (existing && (existing.active || existing.installing || existing.waiting)) {
       return await navigator.serviceWorker.ready;
     }
-    // Register /push-sw.js directly if VitePWA SW hasn't registered yet
-    const reg = await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
-    return reg;
+    // Register /sw.js (VitePWA) with graceful fallback to /push-sw.js
+    try {
+      return await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    } catch {
+      return await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
+    }
   } catch (e) {
     console.warn('Service Worker registration notice:', e);
     return null;
@@ -294,7 +297,10 @@ export async function unsubscribeFromPrayerPushNotifications(): Promise<{ ok: bo
  * Sends a test push notification via `/api/push/test` (and also triggers the local Service Worker
  * `showNotification` if the user wants immediate verification).
  */
-export async function sendTestPushNotification(cityName: string): Promise<{
+export async function sendTestPushNotification(
+  cityName: string,
+  delaySeconds = 0
+): Promise<{
   ok: boolean;
   message: string;
 }> {
@@ -309,13 +315,17 @@ export async function sendTestPushNotification(cityName: string): Promise<{
         body: JSON.stringify({
           subscription: sub.toJSON(),
           cityName,
+          delaySeconds,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         return {
           ok: true,
-          message: `Server Web Push delivered (HTTP ${data.status}) for ${cityName}! Check your device notification shade.`,
+          message:
+            delaySeconds > 0
+              ? `Server Web Push scheduled in ${delaySeconds}s for ${cityName}! Lock your screen or switch apps now to verify.`
+              : `Server Web Push delivered (HTTP ${data.status}) for ${cityName}! Check your device notification shade.`,
         };
       }
     } catch {}
@@ -324,6 +334,16 @@ export async function sendTestPushNotification(cityName: string): Promise<{
   // Fallback: Service Worker showNotification if browser is granted
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     if (reg && reg.showNotification) {
+      if (delaySeconds > 0 && reg.active) {
+        reg.active.postMessage({
+          type: 'SCHEDULE_TEST_NOTIFICATION',
+          delayMs: delaySeconds * 1000,
+        });
+        return {
+          ok: true,
+          message: `Local test notification scheduled in ${delaySeconds}s via Service Worker!`,
+        };
+      }
       await reg.showNotification('Nooraya Prayer Notification Test • حي على الصلاة', {
         body: `Notifications are active for ${cityName}. Tap to open Nooraya and listen to the Adhan.`,
         icon: '/pwa-192x192.png',
@@ -416,7 +436,10 @@ export async function fetchPushDiagnostics(): Promise<PushDiagnosticsReport> {
 }
 
 
-export async function scheduleTestNotification(delaySeconds = 10): Promise<{ ok: boolean; message: string }> {
+export async function scheduleTestNotification(
+  cityName = 'your city',
+  delaySeconds = 10
+): Promise<{ ok: boolean; message: string }> {
   try {
     if (!('Notification' in window)) {
       return { ok: false, message: 'Notifications are not supported in this browser.' };
@@ -428,31 +451,8 @@ export async function scheduleTestNotification(delaySeconds = 10): Promise<{ ok:
       }
     }
 
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) {
-        reg.active.postMessage({
-          type: 'SCHEDULE_TEST_NOTIFICATION',
-          delayMs: delaySeconds * 1000,
-        });
-        return {
-          ok: true,
-          message: `Test notification scheduled in ${delaySeconds}s! You may now lock your screen or switch apps to test.`,
-        };
-      }
-    }
-
-    setTimeout(() => {
-      new Notification('Test Prayer Notification', {
-        body: 'Time for prayer has arrived. Tap to listen to Adhan.',
-        icon: '/pwa-192x192.png',
-      });
-    }, delaySeconds * 1000);
-
-    return {
-      ok: true,
-      message: `Test notification scheduled in ${delaySeconds}s!`,
-    };
+    // Try server push with delay first (delivered even when app is closed / phone locked)
+    return await sendTestPushNotification(cityName, delaySeconds);
   } catch (err: any) {
     return { ok: false, message: err?.message || 'Failed to schedule test notification.' };
   }
