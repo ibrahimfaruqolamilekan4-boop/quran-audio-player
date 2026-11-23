@@ -61,6 +61,8 @@ import {
 } from '../lib/adhanAudio';
 import { notifyPrayerSettingsUpdated } from '../components/AdhanSchedulerOverlay';
 import { PushNotificationsPanel } from '../components/PushNotificationsPanel';
+import { AdhanReliabilityCheck } from '../components/AdhanReliabilityCheck';
+import { useAuth } from '../context/AuthContext';
 
 const PRAYER_NAMES = [
   { key: 'fajr', english: 'Fajr', arabic: 'الفجر', description: 'Dawn to Sunrise', icon: Sunrise },
@@ -72,6 +74,8 @@ const PRAYER_NAMES = [
 ];
 
 export function PrayerTimesView() {
+  const { user } = useAuth();
+  const isPremiumUser = Boolean((user as any)?.is_premium || (user as any)?.isPremium);
   const {
     location,
     isRequestingGps,
@@ -107,6 +111,22 @@ export function PrayerTimesView() {
             ...DEFAULT_PRAYER_SETTINGS.prayerAdhanModes,
             ...(parsed.prayerAdhanModes || {}),
           },
+          prayerVoices: {
+            ...(DEFAULT_PRAYER_SETTINGS.prayerVoices || {}),
+            ...(parsed.prayerVoices || {}),
+          },
+          prayerReminderOffsets: {
+            ...(DEFAULT_PRAYER_SETTINGS.prayerReminderOffsets || {}),
+            ...(parsed.prayerReminderOffsets || {}),
+          },
+          prayerVolumes: {
+            ...(DEFAULT_PRAYER_SETTINGS.prayerVolumes || {}),
+            ...(parsed.prayerVolumes || {}),
+          },
+          prayerVibrate: {
+            ...(DEFAULT_PRAYER_SETTINGS.prayerVibrate || {}),
+            ...(parsed.prayerVibrate || {}),
+          },
         };
       }
     } catch {
@@ -117,6 +137,7 @@ export function PrayerTimesView() {
 
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [showSettings, setShowSettings] = useState(false);
+  const [showPerPrayerControls, setShowPerPrayerControls] = useState(false);
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [searchCityQuery, setSearchCityQuery] = useState('');
@@ -1192,14 +1213,189 @@ export function PrayerTimesView() {
             </label>
           </div>
         </div>
+
+        {/* Phase 2E: Per-Prayer Fine Controls (On/Off, Voice, Reminder Offset, Volume, Vibrate) */}
+        <div className="pt-4 border-t border-emerald-900/70">
+          <button
+            type="button"
+            onClick={() => setShowPerPrayerControls(!showPerPrayerControls)}
+            data-testid="toggle-per-prayer-controls-btn"
+            className="w-full flex items-center justify-between text-xs font-bold text-emerald-300 hover:text-white cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <Sliders size={14} className="text-amber-400" />
+              <span>Per-Prayer Customization (Voice, Reminder Before, Volume &amp; Vibrate)</span>
+            </span>
+            <ChevronDown
+              size={15}
+              className={`transition-transform ${showPerPrayerControls ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {showPerPrayerControls && (
+            <div
+              data-testid="per-prayer-controls-grid"
+              className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
+            >
+              {PRAYER_NAMES.map((prayer) => {
+                const enabled = settings.prayerReminders?.[prayer.key] ?? (prayer.key !== 'sunrise');
+                const voiceOverride = settings.prayerVoices?.[prayer.key] || '';
+                const offsetVal =
+                  settings.prayerReminderOffsets?.[prayer.key] ?? (settings.reminderMinutesBefore || 0);
+                const volVal = Math.round((settings.prayerVolumes?.[prayer.key] ?? 1) * 100);
+                const vibrateVal = settings.prayerVibrate?.[prayer.key] ?? (prayer.key !== 'sunrise');
+
+                return (
+                  <div
+                    key={prayer.key}
+                    className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-3.5 space-y-2.5 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white">
+                        {prayer.english}{' '}
+                        <span className="text-emerald-400/75 font-serif font-normal">{prayer.arabic}</span>
+                      </span>
+                      <label className="flex items-center gap-1.5 text-[11px] text-emerald-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          aria-label={`Enable ${prayer.english} alert`}
+                          checked={enabled}
+                          onChange={(e) =>
+                            setSettings((s) => ({
+                              ...s,
+                              prayerReminders: {
+                                ...s.prayerReminders,
+                                [prayer.key]: e.target.checked,
+                              },
+                            }))
+                          }
+                          className="accent-emerald-500 rounded cursor-pointer"
+                        />
+                        <span>{enabled ? 'On' : 'Off'}</span>
+                      </label>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-emerald-400/70 block mb-1">
+                        Voice Override
+                      </label>
+                      <select
+                        aria-label={`${prayer.english} Voice`}
+                        value={voiceOverride}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            prayerVoices: {
+                              ...(s.prayerVoices || {}),
+                              [prayer.key]: e.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full bg-[#04140D] border border-emerald-900 rounded-xl px-2.5 py-1.5 text-[11px] text-white"
+                      >
+                        <option value="">Default ({selectedMuezzin?.muezzin_name_en || 'Global'})</option>
+                        {adhanVoices.map((v) => {
+                          const locked = Boolean(v.is_premium) && !isPremiumUser;
+                          return (
+                            <option key={v.id} value={v.id} disabled={locked}>
+                              {v.muezzin_name_en} {locked ? '(Premium)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-emerald-400/70 block mb-1">
+                          Remind Before
+                        </label>
+                        <select
+                          aria-label={`${prayer.english} Reminder Offset`}
+                          value={offsetVal}
+                          onChange={(e) =>
+                            setSettings((s) => ({
+                              ...s,
+                              prayerReminderOffsets: {
+                                ...(s.prayerReminderOffsets || {}),
+                                [prayer.key]: Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="w-full bg-[#04140D] border border-emerald-900 rounded-xl px-2 py-1.5 text-[11px] text-white"
+                        >
+                          <option value={0}>At time (0m)</option>
+                          <option value={5}>5 min before</option>
+                          <option value={10}>10 min before</option>
+                          <option value={15}>15 min before</option>
+                          <option value={30}>30 min before</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-emerald-400/70 block mb-1">
+                          Volume ({volVal}%)
+                        </label>
+                        <input
+                          type="range"
+                          aria-label={`${prayer.english} Volume`}
+                          min={10}
+                          max={100}
+                          step={5}
+                          value={volVal}
+                          onChange={(e) =>
+                            setSettings((s) => ({
+                              ...s,
+                              prayerVolumes: {
+                                ...(s.prayerVolumes || {}),
+                                [prayer.key]: Number(e.target.value) / 100,
+                              },
+                            }))
+                          }
+                          className="w-full accent-emerald-500 mt-1.5"
+                        />
+                      </div>
+                    </div>
+
+                    <label className="flex items-center justify-between text-[11px] text-emerald-200/80 pt-1 cursor-pointer">
+                      <span>Vibrate on alert</span>
+                      <input
+                        type="checkbox"
+                        aria-label={`${prayer.english} Vibrate`}
+                        checked={vibrateVal}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            prayerVibrate: {
+                              ...(s.prayerVibrate || {}),
+                              [prayer.key]: e.target.checked,
+                            },
+                          }))
+                        }
+                        className="accent-emerald-500 rounded cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Phase 3: Closed-App Web Push Notifications + Test Notification + Diagnostics */}
+      {/* Phase 1: Closed-App Web Push Notifications + 10s Server Test + Diagnostics */}
       <PushNotificationsPanel
         location={location}
         settings={settings}
         voices={adhanVoices}
         onUpdateSettings={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+      />
+
+      {/* Phase 2: Native Offline 10-Day Schedule & Adhan Reliability Check */}
+      <AdhanReliabilityCheck
+        location={location}
+        settings={settings}
+        voices={adhanVoices}
       />
 
       {/* Auxiliary Astronomical Times (Duha, Islamic Midnight, Tahajjud) */}

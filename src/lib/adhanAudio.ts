@@ -29,6 +29,7 @@ import {
 } from './persistentAudio';
 import { uploadMediaToServer } from './upload';
 import { processAdhanAudioFile, type ProcessedAdhanUploadResult } from './adhanAudioProcessor';
+import { recordDiagEvent } from './prodDiagnostics';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 export type AdhanMode = 'full' | 'takbir' | 'silent';
@@ -123,8 +124,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-standard.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-bukhari-28s.wav',
     duration_seconds: 270,
     fajr_duration_seconds: 267,
     size_bytes: 2467917,
@@ -149,8 +150,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-standard.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-bukhari-28s.wav',
     duration_seconds: 270,
     fajr_duration_seconds: 267,
     size_bytes: 2467917,
@@ -175,8 +176,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-standard.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-bukhari-28s.wav',
     duration_seconds: 270,
     fajr_duration_seconds: 267,
     size_bytes: 1068223,
@@ -201,8 +202,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-surayhee.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-surayhee-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-sunbul-28s.wav',
     duration_seconds: 210,
     fajr_duration_seconds: 304,
     size_bytes: 2519386,
@@ -227,8 +228,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-standard.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-sunbul-28s.wav',
     duration_seconds: 270,
     fajr_duration_seconds: 304,
     size_bytes: 2467917,
@@ -253,8 +254,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-surayhee.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-surayhee-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-bukhari-28s.wav',
     duration_seconds: 210,
     fajr_duration_seconds: 267,
     size_bytes: 2519386,
@@ -279,8 +280,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-standard.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-bukhari-28s.wav',
     duration_seconds: 270,
     fajr_duration_seconds: 267,
     size_bytes: 2467917,
@@ -305,8 +306,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-surayhee.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-surayhee-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-sunbul-28s.wav',
     duration_seconds: 210,
     fajr_duration_seconds: 304,
     size_bytes: 2519386,
@@ -331,8 +332,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-standard.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-bukhari.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-bukhari-28s.wav',
     duration_seconds: 270,
     fajr_duration_seconds: 267,
     size_bytes: 2467917,
@@ -357,8 +358,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد النبوي الشريف',
     audio_url: '/audio/adhan/madinah-surayhee.mp3',
     fajr_audio_url: '/audio/adhan/madinah-fajr-sunbul.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/madinah-surayhee-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/madinah-fajr-sunbul-28s.wav',
     duration_seconds: 210,
     fajr_duration_seconds: 304,
     size_bytes: 2519386,
@@ -383,8 +384,8 @@ export const OFFICIAL_MUEZZIN_CATALOG_SLOTS: AdhanVoiceRow[] = [
     mosque_ar: 'المسجد الكبير بالكويت',
     audio_url: '/audio/adhan/alafasy-standard.mp3',
     fajr_audio_url: '/audio/adhan/alafasy-fajr.mp3',
-    notification_clip_url: null,
-    fajr_notification_clip_url: null,
+    notification_clip_url: '/audio/adhan/clips/alafasy-standard-28s.wav',
+    fajr_notification_clip_url: '/audio/adhan/clips/alafasy-fajr-28s.wav',
     duration_seconds: 188,
     fajr_duration_seconds: 215,
     size_bytes: 3057947,
@@ -450,6 +451,23 @@ function recordAdhanDiagnostic(entry: Omit<AdhanDiagnosticLogEntry, 'id' | 'time
     diagnosticLogs.length = 25;
   }
   console.info('[AdhanDiagnostics]', JSON.stringify(full));
+  recordDiagEvent({
+    category: 'adhan',
+    event: `ADHAN_${entry.playResult.toUpperCase()}`,
+    elementId: 'adhan',
+    src: entry.urlUsed || undefined,
+    readyState: entry.readyState,
+    errorMessage: entry.audioError || undefined,
+    details: {
+      trigger: entry.trigger,
+      prayerKey: entry.prayerKey,
+      voiceId: entry.voiceId,
+      muezzinName: entry.muezzinName,
+      isFajrVariant: entry.isFajrVariant,
+      pathTaken: entry.pathTaken,
+      durationSeconds: entry.durationSeconds,
+    },
+  });
   return full;
 }
 
@@ -498,7 +516,7 @@ export async function fetchAdhanVoicesVersion(): Promise<number> {
   return lastKnownAdhanVersion;
 }
 
-function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
+export function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[] {
   const slotMap = new Map(OFFICIAL_MUEZZIN_CATALOG_SLOTS.map((s) => [s.id, s]));
   return rows.map((row) => {
     const slot = slotMap.get(row.id);
@@ -522,6 +540,8 @@ function hydrateVoicesWithCatalogDefaults(rows: AdhanVoiceRow[]): AdhanVoiceRow[
     };
   });
 }
+
+export const hydrateAdhanVoiceUrls = hydrateVoicesWithCatalogDefaults;
 
 /**
  * Fetches all active Adhan voices from `/api/adhan-voices` with direct Supabase fallback
@@ -1527,8 +1547,8 @@ export async function playAdhanPreview(options: {
 }> {
   const { voice, variant = 'standard' } = options;
 
-  unlockAudio();
   stopAdhanPlayback();
+  unlockAudio();
 
   const rawUrl =
     variant === 'fajr'
