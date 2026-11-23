@@ -442,9 +442,6 @@ function loadStore() {
         if (!data.global_media_chunks) data.global_media_chunks = {};
         if (!data.user_preferences) data.user_preferences = {};
         if (!Array.isArray(data.users)) data.users = [];
-        for (const u of data.users) {
-          if (u && typeof u === 'object') delete u.password_hash;
-        }
         if (!Array.isArray(data.global_reciters)) data.global_reciters = [];
         if (!Array.isArray(data.global_videos)) data.global_videos = defaultStoreShape().global_videos;
         if (!Array.isArray(data.backgrounds)) data.backgrounds = [];
@@ -477,19 +474,13 @@ function mergeCloudIntoServerStore(remote) {
   if (Array.isArray(remote.users)) {
     const byEmail = new Map();
     for (const u of serverStore.users || []) {
-      if (u && u.email) {
-        const copy = { ...byEmail.get(u.email.toLowerCase()), ...u };
-        delete copy.password_hash;
-        byEmail.set(u.email.toLowerCase(), copy);
-      }
+      if (u && u.email) byEmail.set(u.email.toLowerCase(), { ...byEmail.get(u.email.toLowerCase()), ...u });
     }
     for (const u of remote.users) {
       if (u && u.email) {
         const key = u.email.toLowerCase();
         const prev = byEmail.get(key);
-        const merged = prev ? { ...prev, ...u } : { ...u };
-        delete merged.password_hash;
-        byEmail.set(key, merged);
+        byEmail.set(key, prev ? { ...prev, ...u, password_hash: u.password_hash || prev.password_hash } : u);
       }
     }
     serverStore.users = Array.from(byEmail.values());
@@ -601,12 +592,7 @@ export async function syncStoreFromCloud(force = false) {
 async function persistStoreToCloud() {
   try {
     const snapshot = {
-      users: (serverStore.users || []).map((u) => {
-        if (!u || typeof u !== 'object') return u;
-        const copy = { ...u };
-        delete copy.password_hash;
-        return copy;
-      }),
+      users: serverStore.users || [],
       global_reciters: serverStore.global_reciters || [],
       global_videos: serverStore.global_videos || [],
       backgrounds: serverStore.backgrounds || [],
@@ -843,31 +829,6 @@ async function ensureDbInitialized(p) {
   dbInitialized = true;
 }
 
-function markDbDown(dbErr) {
-  lastDbError = dbErr?.message || String(dbErr);
-  neonDownUntil = Date.now() + 180_000;
-  console.warn('[db] Query execution failed, switching to cloud store fallback:', lastDbError);
-}
-
-/** Auth and payments must use this. It never reads or writes the JSON fallback. */
-export async function qStrict(text, params = []) {
-  if (!isDbConfigured()) {
-    const err = new Error('Database unavailable');
-    err.code = 'DB_UNAVAILABLE';
-    throw err;
-  }
-  try {
-    const p = await getPool();
-    await ensureDbInitialized(p);
-    return await p.query(text, params);
-  } catch (dbErr) {
-    markDbDown(dbErr);
-    const err = new Error('Database unavailable');
-    err.code = 'DB_UNAVAILABLE';
-    throw err;
-  }
-}
-
 export async function q(text, params = []) {
   if (isDbConfigured() && Date.now() >= neonDownUntil) {
     try {
@@ -875,7 +836,9 @@ export async function q(text, params = []) {
       await ensureDbInitialized(p);
       return await p.query(text, params);
     } catch (dbErr) {
-      markDbDown(dbErr);
+      lastDbError = dbErr?.message || String(dbErr);
+      neonDownUntil = Date.now() + 180_000;
+      console.warn('[db] Query execution failed, switching to cloud store fallback:', lastDbError);
     }
   }
 
@@ -920,12 +883,40 @@ export async function q(text, params = []) {
       }
       return { rowCount: before - serverStore.users.length, rows: [] };
     }
-    // Account creates and password writes stay on Postgres. The JSON copy must
-    // not invent users or apply a password hash from a loosely matched query.
-    if (qStr.startsWith('INSERT INTO users') || qStr.includes('UPDATE users SET')) {
-      return { rowCount: 0, rows: [] };
+    if (qStr.includes('UPDATE users SET')) {
+      const lookup = params[params.length - 1];
+      const u = serverStore.users.find(x => x.uid === lookup || (x.email && x.email.toLowerCase() === String(lookup).toLowerCase()));
+      if (u) {
+        if (qStr.includes('password_hash') && params[0]) u.password_hash = params[0];
+        if (qStr.includes('display_name') && params[1]) u.display_name = params[1];
+        u.last_login_at = new Date().toISOString();
+        await saveStore();
+      }
+      return { rowCount: u ? 1 : 0, rows: [] };
     }
-    return { rows: [], rowCount: 0 };
+    if (qStr.startsWith('INSERT INTO users')) {
+      const [uid, email, passHash, dispName, role] = params;
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      const existingIdx = serverStore.users.findIndex(x => (x.email && x.email.toLowerCase() === cleanEmail) || x.uid === uid);
+      const newUser = {
+        uid: uid || `usr_${Date.now()}`,
+        email: cleanEmail,
+        password_hash: passHash || (existingIdx >= 0 ? serverStore.users[existingIdx].password_hash : null),
+        display_name: dispName || (existingIdx >= 0 ? serverStore.users[existingIdx].display_name : cleanEmail.split('@')[0]),
+        photo_url: existingIdx >= 0 ? serverStore.users[existingIdx].photo_url : null,
+        role: role || (cleanEmail === 'ibrahimfaruqolamilekan4@gmail.com' ? 'admin' : 'user'),
+        created_at: existingIdx >= 0 ? serverStore.users[existingIdx].created_at : new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+      };
+      if (existingIdx >= 0) {
+        serverStore.users[existingIdx] = newUser;
+      } else {
+        serverStore.users.unshift(newUser);
+      }
+      await saveStore();
+      return { rowCount: 1, rows: [newUser] };
+    }
+    return { rows: serverStore.users };
   }
 
   // 2. Global Reciters (Sheikhs & Profile Pictures)
@@ -1423,16 +1414,13 @@ export function verifyPassword(password, stored) {
 // ---------- sessions (HMAC-signed tokens in an httpOnly cookie) ----------
 
 function getSecret() {
-  const secret = typeof process.env.AUTH_SECRET === 'string' ? process.env.AUTH_SECRET.trim() : '';
-  if (secret.length < 16) return null;
-  if (secret === 'nooraya-local-secret-for-session-signing') return null;
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return 'nooraya-local-secret-for-session-signing';
   return secret;
 }
 
 function sign(data) {
-  const secret = getSecret();
-  if (!secret) return null;
-  return crypto.createHmac('sha256', secret).update(data).digest('base64url');
+  return crypto.createHmac('sha256', getSecret()).update(data).digest('base64url');
 }
 
 export function createSessionToken(userOrUid) {
@@ -1453,13 +1441,7 @@ export function createSessionToken(userOrUid) {
     Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url') +
     '.' +
     Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const signature = sign(data);
-  if (!signature) {
-    const err = new Error('AUTH_SECRET is not configured');
-    err.code = 'AUTH_MISCONFIGURED';
-    throw err;
-  }
-  return `${data}.${signature}`;
+  return `${data}.${sign(data)}`;
 }
 
 export function readSessionToken(req) {
@@ -1480,7 +1462,6 @@ function verifySessionTokenPayload(token) {
   if (parts.length !== 3) return null;
   const data = `${parts[0]}.${parts[1]}`;
   const expected = sign(data);
-  if (!expected) return null;
   const a = Buffer.from(expected);
   const b = Buffer.from(parts[2]);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
@@ -1494,21 +1475,54 @@ function verifySessionTokenPayload(token) {
   }
 }
 
-/** Returns the logged-in user from Postgres, or null. Role always comes from the database row. */
+/** Returns the logged-in user (fresh from DB or fallback store so role changes apply immediately), or null. */
 export async function getAuthUser(req) {
   const token = readSessionToken(req);
-  if (!token) return null;
-  const payload = verifySessionTokenPayload(token);
-  if (!payload || !payload.uid) return null;
-  try {
-    const { rows } = await qStrict(
-      'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
-      [payload.uid]
-    );
-    if (rows[0]) return mapUser(rows[0]);
-  } catch (err) {
-    console.warn('[auth] session lookup failed:', err?.message || err);
+  if (token) {
+    const payload = verifySessionTokenPayload(token);
+    if (payload && payload.uid) {
+      try {
+        const { rows } = await q(
+          'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE uid = $1',
+          [payload.uid]
+        );
+        if (rows[0]) return mapUser(rows[0]);
+      } catch {}
+
+      if (payload.email) {
+        try {
+          const { rows } = await q(
+            'SELECT uid, email, password_hash, display_name, photo_url, role FROM users WHERE email = $1',
+            [payload.email]
+          );
+          if (rows[0]) return mapUser(rows[0]);
+
+          // Auto-restore user from signed session token into cloud store
+          const restoredRole = payload.email.toLowerCase() === adminEmail() ? 'admin' : (payload.role || 'user');
+          const restoredName = payload.displayName || payload.email.split('@')[0];
+          await q(
+            'INSERT INTO users (uid, email, password_hash, display_name, role, last_login_at) VALUES ($1, $2, $3, $4, $5, now())',
+            [payload.uid, payload.email.toLowerCase(), null, restoredName, restoredRole]
+          );
+          return {
+            uid: payload.uid,
+            email: payload.email.toLowerCase(),
+            displayName: restoredName,
+            photoURL: null,
+            role: restoredRole,
+          };
+        } catch {}
+      }
+
+      // Legacy session token with only { uid, exp }:
+      if (serverStore.users) {
+        const matching = serverStore.users.find(u => u.uid === payload.uid);
+        if (matching) return mapUser(matching);
+      }
+      return null;
+    }
   }
+
   return null;
 }
 
@@ -1594,7 +1608,7 @@ export function validEmail(email) {
 }
 
 export function adminEmail() {
-  return (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  return (process.env.ADMIN_EMAIL || 'ibrahimfaruqolamilekan4@gmail.com').toLowerCase();
 }
 
 /**

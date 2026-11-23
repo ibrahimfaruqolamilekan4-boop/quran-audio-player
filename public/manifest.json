@@ -1,47 +1,15 @@
 {
   "id": "/",
-  "name": "Nooraya • Sacred Quran Audio & Ambient Soundscapes",
+  "name": "Nooraya - Quran Audio Player",
   "short_name": "Nooraya",
-  "description": "Immersive Quran audio player with layered ambient soundscapes, offline prayer times, Qibla compass, and world-class reciters.",
+  "description": "Immersive Quran audio player, ambient soundscapes, Qibla compass, and prayer times.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#06150F",
-  "theme_color": "#06150F",
-  "lang": "en",
-  "dir": "ltr",
-  "categories": ["lifestyle", "music", "education", "books", "productivity"],
-  "shortcuts": [
-    {
-      "name": "Listen to Quran",
-      "short_name": "Listen",
-      "description": "Resume Holy Quran audio and ambient sounds",
-      "url": "/dashboard/home",
-      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
-    },
-    {
-      "name": "Prayer Times",
-      "short_name": "Prayers",
-      "description": "View prayer times and adhan schedules",
-      "url": "/dashboard/prayer-times",
-      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
-    },
-    {
-      "name": "Qibla Direction",
-      "short_name": "Qibla",
-      "description": "Locate the Kaaba with offline Qibla compass",
-      "url": "/dashboard/qibla",
-      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
-    },
-    {
-      "name": "Daily Azkar",
-      "short_name": "Azkar",
-      "description": "Morning and evening Islamic remembrances",
-      "url": "/dashboard/azkar",
-      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
-    }
-  ],
+  "background_color": "#030712",
+  "theme_color": "#0d9488",
+  "categories": ["lifestyle", "music", "education", "books"],
   "icons": [
     {
       "src": "/pwa-192x192.png",

@@ -230,6 +230,8 @@ export function uploadResumableToSupabase(options: ResumableUploadOptions): Uplo
   };
 }
 
+import { uploadMediaToServer } from './upload';
+
 /**
  * Direct atomic upload with progress tracking and automatic retry.
  */
@@ -242,7 +244,9 @@ async function uploadDirectAtomic(
   authToken: string,
   onProgress?: (uploaded: number, total: number, pct: number) => void
 ): Promise<string> {
-  // Try signed upload URL first (bypasses RLS)
+  const totalBytes = fileOrBlob.size;
+
+  // 1. Try signed upload URL first (bypasses RLS)
   try {
     const signRes = await fetch('/api/admin/supabase-backgrounds', {
       method: 'POST',
@@ -271,28 +275,47 @@ async function uploadDirectAtomic(
     console.warn('Signed upload URL notice in direct upload:', signErr);
   }
 
-  const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucket}/${cleanPath}`;
-  const totalBytes = fileOrBlob.size;
+  // 2. Try direct Supabase Storage POST if credentials exist
+  if (SUPABASE_URL && authToken) {
+    try {
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucket}/${cleanPath}`;
+      onProgress?.(Math.round(totalBytes * 0.2), totalBytes, 20);
 
-  onProgress?.(Math.round(totalBytes * 0.1), totalBytes, 10);
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          apikey: authToken,
+          'Content-Type': contentType,
+          'x-upsert': 'true',
+          'cache-control': cacheControl,
+        },
+        body: fileOrBlob,
+      });
 
-  const res = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      apikey: authToken,
-      'Content-Type': contentType,
-      'x-upsert': 'true',
-      'cache-control': cacheControl,
-    },
-    body: fileOrBlob,
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(`Direct upload failed (${res.status}): ${errorText || res.statusText}`);
+      if (res.ok) {
+        onProgress?.(totalBytes, totalBytes, 100);
+        return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${cleanPath}`;
+      }
+    } catch (directErr) {
+      console.warn('Direct Supabase POST notice:', directErr);
+    }
   }
 
+  // 3. Fallback: Chunked server media upload (supports large files in 2MB slices)
+  onProgress?.(Math.round(totalBytes * 0.25), totalBytes, 25);
+  const serverUrl = await uploadMediaToServer(
+    fileOrBlob,
+    {
+      filename: cleanPath,
+      name: cleanPath,
+      type: contentType,
+    },
+    (pct) => {
+      onProgress?.(Math.round((pct / 100) * totalBytes), totalBytes, pct);
+    }
+  );
   onProgress?.(totalBytes, totalBytes, 100);
-  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${cleanPath}`;
+  return serverUrl;
 }
+

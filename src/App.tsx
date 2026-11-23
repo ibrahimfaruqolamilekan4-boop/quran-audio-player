@@ -1,5 +1,4 @@
-import { DiagnosticsView } from './views/DiagnosticsView';
-import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlayerProvider, usePlayer } from './context/PlayerContext';
 import { AuthProvider } from './context/AuthContext';
 import { BottomPlayer } from './components/BottomPlayer';
@@ -23,32 +22,15 @@ import { PremiumView } from './views/PremiumView';
 import { PrayerTimesView } from './views/PrayerTimesView';
 import { QiblaView } from './views/QiblaView';
 import { AzkarView } from './views/AzkarView';
+import { DiagnosticsView } from './views/DiagnosticsView';
 import { getChapters } from './lib/api';
 import { DEFAULT_RECITER_ID } from './lib/constants';
 import { Palette } from 'lucide-react';
 import { PWAInstallHeader } from './components/PWAInstallHeader';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdhanSchedulerOverlay } from './components/AdhanSchedulerOverlay';
-
-const THEME_STORAGE_KEY = 'nooraya-premium-theme';
-
-function readStoredTheme(): string {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved && THEME_LIBRARY[saved]) return saved;
-  } catch {
-    /* private mode */
-  }
-  return 'midnight-scholar';
-}
-
-const ThemeContext = createContext<{
-  themeName: string;
-  setThemeName: (name: string) => void;
-}>({
-  themeName: 'midnight-scholar',
-  setThemeName: () => {},
-});
+import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { Sun, Moon } from 'lucide-react';
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) {
   const { user, role, loading } = useAuth();
@@ -63,7 +45,7 @@ function DashboardLayout() {
   const currentTab = location.pathname.split('/').pop() || 'home';
   const navigate = useNavigate();
   const setCurrentTab = (tab: string) => navigate(`/dashboard/${tab}`);
-  const { themeName: currentTheme, setThemeName } = useContext(ThemeContext);
+  const [currentTheme, setCurrentTheme] = useState('midnight-scholar');
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   
   const { 
@@ -103,7 +85,7 @@ function DashboardLayout() {
   }, [allReciters, currentReciter, setChapters, setReciter]);
 
   return (
-    <div className="min-h-screen flex bg-transparent text-slate-200 font-sans selection:bg-teal-500/30">
+    <div className="min-h-screen flex bg-transparent text-[var(--text-primary)] font-sans selection:bg-teal-500/30">
       <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} />
       <TopNav currentTab={currentTab} setCurrentTab={setCurrentTab} />
       
@@ -123,6 +105,7 @@ function DashboardLayout() {
             <Route path="settings" element={<SettingsView />} />
             <Route path="premium" element={<PremiumView />} />
             <Route path="player" element={<FullPlayerPage />} />
+            <Route path="diag" element={<DiagnosticsView />} />
           </Routes>
         </div>
       </main>
@@ -147,7 +130,7 @@ function DashboardLayout() {
                 <button
                   key={themeName}
                   onClick={() => {
-                    setThemeName(themeName);
+                    setCurrentTheme(themeName);
                     setShowThemeSwitcher(false);
                   }}
                   className={`px-4 py-3 text-xs font-medium rounded-xl transition-all text-left flex items-center justify-between ${
@@ -176,50 +159,79 @@ function DashboardLayout() {
   );
 }
 
-function PrayerTimesRedirect() {
-  const location = useLocation();
-  return <Navigate to={`/dashboard/prayer-times${location.search}`} replace />;
-}
-
 export default function App() {
-  const [themeName, setThemeNameState] = useState(readStoredTheme);
-  const setThemeName = (name: string) => {
-    if (!THEME_LIBRARY[name]) return;
-    setThemeNameState(name);
+  const [colorTheme, setColorTheme] = useState<'dark' | 'light'>(() => {
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, name);
+      return localStorage.getItem('nooraya_color_theme') === 'light' ? 'light' : 'dark';
     } catch {
-      /* private mode */
+      return 'dark';
     }
-  };
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', colorTheme);
+    document.documentElement.classList.toggle('light', colorTheme === 'light');
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', colorTheme === 'light' ? '#F4EFE6' : '#06150F');
+    }
+    try {
+      localStorage.setItem('nooraya_color_theme', colorTheme);
+    } catch {}
+    window.dispatchEvent(new CustomEvent('nooraya-theme-changed', { detail: colorTheme }));
+  }, [colorTheme]);
+
+  useEffect(() => {
+    const syncExternalTheme = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if ((detail === 'light' || detail === 'dark') && detail !== colorTheme) {
+        setColorTheme(detail);
+      }
+    };
+    window.addEventListener('nooraya-theme-changed', syncExternalTheme);
+    return () => window.removeEventListener('nooraya-theme-changed', syncExternalTheme);
+  }, [colorTheme]);
 
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <PlayerProvider>
-          <ThemeContext.Provider value={{ themeName, setThemeName }}>
-          <div className="flex flex-col min-h-screen relative selection:bg-teal-500/30 selection:text-teal-200">
-            <QuranicPremiumBackground themeName={themeName} />
-            <PWAInstallHeader />
-            <AdhanSchedulerOverlay />
-            <div className="flex-1 flex flex-col relative z-10">
-              <Routes>
-                <Route path="/" element={<LandingView />} />
-                <Route path="/auth" element={<AuthView />} />
-                <Route path="/dashboard/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
-                <Route path="/diag" element={<DiagnosticsView />} />
-                <Route path="/dashboard/diag" element={<DiagnosticsView />} />
-                <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
-                <Route path="/prayer-times" element={<PrayerTimesRedirect />} />
-                <Route path="/premium" element={<Navigate to="/dashboard/premium" replace />} />
-                <Route path="*" element={<Navigate to="/" />} />
-              </Routes>
+    <AppErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <PlayerProvider>
+            <div className="flex flex-col min-h-screen relative selection:bg-teal-500/30 selection:text-teal-200">
+              <QuranicPremiumBackground />
+              <PWAInstallHeader />
+              <AdhanSchedulerOverlay />
+              <button
+                type="button"
+                aria-label={`Switch to ${colorTheme === 'dark' ? 'light' : 'dark'} theme`}
+                data-testid="theme-mode-toggle"
+                onClick={() => setColorTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                className={`fixed bottom-[calc(146px+env(safe-area-inset-bottom,0px))] right-3 md:bottom-32 md:right-4 z-30 w-9 h-9 rounded-full border flex items-center justify-center shadow-lg hover:scale-105 transition-transform cursor-pointer ${
+                  colorTheme === 'light'
+                    ? 'bg-[#FFFDF9] border-[#12261F]/20 text-[#7A5810]'
+                    : 'bg-[#06150F] border-white/15 text-[#D4AF37]'
+                }`}
+                title={`Theme: ${colorTheme === 'dark' ? 'Dark Medina Emerald' : 'Light Warm Parchment'}`}
+              >
+                {colorTheme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+              </button>
+              <div className="flex-1 flex flex-col relative">
+                <Routes>
+                  <Route path="/" element={<LandingView />} />
+                  <Route path="/auth" element={<AuthView />} />
+                  <Route path="/diag" element={<DiagnosticsView />} />
+                  <Route path="/dashboard/*" element={<DashboardLayout />} />
+                  <Route path="/admin" element={<ProtectedRoute adminOnly><AdminView /></ProtectedRoute>} />
+                  <Route path="/premium" element={<Navigate to="/dashboard/premium" replace />} />
+                  <Route path="*" element={<Navigate to="/" />} />
+                </Routes>
+              </div>
+              <OfflineIndicator />
             </div>
-            <OfflineIndicator />
-          </div>
-          </ThemeContext.Provider>
-        </PlayerProvider>
-      </AuthProvider>
-    </BrowserRouter>
+          </PlayerProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </AppErrorBoundary>
   );
 }
+

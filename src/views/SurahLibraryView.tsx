@@ -3,6 +3,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
 import { Search, Play, Pause, AlignLeft, CheckCircle2, Sparkles, WifiOff } from 'lucide-react';
 import { isSurahDownloaded } from '../lib/offlineManager';
+import { isSurahAvailable } from '../lib/audio';
 import { SurahDownloadButton } from '../components/SurahDownloadButton';
 import { SubscriptionModal } from '../components/SubscriptionModal';
 import type { Chapter } from '../types';
@@ -59,6 +60,13 @@ export function SurahLibraryView() {
   }, [chapters, activeReciter]);
 
   const handleRowClick = (chapter: Chapter) => {
+    // Availability guard: if this reciter did not record this surah
+    if (activeReciter && !isSurahAvailable(activeReciter, chapter.id)) {
+      setOfflineNotice(`Surah ${chapter.name_simple} was not recorded by ${activeReciter.name}. Please select another reciter.`);
+      setTimeout(() => setOfflineNotice(null), 4000);
+      return;
+    }
+
     const isDownloaded = Boolean(downloadedMap[chapter.id]);
 
     // Offline guard: if offline and not downloaded, show clear message
@@ -95,16 +103,16 @@ export function SurahLibraryView() {
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1.5">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif text-white tracking-tight">Surah Library</h2>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif text-[var(--text-primary)] tracking-tight">Surah Library</h2>
               {!isOnline && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-medium">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-medium">
                   <WifiOff size={13} /> Offline Mode
                 </span>
               )}
             </div>
-            <p className="text-slate-400 text-sm sm:text-base font-light max-w-2xl">
+            <p className="text-[var(--text-secondary)] text-sm sm:text-base font-normal max-w-2xl">
               {activeReciter ? (
-                <>Recitation by <span className="text-teal-400 font-medium">{activeReciter.name}</span>. Listen online or download for offline playback.</>
+                <>Recitation by <span className="text-[var(--primary-emerald)] font-semibold">{activeReciter.name}</span>. Listen online or download for offline playback.</>
               ) : (
                 'Browse the complete Noble Quran. Listen online or download for zero-internet offline listening.'
               )}
@@ -115,52 +123,58 @@ export function SurahLibraryView() {
             <button
               type="button"
               onClick={() => setShowSubModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-teal-500/20 to-emerald-500/20 hover:from-teal-500/30 hover:to-emerald-500/30 border border-teal-500/40 text-teal-300 text-xs font-semibold tracking-wide transition-all shrink-0 cursor-pointer shadow-[0_0_20px_rgba(20,184,166,0.15)]"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[var(--primary-subtle)] hover:opacity-90 border border-[var(--primary-emerald)]/40 text-[var(--primary-emerald)] text-xs font-semibold tracking-wide transition-all shrink-0 cursor-pointer shadow-sm"
             >
-              <Sparkles size={14} className="text-teal-400" />
+              <Sparkles size={14} className="text-[var(--primary-emerald)]" />
               <span>Unlock Offline Downloads</span>
             </button>
           )}
         </div>
 
         <div className="relative group max-w-2xl">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-teal-400 transition-colors" size={20} />
+          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] group-focus-within:text-[var(--primary-emerald)] transition-colors" size={20} />
           <input
             type="text"
             placeholder="Search e.g. Al-Kahf or 18..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#0F172A] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500/40 focus:bg-[#161A22] transition-all text-base shadow-inner"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border-color-highlight)] rounded-2xl py-4 pl-14 pr-6 text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--primary-emerald)] transition-all text-base shadow-sm"
           />
         </div>
       </header>
 
-      <div className="bg-[#0D1017] rounded-3xl border border-white/5 overflow-hidden shadow-2xl">
+      <div className="bg-[var(--bg-surface)] rounded-3xl border border-[var(--border-color)] overflow-hidden shadow-xl">
         {filteredChapters.map((chapter, index) => {
           const isCurrent = currentChapter?.id === chapter.id;
+          const isRecorded = isSurahAvailable(activeReciter, chapter.id);
           const isDownloaded = Boolean(downloadedMap[chapter.id]);
           const isUnavailableOffline = !isOnline && !isDownloaded;
+          const isDisabled = !isRecorded || isUnavailableOffline;
 
           return (
             <div
               key={chapter.id}
               onClick={() => handleRowClick(chapter)}
               className={`flex items-center gap-4 sm:gap-6 p-4 sm:p-5 transition-all group ${
-                index !== filteredChapters.length - 1 ? 'border-b border-white/5' : ''
+                index !== filteredChapters.length - 1 ? 'border-b border-[var(--border-color)]' : ''
               } ${
-                isUnavailableOffline
+                !isRecorded
                   ? 'opacity-40 cursor-not-allowed bg-transparent'
+                  : isUnavailableOffline
+                  ? 'opacity-45 cursor-not-allowed bg-transparent'
                   : isCurrent
-                  ? 'bg-teal-500/10 cursor-pointer'
-                  : 'hover:bg-white/[0.02] cursor-pointer'
+                  ? 'bg-[var(--primary-subtle)] cursor-pointer'
+                  : 'hover:bg-[var(--bg-surface-raised)]/60 cursor-pointer'
               }`}
             >
               {/* Play / Index Button */}
               <div
-                className={`w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl transition-all shadow-inner shrink-0 ${
+                className={`w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl transition-all shrink-0 ${
                   isCurrent
-                    ? 'bg-teal-500 text-[#0A0C10] shadow-[0_0_20px_rgba(20,184,166,0.3)]'
-                    : 'bg-[#0F172A] text-slate-400 group-hover:bg-[#1E293B]'
+                    ? 'bg-[var(--primary-emerald)] text-white shadow-[0_0_20px_rgba(20,184,166,0.25)]'
+                    : isDisabled
+                    ? 'bg-[var(--bg-surface-raised)]/60 text-[var(--text-muted)]'
+                    : 'bg-[var(--bg-surface-raised)] text-[var(--text-secondary)]'
                 }`}
               >
                 {isCurrent && isPlaying ? (
@@ -168,7 +182,7 @@ export function SurahLibraryView() {
                 ) : isCurrent && !isPlaying ? (
                   <Play size={18} className="fill-current ml-0.5" />
                 ) : (
-                  <span className="font-medium text-sm">{chapter.id}</span>
+                  <span className="font-semibold text-sm">{chapter.id}</span>
                 )}
               </div>
 
@@ -178,32 +192,43 @@ export function SurahLibraryView() {
                   <div className="flex items-center gap-2">
                     <h4
                       className={`text-base sm:text-lg font-serif tracking-wide truncate ${
-                        isCurrent ? 'text-teal-300' : 'text-slate-200 group-hover:text-white'
+                        !isRecorded
+                          ? 'text-[var(--text-muted)]'
+                          : isCurrent
+                          ? 'text-[var(--primary-emerald)] font-semibold'
+                          : 'text-[var(--text-primary)]'
                       }`}
                     >
                       {chapter.name_simple}
                     </h4>
 
                     {/* Downloaded Badge */}
-                    {isDownloaded && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-medium shrink-0">
+                    {isRecorded && isDownloaded && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-[var(--primary-emerald)] text-[10px] font-medium shrink-0">
                         <CheckCircle2 size={11} />
                         <span className="hidden sm:inline">Downloaded</span>
                       </span>
                     )}
 
+                    {/* Not Recorded Badge */}
+                    {!isRecorded && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--bg-surface-raised)] text-[var(--text-muted)] text-[10px] font-medium shrink-0">
+                        <span>Not recorded</span>
+                      </span>
+                    )}
+
                     {/* Offline Unavailable Badge */}
-                    {isUnavailableOffline && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-400 text-[10px] font-medium shrink-0">
+                    {isRecorded && isUnavailableOffline && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--bg-surface-raised)] text-[var(--text-muted)] text-[10px] font-medium shrink-0">
                         <WifiOff size={10} />
                         <span>Not downloaded</span>
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs sm:text-sm text-slate-500 font-light truncate">
+                  <div className="flex items-center gap-3 text-xs sm:text-sm text-[var(--text-muted)] font-normal truncate">
                     <span className="truncate">{chapter.translated_name.name}</span>
-                    <span className="w-1 h-1 rounded-full bg-slate-700 shrink-0" />
+                    <span className="w-1 h-1 rounded-full bg-[var(--border-color-highlight)] shrink-0" />
                     <span className="flex items-center gap-1.5 shrink-0">
                       <AlignLeft size={13} /> {chapter.verses_count} Verses
                     </span>
@@ -212,12 +237,12 @@ export function SurahLibraryView() {
 
                 {/* Arabic Name & Action */}
                 <div className="flex items-center gap-4 shrink-0 pl-2">
-                  <span className={`text-2xl sm:text-3xl font-arabic leading-relaxed ${isCurrent ? 'text-teal-400' : 'text-teal-500/80'}`}>
+                  <span className={`text-2xl sm:text-3xl font-arabic leading-relaxed ${!isRecorded ? 'text-[var(--text-muted)]' : 'text-[var(--primary-emerald)]'}`}>
                     {chapter.name_arabic}
                   </span>
 
                   {/* Download Action Button */}
-                  {activeReciter && (
+                  {activeReciter && isRecorded && (
                     <div onClick={(e) => e.stopPropagation()}>
                       <SurahDownloadButton chapter={chapter} reciter={activeReciter} />
                     </div>
@@ -230,11 +255,11 @@ export function SurahLibraryView() {
 
         {filteredChapters.length === 0 && (
           <div className="text-center py-24">
-            <div className="w-16 h-16 bg-[#0F172A] rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+            <div className="w-16 h-16 bg-[var(--bg-surface-raised)] rounded-full flex items-center justify-center mx-auto mb-4 text-[var(--text-muted)]">
               <Search size={28} />
             </div>
-            <h3 className="text-lg font-medium text-slate-300 mb-1 font-serif">No results found</h3>
-            <p className="text-slate-500 text-sm font-light">Try searching for a different surah name or number.</p>
+            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-1 font-serif">No results found</h3>
+            <p className="text-[var(--text-muted)] text-sm font-normal">Try searching for a different surah name or number.</p>
           </div>
         )}
       </div>
