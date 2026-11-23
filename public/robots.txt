@@ -1,11 +1,17 @@
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
 User-agent: *
 Allow: /
+Disallow: /api/
 Disallow: /admin
 Disallow: /dashboard/admin
-Disallow: /api/
 Disallow: /diag
-Disallow: /dashboard/diag
 
-# Host & Sitemap
 Sitemap: https://nooraya.app/sitemap.xml
 Host: https://nooraya.app

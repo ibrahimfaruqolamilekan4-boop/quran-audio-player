@@ -7,6 +7,40 @@ import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import dotenv from 'dotenv';
 import { execSync } from 'node:child_process';
+import signup from './backend/auth/signup';
+import login from './backend/auth/login';
+import logout from './backend/auth/logout';
+import me from './backend/auth/me';
+import preferences from './backend/me/preferences';
+import premiumStatus from './backend/me/premium-status';
+import mePayments from './backend/me/payments';
+import reciters from './backend/me/reciters';
+import reciterById from './backend/me/reciters/[id]';
+import adminOverview from './backend/admin/overview';
+import adminReciters from './backend/admin/reciters';
+import adminRole from './backend/admin/role';
+import adminAmbient from './backend/admin/ambient';
+import adminMedia from './backend/admin/media';
+import publicMedia from './backend/media/[id]';
+import health from './backend/health.mjs';
+import publicReciters from './backend/reciters';
+import publicAmbient from './backend/ambient';
+import publicPlans from './backend/plans';
+import adminPlans from './backend/admin/plans';
+import adminPayments from './backend/admin/payments';
+import paymentsDiagnostics from './backend/admin/payments-diagnostics';
+import media from './backend/media';
+import verifyFlutterwave from './backend/payments/verify';
+import flwWebhook from './backend/payments/webhook';
+import createVirtualAccount from './backend/payments/create-virtual-account';
+import createHostedCheckout from './backend/payments/create-hosted-checkout';
+import checkTransferStatus from './backend/payments/check-transfer-status';
+import publicBackgrounds from './backend/backgrounds';
+import adminSupabaseBackgrounds from './backend/admin/supabase-backgrounds';
+import publicAdhanVoices from './backend/adhan-voices';
+import adminAdhanVoices from './backend/admin/adhan-voices';
+import pushHandler from './backend/push';
+import diagHandler from './backend/diag';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,7 +78,48 @@ function buildIdPlugin(): Plugin {
 // so load .env into process.env for local development.
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
-/** Serves the /api serverless functions inside `vite dev` by delegating to backend/index.ts */
+type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+
+const routes: Array<[RegExp, Handler]> = [
+  [/^\/api\/auth\/signup$/, signup],
+  [/^\/api\/auth\/login$/, login],
+  [/^\/api\/auth\/logout$/, logout],
+  [/^\/api\/auth\/me$/, me],
+  [/^\/api\/me\/preferences$/, preferences],
+  [/^\/api\/me\/premium-status$/, premiumStatus],
+  [/^\/api\/me\/payments$/, mePayments],
+  [/^\/api\/me\/reciters$/, reciters],
+  [/^\/api\/me\/reciters\/[^/]+$/, reciterById],
+  [/^\/api\/admin\/overview$/, adminOverview],
+  [/^\/api\/admin\/reciters$/, adminReciters],
+  [/^\/api\/admin\/role$/, adminRole],
+  [/^\/api\/admin\/ambient$/, adminAmbient],
+  [/^\/api\/admin\/media$/, adminMedia],
+  [/^\/api\/media\/[^/]+$/, publicMedia],
+  [/^\/api\/health$/, health],
+  [/^\/api\/reciters$/, publicReciters],
+  [/^\/api\/ambient$/, publicAmbient],
+  [/^\/api\/plans$/, publicPlans],
+  [/^\/api\/admin\/plans(\/.*)?$/, adminPlans],
+  [/^\/api\/admin\/plan-price-logs$/, adminPlans],
+  [/^\/api\/admin\/payments\/diagnostics$/, paymentsDiagnostics],
+  [/^\/api\/admin\/payments$/, adminPayments],
+  [/^\/api\/admin\/reconcile-payments$/, adminPayments],
+  [/^\/api\/backgrounds$/, publicBackgrounds],
+  [/^\/api\/admin\/supabase-backgrounds$/, adminSupabaseBackgrounds],
+  [/^\/api\/adhan-voices$/, publicAdhanVoices],
+  [/^\/api\/admin\/adhan-voices$/, adminAdhanVoices],
+  [/^\/api\/push(\/.*)?$/, pushHandler],
+  [/^\/api\/diag$/, diagHandler],
+  [/^\/api\/payments\/verify-flutterwave$/, verifyFlutterwave],
+  [/^\/api\/webhooks\/flutterwave$/, flwWebhook],
+  [/^\/api\/payments\/create-virtual-account$/, createVirtualAccount],
+  [/^\/api\/payments\/create-hosted-checkout$/, createHostedCheckout],
+  [/^\/api\/payments\/check-transfer-status$/, checkTransferStatus],
+  [/^\/api\/media(\/.*)?$/, media],
+];
+
+/** Serves the /api serverless functions inside `vite dev` so one command runs the whole app. */
 function apiDevPlugin(): Plugin {
   return {
     name: 'neon-api-dev',
@@ -52,9 +127,15 @@ function apiDevPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         const url = (req.url || '').split('?')[0];
         if (!url.startsWith('/api/')) return next();
+        const match = routes.find(([pattern]) => pattern.test(url));
+        if (!match) {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Unknown API route' }));
+          return;
+        }
         try {
-          const { default: handler } = await import('./backend/index');
-          await handler(req, res);
+          await match[1](req, res);
         } catch (err) {
           console.error('[api-dev] Unhandled error:', err);
           if (!res.headersSent) {
@@ -78,7 +159,7 @@ export default defineConfig(() => {
       apiDevPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'favicon-64.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'manifest.json', 'robots.txt', 'sitemap.xml'],
+        includeAssets: ['favicon.ico', 'favicon-64.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'manifest.json', 'push-sw.js'],
         manifest: {
           id: '/',
           name: 'Nooraya - Quran Audio Player',
@@ -118,22 +199,25 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          importScripts: ['sw-push.js'],
+          importScripts: ['/push-sw.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg,jpeg,webp}'],
+          globIgnores: ['**/control-audio-test.html', '**/audio/**'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           clientsClaim: true,
           skipWaiting: true,
           cleanupOutdatedCaches: true,
-          navigateFallbackDenylist: [/^\/api\/.*/, /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i],
+          // Never intercept crawler verification files with cached index.html
+          navigateFallbackDenylist: [
+            /^\/api\/.*/,
+            /^\/ads\.txt$/,
+            /^\/robots\.txt$/,
+            /^\/sitemap\.xml$/,
+            /^\/control-audio-test\.html$/,
+            /^\/offline-audio\/.*/,
+            /^\/audio\/.*/,
+            /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i,
+          ],
           runtimeCaching: [
-            {
-              urlPattern: /\.(?:mp3|mp4|m4a|webm|ogg|wav)$/i,
-              handler: 'NetworkOnly',
-            },
-            {
-              urlPattern: /^https:\/\/.*\.mp3quran\.net\/.*/i,
-              handler: 'NetworkOnly',
-            },
             {
               urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/,
               handler: 'CacheFirst',
@@ -207,5 +291,10 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
+    test: {
+      environment: 'jsdom',
+      include: ['src/**/*.test.{ts,tsx}'],
+    },
   };
 });
+

@@ -62,17 +62,17 @@ export const PlayerScreen: React.FC<{ backgrounds: Background[] }> = ({ backgrou
   };
 
   return (
-    <div className="relative min-h-screen bg-black text-white">
+    <div className="relative min-h-screen bg-[#06150F] text-white">
       {/* Background video layer */}
       <BackgroundLayer
         backgrounds={backgrounds}
-        activeId={activeBackground.id}
+        activeId={activeBackground?.id ?? ''}
         onSelect={handleSelectBackground}
       />
 
-      {/* Glassmorphism player card */}
-      <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-8">
-        <div className="w-full max-w-md rounded-2xl bg-white/5 backdrop-blur-xl backdrop-saturate-150 border border-white/10 p-6 shadow-lg">
+      {/* Opaque scrim + player card */}
+      <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-8 bg-[#06150F]/45">
+        <div className="w-full max-w-md rounded-2xl bg-[#0C2A20]/95 border border-white/15 p-6 shadow-2xl">
           {/* Reciter & Surah info */}
           <div className="flex items-center space-x-4 mb-4">
             {currentReciter?.imageUrl ? (
@@ -176,19 +176,34 @@ export const PlayerScreen: React.FC<{ backgrounds: Background[] }> = ({ backgrou
       </div>
 
       {/* Bottom background selector strip */}
-      <div className="absolute bottom-0 left-0 right-0 pb-4">
-        <div className="flex overflow-x-auto space-x-2 justify-center px-2">
-          {backgrounds.map((bg) => (
-            <button
-              key={bg.id}
-              className={`flex-shrink-0 w-20 h-12 rounded ${bg.id === activeBackground.id ? "ring-2 ring-blue-400" : ""}`}
-              onClick={() => handleSelectBackground(bg.id)}
-            >
-              <img src={bg.thumbnailUrl || bg.videoUrl} alt={bg.name} className="w-full h-full object-cover rounded" />
-            </button>
-          ))}
+      {backgrounds.length > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 pb-4">
+          <div className="flex overflow-x-auto space-x-2 justify-center px-2">
+            {backgrounds.map((bg) => {
+              const thumbUrl = bg.thumbnailUrl && !bg.thumbnailUrl.endsWith('.mp4') ? bg.thumbnailUrl : null;
+              return (
+                <button
+                  key={bg.id}
+                  type="button"
+                  title={bg.name}
+                  className={`flex-shrink-0 w-24 h-14 rounded-lg overflow-hidden border border-white/15 bg-[#0C2A20] relative cursor-pointer ${
+                    bg.id === activeBackground?.id ? 'ring-2 ring-[#34C38F]' : 'opacity-80 hover:opacity-100'
+                  }`}
+                  onClick={() => handleSelectBackground(bg.id)}
+                >
+                  {thumbUrl ? (
+                    <img src={thumbUrl} alt={bg.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-[#11382B] to-[#06150F] flex items-center justify-center px-1.5 text-[10px] font-medium text-[#F6F1E4] truncate">
+                      {bg.name}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Hidden audio elements – controlled by hook */}
       <audio ref={recitationAudio} />

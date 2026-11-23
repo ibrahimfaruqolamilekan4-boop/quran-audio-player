@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nooraya Android Manifest Fragment for Offline Closed-App Prayer Alerts & Full Adhan Playback.
+  Merge into `android/app/src/main/AndroidManifest.xml` after `npx cap add android`.
+
+  Google Play Policy Note (2025/2026):
+  - Multi-feature Quran & Islamic lifestyle apps MUST use `SCHEDULE_EXACT_ALARM` (user-granted on Android 14+),
+    and MUST NOT declare `USE_EXACT_ALARM` (reserved strictly for dedicated alarm clock / calendar apps).
+  - The `tools:node="remove"` entry explicitly strips `USE_EXACT_ALARM` if any transitive library injects it.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Policy-compliant exact alarm permission for Android 12–15+ -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.USE_EXACT_ALARM"
+        tools:node="remove" />
+
+    <!-- Notifications, reboot/update persistence, wake lock & foreground media playback -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application>
+        <!-- Fires exact prayer alarm -> starts AdhanPlaybackForegroundService -->
+        <receiver
+            android:name="com.nooraya.quranaudio.adhan.AdhanAlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Re-arms all future offline prayer alarms after reboot, app update, clock/timezone/DST or Exact Alarm grant -->
+        <receiver
+            android:name="com.nooraya.quranaudio.adhan.BootAndTimeChangeReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Plays full real Muezzin Adhan audio with Stop action, AudioFocus ducking, and phone-call check -->
+        <service
+            android:name="com.nooraya.quranaudio.adhan.AdhanPlaybackForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>

@@ -4,10 +4,10 @@ import './AmbientPlayer.css';
 // Define the available scenes (ambient soundscapes)
 const scenes: Record<string, { sound: string }> = {
   mountain: {
-    sound: 'https://actions.google.com/sounds/v1/weather/rain_heavy.ogg',
+    sound: '/audio/ambient/rain.mp3',
   },
   night: {
-    sound: 'https://actions.google.com/sounds/v1/environments/crickets_chirping.ogg',
+    sound: '/audio/ambient/crickets.mp3',
   },
 };
 

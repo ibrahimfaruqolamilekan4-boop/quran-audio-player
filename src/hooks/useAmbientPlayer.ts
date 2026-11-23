@@ -49,7 +49,7 @@ export function useAmbientPlayer() {
     }
   }, [ambientVolume, isPlaying]);
 
-  // Sync Media Session metadata and handlers
+  // Sync Media Session metadata only while active (PlayerContext remains authoritative owner)
   useEffect(() => {
     if ("mediaSession" in navigator && currentChapter && currentReciter) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -60,20 +60,7 @@ export function useAmbientPlayer() {
           ? [{ src: currentReciter.imageUrl, sizes: "256x256", type: "image/png" }]
           : [],
       });
-
-      navigator.mediaSession.setActionHandler("play", () => togglePlayPause());
-      navigator.mediaSession.setActionHandler("pause", () => togglePlayPause());
-      navigator.mediaSession.setActionHandler("previoustrack", () => playPrevious());
-      navigator.mediaSession.setActionHandler("nexttrack", () => playNext());
     }
-    // Cleanup on unmount
-    return () => {
-      if ("mediaSession" in navigator) {
-        navigator.mediaSession.metadata = null;
-        const actions = ["play", "pause", "previoustrack", "nexttrack", "seekto"] as const;
-        actions.forEach((a) => navigator.mediaSession.setActionHandler(a, null));
-      }
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChapter?.id, currentReciter?.id]);
 
