@@ -67,8 +67,13 @@ export function resolveReciters<T extends Reciter>(base: T[], globals: GlobalRec
         style: g.style && g.style !== 'Custom Global' ? g.style : 'Murattal',
         category: g.category || 'Sweet Voices',
         ...(g.bio ? { bio: g.bio } : {}),
-        region: 'Global',
+        region: g.region || 'Global',
+        location: g.location || undefined,
         serverUrl: g.serverUrl || 'https://server8.mp3quran.net/afs',
+        ...(g.isPartial !== undefined ? { isPartial: g.isPartial } : {}),
+        ...(g.surahCount !== undefined ? { surahCount: g.surahCount } : {}),
+        ...(g.availableSurahs !== undefined ? { availableSurahs: g.availableSurahs } : {}),
+        ...(g.fallbackReciterId ? { fallbackReciterId: g.fallbackReciterId } : {}),
         ...(cleanImg ? { imageUrl: cleanImg } : {}),
       };
     });
