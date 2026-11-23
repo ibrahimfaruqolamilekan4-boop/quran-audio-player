@@ -1067,15 +1067,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const streamUrls =
       useAyahStream && voice
         ? [ayahStreamUrl(voice, chapter.id, ayahNumber as number)]
-        : candidateUrls(reciter, chapter.id);
+        : candidateUrls(playbackReciter, chapter.id);
 
     const cacheKey =
       useAyahStream && voice
         ? `quran_ayah_${voice.voice}_${chapter.id}_${ayahNumber}`
-        : `quran_audio_${reciter.id}_${chapter.id}`;
+        : `quran_audio_${playbackReciter.id}_${chapter.id}`;
 
     attemptRef.current = {
-      reciterId: reciter.id,
+      reciterId: playbackReciter.id,
       urls: streamUrls,
       index: 0,
       cacheKey,
@@ -1101,7 +1101,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     // Asynchronously prepend admin-uploaded recitation if available
     const uploadedEntry = recitationsRef.current.find(
-      r => r.reciterId === reciter.id && r.surah === chapter.id
+      r => r.reciterId === playbackReciter.id && r.surah === chapter.id
     );
     if (uploadedEntry) {
       recitationObjectUrl(uploadedEntry).then(upUrl => {

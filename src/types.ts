@@ -30,8 +30,14 @@ export interface Reciter {
   bio?: string;
   /** Whether this reciter is featured on the home screen. */
   featured?: boolean;
-  /** Available surahs for this reciter (1-114). If omitted, reciter has all 114 surahs. */
+  /** Whether this recitation catalog is partial (fewer than 114 surahs recorded). */
+  isPartial?: boolean;
+  /** Exact count of available surahs out of 114. */
+  surahCount?: number;
+  /** Explicit array of available surah numbers (1-114). If omitted, 1-114 assumed complete. */
   availableSurahs?: number[];
+  /** Suggested complete reciter ID with identical riwaya for missing surahs. */
+  fallbackReciterId?: string;
   /** Fallback servers to try in order if serverUrl fails */
   fallbackServerUrls?: string[];
   /** Moshaf recitation style/narration name */
