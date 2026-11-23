@@ -99,6 +99,14 @@ const handler: Handler = async (req, res) => {
         console.warn('Failed to persist preferences to db:', saveErr);
       }
 
+      if (typeof body.full_name === 'string' && body.full_name.trim()) {
+        try {
+          await q('UPDATE users SET display_name = $1 WHERE uid = $2', [body.full_name.trim(), user.uid]);
+        } catch (nameErr) {
+          console.warn('Failed to update display_name:', nameErr);
+        }
+      }
+
       return sendJson(res, 200, {
         preferences: {
           theme,

@@ -1,0 +1,32 @@
+{
+  "appId": "com.nooraya.quranaudio",
+  "appName": "Nooraya",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_nooraya",
+      "iconColor": "#D4AF37",
+      "sound": "madinah_standard_28s.wav"
+    },
+    "NoorayaAdhan": {
+      "defaultSoundResource": "madinah_standard_28s.wav",
+      "defaultFajrSoundResource": "madinah_fajr_bukhari_28s.wav",
+      "iosMaxPendingCap": 64,
+      "rollingScheduleDays": 10,
+      "iosBackgroundRefreshIdentifier": "com.nooraya.quranaudio.refreshPrayers"
+    }
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#06150F"
+  },
+  "android": {
+    "backgroundColor": "#06150F",
+    "allowMixedContent": false
+  }
+}

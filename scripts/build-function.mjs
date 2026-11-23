@@ -46,7 +46,7 @@ for (const outfile of TARGETS) {
     platform: 'node',
     format: 'esm',
     target: 'node20',
-    external: ['pg', '@supabase/supabase-js', 'adhan', 'pg-native', 'pg-cloudflare', 'cloudflare:*'],
+    external: [],
     banner: { js: BANNER },
     logLevel: 'warning',
   });

@@ -7,7 +7,6 @@
  */
 
 export interface UserLocation {
-
   latitude: number;
   longitude: number;
   cityName: string;
@@ -423,5 +422,3 @@ export const PRIVACY_POLICY_SECTIONS = [
   },
 ];
 
-
-export const UserLocation = {};

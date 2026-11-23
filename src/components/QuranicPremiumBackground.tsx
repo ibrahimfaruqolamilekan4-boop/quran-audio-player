@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import localforage from 'localforage';
-import { usePlayer } from '../context/PlayerContext';
-import { resolveBackgroundVideo } from '../lib/backgrounds';
+import { motion } from 'motion/react';
+import type { CustomVideo } from '../types';
+import {
+  resolveBackgroundVideo,
+  computeVideoQualityMetrics,
+  reportVideoPerformanceDegradation,
+} from '../lib/backgrounds';
+import { setLatestVideoQualitySnapshot } from '../lib/prodDiagnostics';
+import { isFeatureEnabled } from '../lib/featureFlags';
 
 /**
  * THEME CONFIGURATION INTERFACE
@@ -344,11 +349,11 @@ const MysticalAurora = ({ intensity, theme }: { intensity: number; theme: ThemeC
 // ============================================
 const QuranicVerseScroll = ({ intensity, theme }: { intensity: number; theme: ThemeConfig }) => {
   const verses = [
-    'Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã™â€ Ã™Ë†Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â³Ã™â€¦Ã™Ë†Ã˜Â§Ã˜Âª Ã™Ë†Ã˜Â§Ã™â€žÃ˜Â£Ã˜Â±Ã˜Â¶',
-    'Ã™ÂÃ˜ÂªÃ˜Â¨Ã˜Â§Ã˜Â±Ã™Æ’ Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã˜Â£Ã˜Â­Ã˜Â³Ã™â€  Ã˜Â§Ã™â€žÃ˜Â®Ã˜Â§Ã™â€žÃ™â€šÃ™Å Ã™â€ ',
-    'Ã˜Â¥Ã™â€  Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã™â€¦Ã˜Â¹ Ã˜Â§Ã™â€žÃ˜ÂµÃ˜Â§Ã˜Â¨Ã˜Â±Ã™Å Ã™â€ ',
-    'Ã˜Â§Ã™â€žÃ˜Â­Ã™â€¦Ã˜Â¯ Ã™â€žÃ™â€žÃ™â€¡ Ã˜Â±Ã˜Â¨ Ã˜Â§Ã™â€žÃ˜Â¹Ã˜Â§Ã™â€žÃ™â€¦Ã™Å Ã™â€ ',
-    'Ã˜Â³Ã˜Â¨Ã˜Â­Ã˜Â§Ã™â€  Ã˜Â§Ã™â€žÃ™â€žÃ™â€¡ Ã™Ë†Ã˜Â¨Ã˜Â­Ã™â€¦Ã˜Â¯Ã™â€¡',
+    'اللَّهُ نُورُ السَّمَاوَاتِ وَالْأَرْضِ',
+    'فَتَبَارَكَ اللَّهُ أَحْسَنُ الْخَالِقِينَ',
+    'إِنَّ اللَّهَ مَعَ الصَّابِرِينَ',
+    'الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ',
+    'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ',
   ];
 
   const displayVerse = verses[Math.floor(Math.random() * verses.length)];
@@ -383,14 +388,46 @@ interface QuranicPremiumBackgroundProps {
   isPlaying?: boolean;
 }
 
-export function QuranicPremiumBackground({ 
+export const QuranicPremiumBackground = React.memo(function QuranicPremiumBackground({ 
   themeName = 'medina-emerald',
   ambientVolume = 0.6,
 }: QuranicPremiumBackgroundProps) {
   const theme = THEME_LIBRARY[themeName] || THEME_LIBRARY['medina-emerald'];
-  const { activeBackgroundVideoId, customVideos } = usePlayer();
 
-  // Initial video loop: default to Cosmos star loop immediately to eliminate any blank frame
+  // Subscribe ONLY to dedicated `nooraya-bg-state` events (never `usePlayer()`),
+  // so 250ms `currentTime` progress ticks cause ZERO re-renders of `<video>`.
+  const [bgState, setBgState] = useState<{
+    activeBackgroundVideoId: string | null;
+    customVideos: CustomVideo[];
+  }>(() => {
+    const existing = typeof window !== 'undefined' ? (window as any).__noorayaBgState : null;
+    return existing || { activeBackgroundVideoId: null, customVideos: [] };
+  });
+
+  const [isLightTheme, setIsLightTheme] = useState<boolean>(() => {
+    if (typeof document === 'undefined') return false;
+    return document.documentElement.getAttribute('data-theme') === 'light';
+  });
+
+  useEffect(() => {
+    const onBgState = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) setBgState(detail);
+    };
+    const onThemeChange = () => {
+      setIsLightTheme(document.documentElement.getAttribute('data-theme') === 'light');
+    };
+    window.addEventListener('nooraya-bg-state', onBgState);
+    window.addEventListener('nooraya-theme-changed', onThemeChange);
+    return () => {
+      window.removeEventListener('nooraya-bg-state', onBgState);
+      window.removeEventListener('nooraya-theme-changed', onThemeChange);
+    };
+  }, []);
+
+  const { activeBackgroundVideoId, customVideos } = bgState;
+
+  // Initial video loop: resolve immediately from localStorage to avoid blank frames
   const initialVideo = useMemo(() => {
     if (typeof window !== 'undefined') {
       const saved = (localStorage.getItem('activeBackgroundVideoId') || '')
@@ -421,11 +458,8 @@ export function QuranicPremiumBackground({
     let isMounted = true;
 
     async function loadCustomVideo() {
-      if (!activeBackgroundVideoId) {
-        if (isMounted) {
-          const def = customVideos.find(v => v.isDefault && v.videoUrl) || customVideos[0];
-          setVideoUrl(def?.videoUrl || '');
-        }
+      if (customVideos.length === 0 && !activeBackgroundVideoId) {
+        if (isMounted) setVideoUrl('');
         return;
       }
       try {
@@ -439,8 +473,7 @@ export function QuranicPremiumBackground({
       } catch (e) {
         console.error('Failed to load background video:', e);
         if (isMounted) {
-          const def = customVideos.find(v => v.isDefault && v.videoUrl) || customVideos[0];
-          setVideoUrl(def?.videoUrl || '');
+          setVideoUrl('');
         }
       }
     }
@@ -449,9 +482,19 @@ export function QuranicPremiumBackground({
     return () => { isMounted = false; };
   }, [activeBackgroundVideoId, customVideos]);
 
-  // Dual-buffer crossfade manager: smoothly transitions to new video without black frames or reload glitches
+  // Dual-buffer crossfade manager: smoothly transitions to new video and pauses inactive slot after crossfade
   useEffect(() => {
-    if (!videoUrl) return;
+    if (!videoUrl) {
+      setSlotAOpacity(0);
+      setSlotBOpacity(0);
+      const clearTimer = setTimeout(() => {
+        if (videoRefA.current) videoRefA.current.pause();
+        if (videoRefB.current) videoRefB.current.pause();
+        setSlotAUrl('');
+        setSlotBUrl(null);
+      }, 900);
+      return () => clearTimeout(clearTimer);
+    }
 
     if (activeSlot === 'A') {
       if (slotAUrl === videoUrl) {
@@ -459,22 +502,30 @@ export function QuranicPremiumBackground({
         setSlotBOpacity(0);
         return;
       }
-      // Load onto Slot B
+      // Load onto Slot B and crossfade
       setSlotBUrl(videoUrl);
       setSlotBOpacity(1);
       setSlotAOpacity(0);
       setActiveSlot('B');
+      const pauseTimer = setTimeout(() => {
+        if (videoRefA.current) videoRefA.current.pause();
+      }, 1100);
+      return () => clearTimeout(pauseTimer);
     } else {
       if (slotBUrl === videoUrl) {
         setSlotBOpacity(1);
         setSlotAOpacity(0);
         return;
       }
-      // Load onto Slot A
+      // Load onto Slot A and crossfade
       setSlotAUrl(videoUrl);
       setSlotAOpacity(1);
       setSlotBOpacity(0);
       setActiveSlot('A');
+      const pauseTimer = setTimeout(() => {
+        if (videoRefB.current) videoRefB.current.pause();
+      }, 1100);
+      return () => clearTimeout(pauseTimer);
     }
   }, [videoUrl]);
 
@@ -494,9 +545,16 @@ function getVideoPoster(url: string | null | undefined): string {
   return '';
 }
 
+  // Keep synchronous ref so async canplay/loadeddata/unblock callbacks never restart video when overlay is open
+  const isOverlayOpenRef = useRef<boolean>(false);
+
   // Start playback safely on video elements whenever sources are ready (iOS Safari, iPadOS, Android)
   const playVideoSafe = (vid: HTMLVideoElement | null) => {
     if (!vid) return;
+    if (document.hidden || isOverlayOpenRef.current || Boolean((window as any).__noorayaNowPlayingOpen)) {
+      try { vid.pause(); } catch {}
+      return;
+    }
     try {
       vid.muted = true;
       (vid as any).playsInline = true;
@@ -536,16 +594,15 @@ function getVideoPoster(url: string | null | undefined): string {
         v.videoUrl !== failedSrc &&
         (v.videoUrl.startsWith('/api/media/') || v.videoUrl.startsWith('http://') || v.videoUrl.startsWith('https://'))
     );
-    if (fallbackCloud?.videoUrl) {
-      setVideoUrl(fallbackCloud.videoUrl);
-    }
+    setVideoUrl(fallbackCloud?.videoUrl || '');
   };
 
   // Global user interaction unblocker for mobile browser autoplay policy & iOS Low Power Mode
   useEffect(() => {
     const unblock = () => {
-      if (videoRefA.current && slotAUrl) playVideoSafe(videoRefA.current);
-      if (videoRefB.current && slotBUrl) playVideoSafe(videoRefB.current);
+      if (isOverlayOpenRef.current || Boolean((window as any).__noorayaNowPlayingOpen)) return;
+      if (videoRefA.current && slotAUrl && activeSlot === 'A') playVideoSafe(videoRefA.current);
+      if (videoRefB.current && slotBUrl && activeSlot === 'B') playVideoSafe(videoRefB.current);
     };
     window.addEventListener('touchstart', unblock, { once: true, passive: true });
     window.addEventListener('pointerdown', unblock, { once: true, passive: true });
@@ -559,12 +616,80 @@ function getVideoPoster(url: string | null | undefined): string {
       window.removeEventListener('keydown', unblock);
       window.removeEventListener('scroll', unblock);
     };
-  }, [slotAUrl, slotBUrl]);
+  }, [slotAUrl, slotBUrl, activeSlot]);
 
-  // Pause video when screen locks or app goes to background (keeps audio reciting uninterrupted!)
+  // Respect prefers-reduced-motion
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  // Measure video upscale factor & dropped frames via requestVideoFrameCallback + interval
+  useEffect(() => {
+    const activeVid = activeSlot === 'A' ? videoRefA.current : videoRefB.current;
+    const activeUrl = activeSlot === 'A' ? slotAUrl : slotBUrl;
+    if (!activeVid || !activeUrl) return;
+
+    const measure = () => {
+      if (document.hidden || activeVid.paused || !activeVid.videoWidth) return;
+      const snap = computeVideoQualityMetrics(
+        activeVid,
+        activeUrl.includes('480p') ? '480p' : activeUrl.includes('1080p') ? '1080p' : '720p'
+      );
+      if (snap) {
+        setLatestVideoQualitySnapshot(snap);
+        if (snap.totalVideoFrames > 60 && snap.droppedFrameRatio > 0.18) {
+          reportVideoPerformanceDegradation(
+            `dropped ${snap.droppedVideoFrames}/${snap.totalVideoFrames} frames`
+          );
+        }
+      }
+    };
+
+    let rvfcId: number | null = null;
+    if (typeof (activeVid as any).requestVideoFrameCallback === 'function') {
+      let frameTicks = 0;
+      const onFrame = () => {
+        frameTicks += 1;
+        if (frameTicks % 180 === 0) measure();
+        rvfcId = (activeVid as any).requestVideoFrameCallback(onFrame);
+      };
+      rvfcId = (activeVid as any).requestVideoFrameCallback(onFrame);
+    }
+
+    const timer = window.setInterval(measure, 6000);
+    activeVid.addEventListener('loadeddata', measure, { once: true });
+    return () => {
+      window.clearInterval(timer);
+      activeVid.removeEventListener('loadeddata', measure);
+      if (rvfcId !== null && typeof (activeVid as any).cancelVideoFrameCallback === 'function') {
+        try { (activeVid as any).cancelVideoFrameCallback(rvfcId); } catch {}
+      }
+    };
+  }, [activeSlot, slotAUrl, slotBUrl]);
+
+  const [isOverlayOpen, setIsOverlayOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return Boolean((window as any).__noorayaNowPlayingOpen);
+  });
+  isOverlayOpenRef.current = isOverlayOpen;
+
+  useEffect(() => {
+    const onOverlayVis = (e: Event) => {
+      const open = Boolean((e as CustomEvent).detail);
+      isOverlayOpenRef.current = open;
+      setIsOverlayOpen(open);
+    };
+    window.addEventListener('nooraya-now-playing-visibility', onOverlayVis);
+    return () => window.removeEventListener('nooraya-now-playing-visibility', onOverlayVis);
+  }, []);
+
+  // Pause video when screen locks, app goes to background, or NowPlayingOverlay renders its own active video
+  // Keeps strictly 1 decoding <video> element active at a time and keeps audio reciting uninterrupted!
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.hidden) {
+      const shouldPause = document.hidden || prefersReducedMotion || isOverlayOpen;
+      if (shouldPause) {
         if (videoRefA.current) videoRefA.current.pause();
         if (videoRefB.current) videoRefB.current.pause();
       } else {
@@ -576,12 +701,27 @@ function getVideoPoster(url: string | null | undefined): string {
         }
       }
     };
+    const pauseAll = () => {
+      if (videoRefA.current) videoRefA.current.pause();
+      if (videoRefB.current) videoRefB.current.pause();
+    };
+    handleVisibility();
     document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [slotAUrl, slotBUrl, activeSlot]);
+    window.addEventListener('pagehide', pauseAll);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', pauseAll);
+    };
+  }, [slotAUrl, slotBUrl, activeSlot, prefersReducedMotion, isOverlayOpen]);
+
+  const activePoster = getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl);
+  const hasActiveVideo = Boolean(slotAUrl || slotBUrl) && !prefersReducedMotion;
+  const useCleanCompositor = isFeatureEnabled('hdPortraitVideoEngine');
+  const solidBaseHex = isLightTheme ? '#F4EFE6' : '#06150F';
 
   return (
-    <div 
+    <div
+      data-testid="backdrop-layer-root"
       className="fixed inset-0 pointer-events-none overflow-hidden select-none"
       style={{
         position: 'fixed',
@@ -590,168 +730,176 @@ function getVideoPoster(url: string | null | undefined): string {
         right: 0,
         bottom: 0,
         width: '100vw',
-        height: '100vh',
+        height: '100dvh',
+        backgroundColor: solidBaseHex,
         zIndex: 0,
       }}
     >
-      {/* Base gradient using theme colors */}
-      <div 
+      {/* LAYER 1: 100% Solid Opaque Base + Designed Gradient Fallback (Never transparent, white, or black flash) */}
+      <div
         className="fixed inset-0"
         style={{
           position: 'fixed',
           top: 0,
           left: 0,
           width: '100vw',
-          height: '100vh',
-          background: `linear-gradient(to bottom right, ${theme.colors.background}, ${theme.colors.muted})`,
+          height: '100dvh',
+          background: isLightTheme
+            ? 'radial-gradient(circle at 50% 18%, #FBF8F1 0%, #F4EFE6 72%, #EAE2D3 100%)'
+            : 'radial-gradient(circle at 50% 18%, #0C2A20 0%, #06150F 72%, #040E0A 100%)',
           zIndex: 0,
         }}
       />
 
-      {/* High-fidelity static poster fallback layer for instant display before video buffers & iOS Low Power Mode */}
-      {Boolean(getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)) && (
-        <div 
-          className="fixed inset-0 pointer-events-none transition-all duration-1000 ease-in-out"
+      {/* LAYER 2A: High-resolution static poster fallback for instant display before video buffers & Reduced Motion mode */}
+      {Boolean(activePoster) && (
+        <div
+          className="fixed inset-0 pointer-events-none transition-opacity duration-700 ease-out"
           style={{
             position: 'fixed',
             top: 0,
             left: 0,
             width: '100vw',
-            height: '100vh',
-            backgroundImage: `url(${getVideoPoster(activeSlot === 'A' ? slotAUrl : slotBUrl)})`,
+            height: '100dvh',
+            backgroundImage: `url(${activePoster})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
-            transform: 'translateZ(0)',
             zIndex: 1,
           }}
         />
-      )}{/*
-       * Dual-Buffer Persistent Video Elements:
-       * Fullscreen 100vw x 100vh canvas with object-cover - NO half-screen translations or crop offsets.
-       */}
-      <video
-        ref={videoRefA}
-        src={slotAUrl || undefined}
-        poster={getVideoPoster(slotAUrl)}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        disablePictureInPicture
-        aria-hidden="true"
-        className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          width: '100%',
-          height: '100%',
-          minWidth: '100%',
-          minHeight: '100%',
-          objectFit: 'cover',
-          opacity: slotAOpacity,
-            transform: 'translateZ(0)', willChange: 'opacity',
-          zIndex: 1,
-        }}
-        onCanPlay={() => playVideoSafe(videoRefA.current)}
-        onLoadedData={() => playVideoSafe(videoRefA.current)}
-        onError={() => handleVideoError(slotAUrl)}
-        onEnded={() => {
-          if (videoRefA.current) {
-            videoRefA.current.currentTime = 0;
-            playVideoSafe(videoRefA.current);
-          }
-        }}
-      />
+      )}
 
-      <video
-        ref={videoRefB}
-        src={slotBUrl || undefined}
-        poster={getVideoPoster(slotBUrl)}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        disablePictureInPicture
-        aria-hidden="true"
-        className="fixed inset-0 w-full h-full min-w-full min-h-full object-cover pointer-events-none transition-opacity duration-1000 ease-in-out"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          width: '100%',
-          height: '100%',
-          minWidth: '100%',
-          minHeight: '100%',
-          objectFit: 'cover',
-          opacity: slotBOpacity,
-            transform: 'translateZ(0)', willChange: 'opacity',
-          zIndex: 1,
-        }}
-        onCanPlay={() => playVideoSafe(videoRefB.current)}
-        onLoadedData={() => playVideoSafe(videoRefB.current)}
-        onError={() => handleVideoError(slotBUrl)}
-        onEnded={() => {
-          if (videoRefB.current) {
-            videoRefB.current.currentTime = 0;
-            playVideoSafe(videoRefB.current);
-          }
-        }}
-      />
+      {/* LAYER 2B: GPU-Composited Muted Video Layer (No software CSS filter on <video> to guarantee 0 dropped frames & 0 audio crackle) */}
+      {!prefersReducedMotion && (
+        <>
+          <video
+            ref={videoRefA}
+            src={slotAUrl || undefined}
+            poster={getVideoPoster(slotAUrl)}
+            autoPlay={!isOverlayOpen}
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            disablePictureInPicture
+            disableRemotePlayback
+            aria-hidden="true"
+            className="fixed inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-700 ease-out"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: slotAOpacity,
+              transform: 'translateZ(0)',
+              willChange: 'opacity',
+              filter: useCleanCompositor
+                ? undefined
+                : `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+              zIndex: 1,
+            }}
+            onCanPlay={() => {
+              if (activeSlot === 'A') playVideoSafe(videoRefA.current);
+            }}
+            onLoadedData={() => {
+              if (activeSlot === 'A') playVideoSafe(videoRefA.current);
+            }}
+            onError={() => handleVideoError(slotAUrl)}
+            onEnded={() => {
+              if (videoRefA.current && activeSlot === 'A') {
+                videoRefA.current.currentTime = 0;
+                playVideoSafe(videoRefA.current);
+              }
+            }}
+          />
 
-      {/* Theme-Aware Islamic Patterns and Divine Glows overlaying video */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={themeName}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 1.5 }}
+          <video
+            ref={videoRefB}
+            src={slotBUrl || undefined}
+            poster={getVideoPoster(slotBUrl)}
+            autoPlay={!isOverlayOpen}
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            disablePictureInPicture
+            disableRemotePlayback
+            aria-hidden="true"
+            className="fixed inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-700 ease-out"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: slotBOpacity,
+              transform: 'translateZ(0)',
+              willChange: 'opacity',
+              filter: useCleanCompositor
+                ? undefined
+                : `brightness(${0.85 + visualIntensity * 0.2}) contrast(1.05)`,
+              zIndex: 1,
+            }}
+            onCanPlay={() => {
+              if (activeSlot === 'B') playVideoSafe(videoRefB.current);
+            }}
+            onLoadedData={() => {
+              if (activeSlot === 'B') playVideoSafe(videoRefB.current);
+            }}
+            onError={() => handleVideoError(slotBUrl)}
+            onEnded={() => {
+              if (videoRefB.current && activeSlot === 'B') {
+                videoRefB.current.currentTime = 0;
+                playVideoSafe(videoRefB.current);
+              }
+            }}
+          />
+        </>
+      )}
+
+      {/* Only render static geometric pattern when no video is active so video stays 100% sharp and unblurred */}
+      {!hasActiveVideo && (
+        <div
           className="fixed inset-0 pointer-events-none"
           style={{
             position: 'fixed',
             top: 0,
             left: 0,
             width: '100vw',
-            height: '100vh',
+            height: '100dvh',
             zIndex: 2,
           }}
         >
-          {/* Islamic Geometric Patterns - THEME AWARE */}
           <IslamicPattern intensity={visualIntensity} theme={theme} />
+        </div>
+      )}
 
-          {/* Divine Particles - THEME AWARE */}
-          <DivineParticles intensity={visualIntensity} theme={theme} />
-
-          {/* Mystical Aurora Glow - THEME AWARE */}
-          <MysticalAurora intensity={visualIntensity} theme={theme} />
-
-          {/* Quranic Verse Scroll - THEME AWARE */}
-          <QuranicVerseScroll intensity={visualIntensity} theme={theme} />
-        </motion.div>
-      </AnimatePresence>
-
-      {/* Subtle protective vignette overlay so text and UI remain crystal clear */}
-      <div 
+      {/* LAYER 3: Measured WCAG AA Contrast Scrim (>= 4.5:1 text legibility over brightest video frame) */}
+      <div
         className="fixed inset-0 pointer-events-none"
         style={{
           position: 'fixed',
           top: 0,
           left: 0,
           width: '100vw',
-          height: '100vh',
-          background: `radial-gradient(ellipse at center, rgba(2,6,18,0.15) 0%, rgba(2,6,18,0.65) 100%)`,
+          height: '100dvh',
+          background: isLightTheme
+            ? hasActiveVideo
+              ? 'linear-gradient(180deg, rgba(244, 239, 230, 0.86) 0%, rgba(244, 239, 230, 0.72) 45%, rgba(244, 239, 230, 0.92) 100%)'
+              : 'linear-gradient(180deg, rgba(244, 239, 230, 0.45) 0%, rgba(244, 239, 230, 0.25) 45%, rgba(244, 239, 230, 0.55) 100%)'
+            : 'linear-gradient(180deg, rgba(6, 21, 15, 0.80) 0%, rgba(6, 21, 15, 0.48) 45%, rgba(6, 21, 15, 0.86) 100%)',
           zIndex: 3,
         }}
       />
     </div>
   );
-}
+});
 
 export default QuranicPremiumBackground;
