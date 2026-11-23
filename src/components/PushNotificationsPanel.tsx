@@ -19,24 +19,9 @@ import {
   Play,
   Square,
   Timer,
-  DownloadCloud,
-  ShieldAlert,
 } from 'lucide-react';
 import type { UserLocation } from '../lib/location';
 import type { PrayerSettings } from '../lib/prayer';
-import { BatteryOptimizationModal } from './BatteryOptimizationModal';
-import {
-  isNativePlatform,
-  getNativePlatform,
-  scheduleNativeOfflinePrayers,
-  getNativeNotificationDiagnostics,
-  requestNativeNotificationPermissions,
-  type NativeNotificationDiagnostics,
-} from '../lib/nativeNotifications';
-import {
-  downloadVoiceForOffline,
-  isVoiceAvailableOffline,
-} from '../lib/offlineAdhanStore';
 import {
   subscribeToPrayerPushNotifications,
   unsubscribeFromPrayerPushNotifications,
@@ -81,76 +66,10 @@ export function PushNotificationsPanel({
     type: 'success' | 'error' | 'info';
   } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(true);
-  const [showBatteryModal, setShowBatteryModal] = useState(false);
-  const [nativeDiag, setNativeDiag] = useState<NativeNotificationDiagnostics | null>(null);
-  const [schedulingNative, setSchedulingNative] = useState(false);
-  const [downloadingOfflineVoice, setDownloadingOfflineVoice] = useState(false);
-  const [isVoiceOfflineCached, setIsVoiceOfflineCached] = useState(false);
   const [adhanState, setAdhanState] = useState(getAdhanPlaybackState());
   const [latestAdhanLog, setLatestAdhanLog] = useState<AdhanDiagnosticEntry | null>(
     () => getAdhanDiagnosticLogs()[0] || null
   );
-
-  useEffect(() => {
-    void isVoiceAvailableOffline(settings.activeAdhanVoiceId).then(setIsVoiceOfflineCached);
-    if (isNativePlatform()) {
-      void getNativeNotificationDiagnostics().then(setNativeDiag);
-    }
-  }, [settings.activeAdhanVoiceId]);
-
-  const handleScheduleNativeOffline = async () => {
-    setSchedulingNative(true);
-    try {
-      const perm = await requestNativeNotificationPermissions();
-      if (!perm.granted) {
-        setStatusMessage({
-          text: 'Notification permission is required to schedule offline exact alarms.',
-          type: 'error',
-        });
-        return;
-      }
-      const res = await scheduleNativeOfflinePrayers(location, settings, 14);
-      if (res.ok) {
-        setStatusMessage({
-          text: `Scheduled ${res.scheduledCount} exact offline prayer alarms for the next 14 days (Airplane Mode Ready)!`,
-          type: 'success',
-        });
-      } else {
-        setStatusMessage({
-          text: res.error || 'Failed to schedule native offline alarms.',
-          type: 'error',
-        });
-      }
-      const nDiag = await getNativeNotificationDiagnostics();
-      setNativeDiag(nDiag);
-    } finally {
-      setSchedulingNative(false);
-    }
-  };
-
-  const handleDownloadOfflineVoice = async () => {
-    setDownloadingOfflineVoice(true);
-    try {
-      const selected = (voices || []).find((v) => v.id === settings.activeAdhanVoiceId);
-      if (!selected) {
-        setStatusMessage({ text: 'Selected voice not found in library.', type: 'error' });
-        return;
-      }
-      const res = await downloadVoiceForOffline(selected);
-      if (res.ok) {
-        setIsVoiceOfflineCached(true);
-        const mb = (res.cachedSizeBytes / (1024 * 1024)).toFixed(1);
-        setStatusMessage({
-          text: `Authentic recording for ${selected.muezzin_name_en} cached locally (${mb} MB)! Available in Airplane Mode with zero network.`,
-          type: 'success',
-        });
-      } else {
-        setStatusMessage({ text: res.error || 'Failed to download voice.', type: 'error' });
-      }
-    } finally {
-      setDownloadingOfflineVoice(false);
-    }
-  };
 
   const loadDiagnostics = useCallback(async () => {
     setLoadingDiag(true);
@@ -184,6 +103,20 @@ export function PushNotificationsPanel({
     };
   }, []);
 
+  const [showPermissionIntro, setShowPermissionIntro] = useState(false);
+
+  // Listen for live Service Worker push receipts so Diagnostics updates immediately
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NOORAYA_PUSH_RECEIVED') {
+        void loadDiagnostics();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [loadDiagnostics]);
+
   // Keep server subscription in sync when user is already subscribed and changes location or settings
   useEffect(() => {
     if (!diag?.pushSubscribed) return;
@@ -204,32 +137,29 @@ export function PushNotificationsPanel({
     settings.highLatitudeRule,
     settings.reminderMinutesBefore,
     settings.prayerReminders,
+    settings.prayerVoices,
+    settings.prayerReminderOffsets,
+    settings.prayerVibrate,
+    settings.is24Hour,
     loadDiagnostics,
   ]);
 
-  const handleToggleSubscription = async () => {
+  const executeSubscribeFlow = async () => {
+    setShowPermissionIntro(false);
     setStatusMessage(null);
     setSubscribing(true);
     try {
-      if (diag?.pushSubscribed) {
-        await unsubscribeFromPrayerPushNotifications();
+      const res = await subscribeToPrayerPushNotifications(location, settings);
+      if (res.ok) {
         setStatusMessage({
-          text: 'Background push notifications disabled and your coordinates were deleted from the server.',
-          type: 'info',
+          text: `Closed-App Push Notifications enabled for ${location.cityName} (${location.timezone})!`,
+          type: 'success',
         });
       } else {
-        const res = await subscribeToPrayerPushNotifications(location, settings);
-        if (res.ok) {
-          setStatusMessage({
-            text: `Background Push Notifications enabled for ${location.cityName} (${location.timezone})!`,
-            type: 'success',
-          });
-        } else {
-          setStatusMessage({
-            text: res.error || 'Could not enable background push notifications.',
-            type: 'error',
-          });
-        }
+        setStatusMessage({
+          text: res.error || 'Could not enable background push notifications.',
+          type: 'error',
+        });
       }
       await loadDiagnostics();
     } finally {
@@ -237,11 +167,41 @@ export function PushNotificationsPanel({
     }
   };
 
+  const handleToggleSubscription = async () => {
+    setStatusMessage(null);
+    if (diag?.pushSubscribed) {
+      setSubscribing(true);
+      try {
+        await unsubscribeFromPrayerPushNotifications();
+        setStatusMessage({
+          text: 'Background push notifications disabled and your coordinates were deleted from the server.',
+          type: 'info',
+        });
+        await loadDiagnostics();
+      } finally {
+        setSubscribing(false);
+      }
+      return;
+    }
+
+    // Show clear explanation before triggering browser permission prompt on user tap
+    if (diag?.capabilities.permission === 'default' && !diag.capabilities.iosRequiresHomeScreenInstall) {
+      setShowPermissionIntro(true);
+      return;
+    }
+
+    await executeSubscribeFlow();
+  };
+
   const handleSendTest = async () => {
     setStatusMessage(null);
     setTestingPush(true);
     try {
-      const res = await sendTestPushNotification(location.cityName);
+      const res = await sendTestPushNotification(location.cityName, {
+        delaySeconds: 0,
+        timezone: location.timezone,
+        is24Hour: settings.is24Hour,
+      });
       setStatusMessage({
         text: res.message,
         type: res.ok ? 'success' : 'error',
@@ -259,17 +219,32 @@ export function PushNotificationsPanel({
         countdownTimerRef.current = null;
       }
       setCountdownSeconds(null);
-      setStatusMessage({
-        text: '10-second delayed notification test cancelled.',
-        type: 'info',
-      });
       return;
     }
 
     setStatusMessage({
-      text: '10-second delayed test initiated from server — lock your screen or switch apps now to test closed-app delivery!',
+      text: 'Server 10-second push scheduled — lock your screen or close Nooraya right now. The server will push the notification in 10 seconds even while closed.',
       type: 'info',
     });
+
+    // Fire server-delayed push immediately (with keepalive: true) so closing/locking the app does NOT cancel delivery
+    setTestingPush(true);
+    void sendTestPushNotification(location.cityName, {
+      delaySeconds: 10,
+      timezone: location.timezone,
+      is24Hour: settings.is24Hour,
+    })
+      .then((res) => {
+        setStatusMessage({
+          text: res.message,
+          type: res.ok ? 'success' : 'error',
+        });
+        void loadDiagnostics();
+      })
+      .finally(() => {
+        setTestingPush(false);
+      });
+
     let remaining = 10;
     setCountdownSeconds(remaining);
 
@@ -285,15 +260,6 @@ export function PushNotificationsPanel({
         setCountdownSeconds(null);
       }
     }, 1000);
-
-    // Send to server with delaySeconds = 10 so server pushes over the network while screen is locked
-    void sendTestPushNotification(location.cityName, 10).then((res) => {
-      setStatusMessage({
-        text: res.message,
-        type: res.ok ? 'success' : 'error',
-      });
-      void loadDiagnostics();
-    });
   };
 
   const handleTestAdhanNow = async (prayer: 'dhuhr' | 'fajr') => {
@@ -396,108 +362,83 @@ export function PushNotificationsPanel({
           <button
             type="button"
             onClick={handleSendTestIn10Seconds}
-            disabled={testingPush}
+            disabled={testingPush && countdownSeconds === null}
+            data-testid="test-push-10s-btn"
             className="px-3.5 py-2.5 rounded-2xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/35 text-teal-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
           >
             <Timer size={13} />
             <span>
               {countdownSeconds !== null
-                ? `Sending in ${countdownSeconds}s (Cancel)`
+                ? `Lock phone now (${countdownSeconds}s)`
                 : 'Test Notification in 10s'}
             </span>
           </button>
         </div>
       </div>
 
-      {/* Device Delivery Path Status Line (Phase 1 PWA + Phase 2 Native Offline) */}
-      <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
-            <Volume2 size={14} className="text-emerald-400" />
-            <span>Active Delivery Paths (Foreground • Closed App • Offline)</span>
+      {/* Clear Pre-Permission Explanation Card (User-Gesture Requirement) */}
+      {showPermissionIntro && (
+        <div
+          data-testid="push-permission-explanation"
+          className="bg-emerald-950/75 border border-emerald-400/50 rounded-2xl p-4 space-y-3"
+        >
+          <div className="text-xs font-bold text-white flex items-center gap-2">
+            <BellRing size={15} className="text-emerald-400" />
+            <span>Allow Closed-App Prayer Notifications for {location.cityName}</span>
           </div>
-
+          <p className="text-xs text-emerald-100/85 leading-relaxed">
+            When you tap <strong>Allow Notifications</strong> below, your browser will ask for permission so Nooraya can send timely prayer alerts even when the app is closed or locked (while online). On the web version, closed-app push notifications use your phone&apos;s standard alert sound; tapping the alert opens Nooraya to play the full real Muezzin Adhan. If your phone was offline and a push arrives late, Nooraya shows the true prayer time and will not play the Adhan late.
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowBatteryModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+              onClick={() => void executeSubscribeFlow()}
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold cursor-pointer"
             >
-              <ShieldAlert size={13} />
-              <span>Battery Saver / AutoStart Guide</span>
+              Continue &amp; Allow Notifications
             </button>
-
             <button
               type="button"
-              onClick={handleDownloadOfflineVoice}
-              disabled={downloadingOfflineVoice || isVoiceOfflineCached}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
-                isVoiceOfflineCached
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'bg-teal-500/20 hover:bg-teal-500/30 text-teal-200 border border-teal-500/40'
-              }`}
+              onClick={() => setShowPermissionIntro(false)}
+              className="px-3.5 py-2 rounded-xl bg-[#020B07] border border-emerald-800/80 text-emerald-200 text-xs font-semibold cursor-pointer"
             >
-              <DownloadCloud size={13} />
-              <span>
-                {isVoiceOfflineCached
-                  ? 'Voice Cached for Airplane Mode'
-                  : downloadingOfflineVoice
-                  ? 'Downloading...'
-                  : 'Download Voice for Offline'}
-              </span>
+              Not Now
             </button>
           </div>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+      {/* Device Delivery Path Status Line (Step 2.7 Requirement) */}
+      <div className="bg-[#020B07]/90 border border-emerald-900/70 rounded-2xl p-4 space-y-2">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
+          <Volume2 size={14} className="text-emerald-400" />
+          <span>Active Delivery Path on This Device</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
             <div className="text-[10px] font-bold uppercase text-emerald-400/70">
-              1. Open App / Foreground
+              1. When App is Open / Foreground
             </div>
             <div className="font-semibold text-white mt-0.5">
-              HTML5 Audio Engine (Real Voice Only)
+              Single HTML5 Audio Engine (Real Muezzin Audio File Only — Zero Synthetic Tone)
             </div>
             <div className="text-[11px] text-emerald-200/70 mt-0.5">
-              Ducks ambient/Quran audio, preloads Adhan 15 min early, and restores playback when done.
+              Ducks Quran &amp; ambient audio, preloads &amp; caches Adhan 15 min before prayer, and restores previous playback when finished.
             </div>
           </div>
 
           <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
             <div className="text-[10px] font-bold uppercase text-amber-400/80">
-              2. Closed App &amp; Online (PWA)
+              2. When App is Closed / Screen Locked
             </div>
             <div className="font-semibold text-white mt-0.5">
               {diag?.pushSubscribed
-                ? 'VAPID Web Push Active (OS Chime)'
-                : 'Web Push Off (Enable Above)'}
+                ? 'VAPID Web Push Active (OS Default Notification Sound; Tap Plays Full Adhan)'
+                : 'Web Push Off (Enable Above to Receive Closed-App Prayer Alerts)'}
             </div>
             <div className="text-[11px] text-emerald-200/70 mt-0.5">
-              Per-minute scheduler pushes on time. Tapping notification opens full-screen Adhan player.
+              Web browsers do not support custom MP3/WAV notification sounds when closed; tapping the notification opens the full-screen Adhan player.
             </div>
-          </div>
-
-          <div className="bg-[#04140D] border border-emerald-900/60 rounded-xl p-3">
-            <div className="text-[10px] font-bold uppercase text-teal-400/80">
-              3. Closed App &amp; Offline (Airplane Mode)
-            </div>
-            <div className="font-semibold text-white mt-0.5">
-              {isNativePlatform()
-                ? 'Native Exact Alarms Active'
-                : 'Native Shell (Capacitor Ready)'}
-            </div>
-            <div className="text-[11px] text-emerald-200/70 mt-0.5">
-              Exact alarms (SCHEDULE_EXACT_ALARM) + UNNotificationSound play authentic Adhan with zero network.
-            </div>
-            {isNativePlatform() && (
-              <button
-                type="button"
-                onClick={handleScheduleNativeOffline}
-                disabled={schedulingNative}
-                className="mt-2 w-full py-1.5 px-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold cursor-pointer transition-all"
-              >
-                {schedulingNative ? 'Rescheduling...' : 'Reschedule 14-Day Offline Alarms'}
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -615,6 +556,19 @@ export function PushNotificationsPanel({
               <span>3. Open Nooraya from Home Screen & tap <strong>Enable</strong></span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Android Battery Optimization Guidance (Phase 4) */}
+      {typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '') && (
+        <div className="bg-emerald-950/45 border border-emerald-500/35 rounded-2xl p-4 space-y-1.5">
+          <div className="flex items-center gap-2 text-xs font-bold text-emerald-300 uppercase tracking-wider">
+            <Smartphone size={15} className="text-emerald-400 shrink-0" />
+            <span>Android Battery Optimization Tip (Prevent Delayed Prayer Alerts)</span>
+          </div>
+          <p className="text-xs text-emerald-100/80 leading-relaxed">
+            Some Android phones (Samsung, Xiaomi, Oppo, Pixel Doze) delay push notifications when battery saver restricts Chrome or the installed PWA. Set <strong>Settings → Apps → Nooraya (or Chrome) → Battery → Unrestricted</strong> for instant on-time prayer notifications.
+          </p>
         </div>
       )}
 
@@ -759,28 +713,33 @@ export function PushNotificationsPanel({
             </div>
 
             <div className="bg-[#020B07] border border-emerald-950 rounded-xl p-3">
-              <div className="text-[10px] uppercase text-emerald-400/60 font-bold">Last Push Status</div>
+              <div className="text-[10px] uppercase text-emerald-400/60 font-bold">Last Delivery</div>
               <div className="font-mono font-bold text-white mt-1 truncate">
-                {diag.serverSubscription?.lastStatus || 'None yet'}
+                {diag.lastClientDelivery
+                  ? diag.lastClientDelivery.isLate
+                    ? `Late (${diag.lastClientDelivery.prayerNameEn})`
+                    : `Received (${diag.lastClientDelivery.prayerNameEn})`
+                  : diag.serverSubscription?.lastStatus || 'None yet'}
               </div>
               <div className="text-[10px] text-emerald-300/60 truncate mt-0.5">
-                {diag.serverSubscription?.lastSentAt
+                {diag.lastClientDelivery?.receivedAt
+                  ? new Date(diag.lastClientDelivery.receivedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })
+                  : diag.serverSubscription?.lastSentAt
                   ? new Date(diag.serverSubscription.lastSentAt).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
                       second: '2-digit',
                     })
-                  : 'Use Test button'}
+                  : 'Use Test 10s button'}
               </div>
             </div>
           </div>
         )}
       </div>
-
-      <BatteryOptimizationModal
-        isOpen={showBatteryModal}
-        onClose={() => setShowBatteryModal(false)}
-      />
     </div>
   );
 }

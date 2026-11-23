@@ -1,28 +1,27 @@
-# Nooraya
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Quran audio app: surah and ayah playback, reciters, prayer times, qibla, adhan, and premium backgrounds.
+# Run and deploy your AI Studio app
 
-## Run locally
+This contains everything you need to run your app locally.
 
-1. Install dependencies with `npm install`.
-2. Copy the variables below into `.env.local`.
-3. Start the app with `npm run dev` (Vite on port 3000).
+View your app in AI Studio: https://ai.studio/apps/9ba2faf5-d7d8-4214-8507-7dc75f37cbce
 
-`npm run build` builds the client and regenerates the API functions under `api/`.
+## Run Locally
 
-## Required environment
+**Prerequisites:**  Node.js
 
-| Variable | Used for |
-| --- | --- |
-| `DATABASE_URL` | Accounts. Sign-in and sign-up fail closed when this database is down. |
-| `AUTH_SECRET` | Signs the session cookie. At least 16 characters. The server will not start sessions without it. |
-| `ADMIN_EMAIL` | Optional. This address is created as admin on sign-up. Admin access otherwise comes from `users.role`. |
-| `FLW_SECRET_KEY` | Flutterwave secret. Premium is activated only after Flutterwave verifies the transaction. |
-| `FLW_WEBHOOK_HASH` | Flutterwave `verif-hash`. Webhooks are rejected when this is missing. |
-| `CRON_SECRET` | Bearer token for `POST /api/push/dispatch`. The placeholder `change-me-cron-secret` is rejected. |
-| `SUPABASE_URL` | Supabase project URL, when Supabase features are enabled. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase access. |
-| `VITE_SUPABASE_URL` | Browser Supabase URL. |
-| `VITE_SUPABASE_ANON_KEY` | Browser Supabase anon key. |
 
-Do not commit `.env.local`.
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
+
+## Google AdSense Verification & Policy
+
+Only site-verification metadata (`<meta name="google-adsense-account">` in `index.html` and `public/ads.txt`) is active prior to approval. No ad script (`adsbygoogle.js`) or ad slots are loaded.
+
+- AdSense script must only be added after approval, only for free users, only after consent, never on payment/auth/admin/player screens
+
