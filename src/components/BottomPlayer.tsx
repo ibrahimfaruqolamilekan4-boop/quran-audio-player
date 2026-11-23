@@ -22,6 +22,7 @@ export function BottomPlayer() {
     isPlaying,
     isLoading,
     playbackError,
+    fallbackNotice,
     currentTime,
     duration,
     togglePlayPause,

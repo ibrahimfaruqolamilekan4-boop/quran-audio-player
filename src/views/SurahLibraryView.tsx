@@ -62,9 +62,15 @@ export function SurahLibraryView() {
   const handleRowClick = (chapter: Chapter) => {
     // Availability guard: if this reciter did not record this surah
     if (activeReciter && !isSurahAvailable(activeReciter, chapter.id)) {
-      setOfflineNotice(`Surah ${chapter.name_simple} was not recorded by ${activeReciter.name}. Please select another reciter.`);
-      setTimeout(() => setOfflineNotice(null), 4000);
-      return;
+      const fallbackId = activeReciter.fallbackReciterId || 'afs';
+      const fallback =
+        allReciters.find(r => r.id === fallbackId) ||
+        allReciters.find(r => r.id === 'afs');
+      if (!fallback || !isSurahAvailable(fallback, chapter.id)) {
+        setOfflineNotice(`Surah ${chapter.name_simple} was not recorded by ${activeReciter.name}. Please select another reciter.`);
+        setTimeout(() => setOfflineNotice(null), 4000);
+        return;
+      }
     }
 
     const isDownloaded = Boolean(downloadedMap[chapter.id]);

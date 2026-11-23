@@ -42,6 +42,8 @@ interface PlayerContextType {
   isLoading: boolean;
   /** Set when a surah could not be streamed from any format/mirror, cleared on the next attempt. */
   playbackError: string | null;
+  /** Set when an unrecorded surah gracefully plays via fallback reciter. */
+  fallbackNotice: { originalReciter: Reciter; fallbackReciter: Reciter; chapter: Chapter } | null;
   currentTime: number;
   duration: number;
   quranVolume: number;
@@ -122,6 +124,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentReciter, setCurrentReciter] = useState<Reciter | null>(null);
   const [currentAmbient, setCurrentAmbient] = useState<AmbientTrack | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<{
+    originalReciter: Reciter;
+    fallbackReciter: Reciter;
+    chapter: Chapter;
+  } | null>(null);
 
   const [customReciters, setCustomReciters] = useState<Reciter[]>([]);
   const [globalReciters, setGlobalReciters] = useState<GlobalReciterRow[]>([]);
@@ -1049,14 +1056,34 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const useAyahStream = ayahNumber !== null;
     setCurrentAyah(ayahNumber !== null ? { surah: chapter.id, ayah: ayahNumber } : null);
 
-    // Guard against unavailable surahs for this reciter
+    let playbackReciter: Reciter = reciter;
+    let fallbackInfo: { originalReciter: Reciter; fallbackReciter: Reciter; chapter: Chapter } | null = null;
+
+    // Resolve reciter & fallback if unrecorded
     if (!useAyahStream && !isSurahAvailable(reciter, chapter.id)) {
-      setIsLoading(false);
-      setIsPlaying(false);
-      setCurrentChapter(chapter);
-      setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
-      return;
+      const fallbackId = reciter.fallbackReciterId || 'afs';
+      const fallback =
+        allReciters.find(r => r.id === fallbackId) ||
+        CURATED_RECITERS.find(r => r.id === fallbackId) ||
+        CURATED_RECITERS.find(r => r.id === 'afs') ||
+        CURATED_RECITERS[0];
+      if (fallback && isSurahAvailable(fallback, chapter.id)) {
+        playbackReciter = fallback;
+        fallbackInfo = {
+          originalReciter: reciter,
+          fallbackReciter: fallback,
+          chapter,
+        };
+      } else {
+        setIsLoading(false);
+        setIsPlaying(false);
+        setCurrentChapter(chapter);
+        setFallbackNotice(null);
+        setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
+        return;
+      }
     }
+    setFallbackNotice(fallbackInfo);
 
     setIsLoading(true);
     setPlaybackError(null);
@@ -1161,10 +1188,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isSurahAvailable(reciter, chapter.id)) {
-      setCurrentChapter(chapter);
-      setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
-      setNowPlayingOpen(true);
-      return;
+      const fallbackId = reciter.fallbackReciterId || 'afs';
+      const fallback =
+        allReciters.find(r => r.id === fallbackId) ||
+        CURATED_RECITERS.find(r => r.id === fallbackId) ||
+        CURATED_RECITERS.find(r => r.id === 'afs');
+      if (!fallback || !isSurahAvailable(fallback, chapter.id)) {
+        setCurrentChapter(chapter);
+        setPlaybackError(`Surah ${chapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
+        setNowPlayingOpen(true);
+        return;
+      }
     }
 
     if (typeof window !== 'undefined') {
@@ -1210,8 +1244,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     const reciter = currentReciter ?? allReciters[0];
     if (reciter && !isSurahAvailable(reciter, currentChapter.id)) {
-      setPlaybackError(`Surah ${currentChapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
-      return;
+      const fallbackId = reciter.fallbackReciterId || 'afs';
+      const fallback =
+        allReciters.find(r => r.id === fallbackId) ||
+        CURATED_RECITERS.find(r => r.id === fallbackId) ||
+        CURATED_RECITERS.find(r => r.id === 'afs');
+      if (!fallback || !isSurahAvailable(fallback, currentChapter.id)) {
+        setPlaybackError(`Surah ${currentChapter.name_simple} has not been recorded by Sheikh ${reciter.name}. Please choose another sheikh.`);
+        return;
+      }
     }
 
     const attempt = attemptRef.current;
@@ -1675,6 +1716,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       isPlaying,
       isLoading,
       playbackError,
+      fallbackNotice,
       currentTime,
       duration,
       quranVolume,
