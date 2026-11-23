@@ -316,6 +316,15 @@ export function RecitersHubView() {
         </div>
 
         {/* 114 Surahs Section with per-surah download button */}
+          {reciter.isPartial && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-center gap-3">
+              <Info size={18} className="text-amber-400 shrink-0" />
+              <span>
+                Sheikh {reciter.name} has recorded <strong>{reciter.surahCount || 0}</strong> of 114 surahs in this riwaya.
+                Surahs not recorded by the Sheikh are clearly marked below and will gracefully play using Sheikh {fallbackReciter?.name || 'Mishary Alafasy'} without interrupting your focus.
+              </span>
+            </div>
+          )}
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-medium text-[#F6F1E4] tracking-wide">

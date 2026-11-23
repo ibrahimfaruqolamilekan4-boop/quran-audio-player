@@ -109,6 +109,18 @@ export function SurahLibraryView() {
                 'Browse the complete Noble Quran. Listen online or download for zero-internet offline listening.'
               )}
             </p>
+            {activeReciter?.isPartial && (
+              <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold text-[10px] uppercase tracking-wide shrink-0">
+                    Partial ({activeReciter.surahCount || 0}/114)
+                  </span>
+                  <span className="truncate">
+                    Sheikh {activeReciter.name} recorded {activeReciter.surahCount || 0} surahs. Unrecorded surahs stream via fallback reciter.
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {!user?.is_premium && (
@@ -138,7 +150,8 @@ export function SurahLibraryView() {
       <div className="bg-[#0D1017] rounded-3xl border border-white/5 overflow-hidden shadow-2xl">
         {filteredChapters.map((chapter, index) => {
           const isCurrent = currentChapter?.id === chapter.id;
-          const isDownloaded = Boolean(downloadedMap[chapter.id]);
+          const isRecorded = !activeReciter?.isPartial || (activeReciter.availableSurahs ? activeReciter.availableSurahs.includes(chapter.id) : true);
+          const isDownloaded = isRecorded && Boolean(downloadedMap[chapter.id]);
           const isUnavailableOffline = !isOnline && !isDownloaded;
 
           return (
@@ -184,6 +197,11 @@ export function SurahLibraryView() {
                       {chapter.name_simple}
                     </h4>
 
+                    {!isRecorded && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/20 text-amber-300 text-[10px] font-medium shrink-0">
+                        <span>Fallback stream</span>
+                      </span>
+                    )}
                     {/* Downloaded Badge */}
                     {isDownloaded && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-medium shrink-0">
@@ -219,7 +237,11 @@ export function SurahLibraryView() {
                   {/* Download Action Button */}
                   {activeReciter && (
                     <div onClick={(e) => e.stopPropagation()}>
-                      <SurahDownloadButton chapter={chapter} reciter={activeReciter} />
+                      {isRecorded ? (
+                        <SurahDownloadButton chapter={chapter} reciter={activeReciter} />
+                      ) : (
+                        <span className="text-[10px] text-slate-500 italic px-1 hidden sm:inline">Unrecorded</span>
+                      )}
                     </div>
                   )}
                 </div>

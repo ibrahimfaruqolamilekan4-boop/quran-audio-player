@@ -8,18 +8,10 @@ const arrayStr = constantsContent.slice(start, end).replace(/export const CURATE
 const reciters = eval(arrayStr);
 
 async function generateExactAudit() {
-  console.log('Fetching mp3quran API v3 in Arabic and English for comprehensive verification...');
-  const [arRes, enRes] = await Promise.all([
-    fetch('https://mp3quran.net/api/v3/reciters?language=ar'),
-    fetch('https://mp3quran.net/api/v3/reciters?language=eng'),
-  ]);
-
-  const arData = await arRes.json();
-  const enData = await enRes.json();
-
+  console.log('Generating exact coverage report based on updated catalog...');
   const all114 = Array.from({ length: 114 }, (_, i) => i + 1);
 
-  // Specific known partial sets verified from API and CDN:
+  // Specific documented partial sets
   const partialRecitersMap = {
     suhaim: {
       riwaya: "Warsh 'an Nafi'",
@@ -33,20 +25,11 @@ async function generateExactAudit() {
         56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
         76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
         96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114
-      ].filter((v, idx, arr) => arr.indexOf(v) === idx).slice(0, 91),
+      ],
     },
     edghouch: {
       riwaya: "Hafs 'an 'Asim",
       availableSurahs: [1, 3, 55, 67, 71, 73, 75, 78, 82, 85, 87, 88, 90, 91, 92, 100, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114], // 26 surahs
-    },
-    ahmad_huth: {
-      riwaya: "Hafs 'an 'Asim",
-      availableSurahs: all114.filter(n => ![33, 37, 40, 46].includes(n)), // 110 surahs
-    },
-    minshawi: {
-      // The currently configured server10 mirror is the historic 1387 AH / 1967 CE recording missing 4 surahs
-      riwaya: "Hafs 'an 'Asim (1387 AH Historic Recording)",
-      availableSurahs: all114.filter(n => ![16, 23, 24, 35].includes(n)), // 110 surahs
     },
   };
 

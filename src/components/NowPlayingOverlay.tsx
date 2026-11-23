@@ -65,6 +65,7 @@ export function NowPlayingOverlay() {
     isPlaying,
     isLoading,
     playbackError,
+    fallbackNotice,
     currentTime,
     duration,
     togglePlayPause,
@@ -312,8 +313,13 @@ export function NowPlayingOverlay() {
                   <h2 className="text-2xl sm:text-3xl font-serif text-white font-bold tracking-tight truncate drop-shadow-md">
                     {currentChapter.name_simple}
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-300 font-medium truncate drop-shadow">
-                    {currentReciter?.name || 'Reciter'}
+                  <p className="text-xs sm:text-sm text-slate-300 font-medium truncate drop-shadow flex items-center gap-2">
+                    <span>{currentReciter?.name || 'Reciter'}</span>
+                    {fallbackNotice && (
+                      <span className="text-[11px] font-normal text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full shrink-0">
+                        Plays via {fallbackNotice.fallbackReciter.name} (unrecorded surah)
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -436,7 +442,7 @@ export function NowPlayingOverlay() {
                 Ù‚
               </button>
 
-              {currentChapter && currentReciter && (
+              {currentChapter && currentReciter && (!currentReciter.isPartial || currentReciter.availableSurahs?.includes(currentChapter.id)) && (
                 <SurahDownloadButton
                   chapter={currentChapter}
                   reciter={currentReciter}
