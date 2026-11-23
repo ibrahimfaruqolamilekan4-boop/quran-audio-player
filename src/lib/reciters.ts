@@ -11,9 +11,17 @@ export interface GlobalReciterRow {
   nameArabic?: string | null;
   style?: string | null;
   category?: string | null;
+  riwaya?: string | null;
+  tariq?: string | null;
+  region?: string | null;
+  location?: string | null;
   bio?: string | null;
   serverUrl?: string | null;
   imageUrl?: string | null;
+  isPartial?: boolean;
+  surahCount?: number;
+  availableSurahs?: number[];
+  fallbackReciterId?: string;
 }
 
 /**
@@ -34,9 +42,17 @@ export function resolveReciters<T extends Reciter>(base: T[], globals: GlobalRec
       ...(override.name && override.name !== reciter.id ? { name: override.name } : {}),
       ...(override.nameArabic ? { nameArabic: override.nameArabic } : {}),
       ...(override.category ? { category: override.category } : {}),
+      ...(override.riwaya ? { riwaya: override.riwaya } : {}),
+      ...(override.tariq ? { tariq: override.tariq } : {}),
+      ...(override.region ? { region: override.region } : {}),
+      ...(override.location ? { location: override.location } : {}),
       ...(override.bio ? { bio: override.bio } : {}),
       ...(override.serverUrl ? { serverUrl: override.serverUrl } : {}),
       ...(cleanImg ? { imageUrl: cleanImg, imageCredit: undefined } : {}),
+      ...(override.isPartial !== undefined ? { isPartial: override.isPartial } : {}),
+      ...(override.surahCount !== undefined ? { surahCount: override.surahCount } : {}),
+      ...(override.availableSurahs !== undefined ? { availableSurahs: override.availableSurahs } : {}),
+      ...(override.fallbackReciterId ? { fallbackReciterId: override.fallbackReciterId } : {}),
     };
   });
 
