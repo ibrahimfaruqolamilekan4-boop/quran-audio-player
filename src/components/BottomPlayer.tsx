@@ -105,6 +105,11 @@ export function BottomPlayer() {
               ) : (
                 <>
                   <span className="truncate">{currentReciter?.name}</span>
+                  {fallbackNotice && (
+                    <span className="text-amber-400 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 shrink-0">
+                      via {fallbackNotice.fallbackReciter.name}
+                    </span>
+                  )}
                   {currentAmbient && (
                     <>
                       <span className="w-1 h-1 rounded-full bg-[var(--border-color-highlight)] shrink-0" />

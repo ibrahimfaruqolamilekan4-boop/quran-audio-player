@@ -44,7 +44,10 @@ import { Coins, CreditCard, Volume2 } from 'lucide-react';
 import localforage from 'localforage';
 import type { Reciter } from '../types';
 
-type TabId = 'reciters' | 'recitations' | 'backgrounds' | 'adhan' | 'media' | 'users' | 'plans' | 'payments';
+import { CoverageReportAdmin } from './admin/CoverageReportAdmin';
+import { BarChart3 } from 'lucide-react';
+
+type TabId = 'reciters' | 'recitations' | 'coverage' | 'backgrounds' | 'adhan' | 'media' | 'users' | 'plans' | 'payments';
 
 type Toast = (message: string, type?: 'success' | 'error') => void;
 type AskConfirm = (title: string, message: string, onConfirm: () => Promise<void> | void) => void;
@@ -563,6 +566,7 @@ export function AdminView() {
           {([
             ['reciters', 'Reciters', Users],
             ['recitations', 'Recitations', Music],
+            ['coverage', 'Coverage Report', BarChart3],
             ['backgrounds', 'Backgrounds', Video],
             ['adhan', 'Adhan Voices', Volume2],
             ['media', 'File Library', Upload],
@@ -667,6 +671,11 @@ export function AdminView() {
       {/* TAB: RECITATIONS */}
       {activeTab === 'recitations' && (
         <RecitationsAdmin showToast={showToast} askConfirm={askConfirm} />
+      )}
+
+      {/* TAB: COVERAGE REPORT */}
+      {activeTab === 'coverage' && (
+        <CoverageReportAdmin />
       )}
 
       {/* TAB: BACKGROUNDS */}
