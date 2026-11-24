@@ -1364,12 +1364,32 @@ export function formatPlanPrice(amount: number, currency = 'NGN'): string {
   }
 }
 
+export const DEFAULT_CLIENT_PLAN: PlanRow = {
+  id: 'plan_premium_monthly',
+  code: 'premium_monthly',
+  name: 'Nooraya Premium Monthly',
+  interval: 'monthly',
+  amount: 500,
+  currency: 'NGN',
+  is_active: true,
+  sort_order: 1,
+  features: [
+    'Unlimited Offline Downloads',
+    'All HD Video Soundscapes',
+    'Sleep Timer (15/30/45/60m)',
+    'Full Per-Ayah & Speed Control',
+    'Advanced Adhan Notifications (Custom Voices + Offsets)',
+    '100% Ad-Free Sanctuary',
+    'Custom Reciters & Priority Support',
+  ],
+};
+
 let cachedActivePlans: PlanRow[] | null = null;
 let lastPlansFetch = 0;
 
 /**
  * Fetches active plans from Supabase.
- * Falls back to /api/plans if Supabase client is not ready.
+ * Falls back to /api/plans or DEFAULT_CLIENT_PLAN (₦500) if remote DB is unreachable.
  */
 export async function fetchActivePlans(force = false): Promise<PlanRow[]> {
   const now = Date.now();
@@ -1389,7 +1409,7 @@ export async function fetchActivePlans(force = false): Promise<PlanRow[]> {
       if (!error && Array.isArray(data) && data.length > 0) {
         cachedActivePlans = data.map((p) => ({
           ...p,
-          amount: Number(p.amount),
+          amount: Number(p.amount) || 500,
           features: Array.isArray(p.features) ? p.features : [],
         }));
         lastPlansFetch = now;
@@ -1408,7 +1428,7 @@ export async function fetchActivePlans(force = false): Promise<PlanRow[]> {
       if (Array.isArray(data?.plans) && data.plans.length > 0) {
         cachedActivePlans = data.plans.map((p: any) => ({
           ...p,
-          amount: Number(p.amount),
+          amount: Number(p.amount) || 500,
           features: Array.isArray(p.features) ? p.features : [],
         }));
         lastPlansFetch = now;
@@ -1419,7 +1439,7 @@ export async function fetchActivePlans(force = false): Promise<PlanRow[]> {
     console.warn('[api] Error fetching plans from API:', e);
   }
 
-  return cachedActivePlans || [];
+  return cachedActivePlans || [DEFAULT_CLIENT_PLAN];
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   WifiOff,
   CheckCircle2,
   Filter,
+  Info,
 } from 'lucide-react';
 import { SurahDownloadButton } from '../components/SurahDownloadButton';
 import { isSurahDownloaded } from '../lib/offlineManager';

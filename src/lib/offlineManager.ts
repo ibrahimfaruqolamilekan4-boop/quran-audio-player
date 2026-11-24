@@ -222,6 +222,8 @@ export async function cancelDownload(surahId: number, reciterId: string, moshafI
   notifyDownloadStateChanged();
 }
 
+export const FREE_DOWNLOAD_LIMIT = 3;
+
 /** Download a Surah audio file with live progress, retry, cancel, and integrity check */
 export async function downloadSurah(
   chapter: Chapter,
@@ -232,9 +234,15 @@ export async function downloadSurah(
     onProgress?: (percent: number) => void;
   } = {}
 ): Promise<void> {
-  // 1. Premium entitlement check
+  // 1. Premium & Free tier limit check (Free tier allows up to 3 surahs, Premium is unlimited)
   if (!isPremiumActive(user)) {
-    throw new Error('UPGRADE_REQUIRED');
+    const currentDownloads = await getDownloadedSurahs();
+    const isAlreadyDownloaded = currentDownloads.some(
+      (d) => d.surahId === chapter.id && d.reciterId === reciter.id
+    );
+    if (!isAlreadyDownloaded && currentDownloads.length >= FREE_DOWNLOAD_LIMIT) {
+      throw new Error('UPGRADE_REQUIRED');
+    }
   }
 
   const { moshafId, onProgress } = options;
@@ -414,9 +422,15 @@ export async function getOfflineAudioUrl(
   user?: AppUser | null,
   moshafId?: string
 ): Promise<string | null> {
-  // If user session is provided, enforce active premium
+  // If user session is provided, allow free tier playback for up to FREE_DOWNLOAD_LIMIT surahs
   if (user !== undefined && !isPremiumActive(user)) {
-    return null;
+    const list = await getDownloadedSurahs();
+    const indexInDownloads = list.findIndex(
+      (d) => d.surahId === surahId && d.reciterId === reciterId
+    );
+    if (indexInDownloads < 0 || indexInDownloads >= FREE_DOWNLOAD_LIMIT) {
+      return null;
+    }
   }
 
   const cacheKey = getOfflineCacheUrl(surahId, reciterId, moshafId);
