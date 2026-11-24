@@ -28,6 +28,7 @@ const SECTION_ORDER = [
   "Makkah (Masjid al-Haram)",
   'Classic Masters',
   'Sweet Voices',
+  'Southeast & South Asia',
 ];
 
 const COUNTRY_FLAGS: Record<string, string> = {
@@ -40,6 +41,10 @@ const COUNTRY_FLAGS: Record<string, string> = {
   Yemen: '🇾🇪',
   Kuwait: '🇰🇼',
   Oman: '🇴🇲',
+  Somalia: '🇸🇴',
+  Libya: '🇱🇾',
+  Iraq: '🇮🇶',
+  Indonesia: '🇮🇩',
 };
 
 function getCountryFlag(region?: string): string {
