@@ -651,6 +651,13 @@ export function RecitersHubView() {
                           {riwaya}
                         </span>
                       </div>
+
+                      {/* Reciter Biography Snippet */}
+                      {reciter.bio && (
+                        <p className="text-[11px] text-[#A8BFB3]/75 line-clamp-2 leading-relaxed pt-1.5 font-light text-left sm:text-center">
+                          {reciter.bio}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
