@@ -75,7 +75,24 @@ export class AppErrorBoundary extends React.Component<Props, State> {
           <div className="flex flex-wrap gap-2 pt-2">
             <button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={async () => {
+                try {
+                  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    for (const r of regs) {
+                      await r.unregister();
+                    }
+                  }
+                  if (typeof window !== 'undefined' && 'caches' in window) {
+                    const keys = await caches.keys();
+                    for (const k of keys) {
+                      await caches.delete(k);
+                    }
+                  }
+                } catch {}
+                const target = window.location.origin + window.location.pathname + '?reload=' + Date.now();
+                window.location.replace(target);
+              }}
               className="flex-1 py-2.5 px-4 rounded-xl bg-[#1F8A6A] hover:bg-[#27A37E] text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
             >
               <RefreshCw size={14} />

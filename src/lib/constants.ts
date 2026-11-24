@@ -529,7 +529,7 @@ export const CURATED_RECITERS: Reciter[] = [
   // ==========================================
   {
     id: 'mumeen_okin',
-    name: 'Alhaji Abdulmumin Okin',
+    name: 'Sheikh Alhaji Abdulmumin (Mumini) Okin',
     nameArabic: 'الشيخ عبدالمؤمن أوكن',
     category: 'African Masters',
     style: 'Murattal (Melodic Yoruba)',
@@ -542,7 +542,7 @@ export const CURATED_RECITERS: Reciter[] = [
     imageUrl: '/images/reciters/mumeen_okin.jpg',
     imageLicense: 'Official Channel / Public Distribution',
     imageCredit: 'Official Abdulmuhmen Okin Media Channel',
-    bio: 'Venerated Nigerian Islamic scholar and Quranic reciter from Ilorin, Kwara State. Celebrated throughout Nigeria and West Africa for his soulful, high-resonance Yoruba-inflected recitation style and classic recordings of Surah Yasin, Al-Kahf, Ar-Rahman, and the celebrated Robana supplications.',
+    bio: 'Venerated Nigerian Islamic scholar and Quranic reciter Sheikh Alhaji Abdulmumin (also known as Mumini / Mumeen) Okin from Ilorin, Kwara State. Celebrated throughout Nigeria and West Africa for his soulful, high-resonance Yoruba-inflected recitation style and classic recordings of Surah Yasin, Al-Kahf, Ar-Rahman, and the celebrated Robana supplications.',
     featured: true,
     isPartial: true,
     surahCount: 7,
