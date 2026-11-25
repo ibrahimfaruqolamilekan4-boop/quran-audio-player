@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { appApi, type AppUser } from '../lib/api';
+import { FeatureMatrix } from './FeatureMatrix';
 import {
   fetchActivePlans,
   subscribeToPlans,
@@ -98,6 +99,7 @@ export function SubscriptionModal({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(3600);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [showMatrix, setShowMatrix] = useState(false);
 
   const pollingRef = useRef<any>(null);
 
@@ -586,19 +588,40 @@ export function SubscriptionModal({
                 </div>
               )}
 
-              {/* Features list */}
-              <div className="grid grid-cols-2 gap-2 pt-4 border-t border-slate-800/80 mt-4">
-                {DEFAULT_BENEFITS.slice(0, 4).map((b, idx) => (
-                  <div key={idx} className="flex items-start gap-2">
-                    <div className="p-1 rounded-md bg-emerald-500/10 text-emerald-400 shrink-0 mt-0.5">
-                      <b.icon size={12} />
-                    </div>
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-slate-200">{b.title}</h4>
-                      <p className="text-[10px] text-slate-500 line-clamp-1">{b.desc}</p>
-                    </div>
+              {/* Features list & Matrix Toggle */}
+              <div className="pt-4 border-t border-slate-800/80 mt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Sanctuary Privileges
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMatrix(!showMatrix)}
+                    className="text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer underline flex items-center gap-1"
+                  >
+                    <span>{showMatrix ? 'Hide Details' : 'Compare Free vs Premium'}</span>
+                  </button>
+                </div>
+
+                {showMatrix ? (
+                  <div className="pt-2 max-h-72 overflow-y-auto rounded-xl border border-white/10">
+                    <FeatureMatrix />
                   </div>
-                ))}
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {DEFAULT_BENEFITS.slice(0, 4).map((b, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <div className="p-1 rounded-md bg-emerald-500/10 text-emerald-400 shrink-0 mt-0.5">
+                          <b.icon size={12} />
+                        </div>
+                        <div>
+                          <h4 className="text-[11px] font-semibold text-slate-200">{b.title}</h4>
+                          <p className="text-[10px] text-slate-500 line-clamp-1">{b.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <p className="text-[10px] text-slate-500 text-center mt-4 flex items-center justify-center gap-1">

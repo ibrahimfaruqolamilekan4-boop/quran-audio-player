@@ -10,6 +10,8 @@ import {
   getSurahDownloadStatus,
   isPremiumActive,
   isMeteredConnection,
+  getDownloadedSurahs,
+  FREE_DOWNLOAD_LIMIT,
 } from '../lib/offlineManager';
 import { SubscriptionModal } from './SubscriptionModal';
 
@@ -111,10 +113,16 @@ export function SurahDownloadButton({
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // 1. Paywall Gate: Free users prompt upgrade modal
+    // 1. Paywall Gate: Free users can download up to 3 surahs; prompt upgrade for 4th+
     if (!isPremiumActive(user)) {
-      setShowSubModal(true);
-      return;
+      const currentDownloads = await getDownloadedSurahs();
+      const isAlready = currentDownloads.some(
+        (d) => d.surahId === chapter.id && d.reciterId === reciter.id
+      );
+      if (!isAlready && currentDownloads.length >= FREE_DOWNLOAD_LIMIT) {
+        setShowSubModal(true);
+        return;
+      }
     }
 
     // 2. Metered data warning

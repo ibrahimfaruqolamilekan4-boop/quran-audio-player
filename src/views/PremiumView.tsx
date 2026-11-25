@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { appApi } from '../lib/api';
+import { FeatureMatrix } from '../components/FeatureMatrix';
 import {
   fetchActivePlans,
   subscribeToPlans,
@@ -532,6 +533,25 @@ export function PremiumView() {
             <p className="text-xs text-slate-400 leading-relaxed">{f.desc}</p>
           </div>
         ))}
+      </div>
+
+      {/* DETAILED FREE VS PREMIUM FEATURE MATRIX */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-serif font-bold text-white flex items-center gap-2">
+              <Sparkles size={18} className="text-amber-400" />
+              <span>Free vs Premium Feature Breakdown</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Clear breakdown of everything included in your ₦500 / month Sanctuary membership.
+            </p>
+          </div>
+        </div>
+        <FeatureMatrix
+          onUpgradeClick={handleInitiateBankTransfer}
+          isPremium={isPremium}
+        />
       </div>
 
       {/* MANUAL RENEWAL GUARANTEE */}
