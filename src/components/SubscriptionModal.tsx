@@ -427,17 +427,57 @@ export function SubscriptionModal({
                       </p>
                     </div>
                   ) : accountError ? (
-                    <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/40 text-center space-y-2">
-                      <AlertCircle size={20} className="text-rose-400 mx-auto" />
-                      <p className="text-xs text-rose-300">{accountError}</p>
-                      <button
-                        type="button"
-                        onClick={() => fetchVirtualAccount(selectedPlanCode)}
-                        className="px-4 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-semibold cursor-pointer"
-                      >
-                        Retry Bank Transfer
-                      </button>
-                    </div>
+                    fallbackCheckoutUrl ? (
+                      <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-center space-y-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+                          <CreditCard size={20} />
+                        </div>
+                        <p className="text-xs text-amber-200 leading-relaxed">
+                          {accountError}
+                        </p>
+                        <a
+                          href={fallbackCheckoutUrl}
+                          className="medina-btn-primary w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-lg cursor-pointer"
+                        >
+                          <span>Pay with Flutterwave Checkout (Bank Transfer / Card / USSD)</span>
+                          <ExternalLink size={14} />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => fetchVirtualAccount(selectedPlanCode)}
+                          className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+                        >
+                          Retry Direct Account Generation
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/40 text-center space-y-3">
+                        <AlertCircle size={20} className="text-rose-400 mx-auto" />
+                        <p className="text-xs text-rose-300 leading-relaxed">{accountError}</p>
+                        <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => fetchVirtualAccount(selectedPlanCode)}
+                            className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-semibold cursor-pointer"
+                          >
+                            Retry Bank Transfer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCardCheckout}
+                            disabled={loadingHosted}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                          >
+                            {loadingHosted ? (
+                              <RefreshCw size={13} className="animate-spin" />
+                            ) : (
+                              <CreditCard size={13} />
+                            )}
+                            <span>Pay with Card / USSD</span>
+                          </button>
+                        </div>
+                      </div>
+                    )
                   ) : virtualAccount ? (
                     <div className="space-y-3">
                       {/* Virtual Account Box */}

@@ -11,6 +11,7 @@ import {
   countRecentPaymentsByUser,
   createPaymentRecord,
 } from '../lib/supabase-server';
+import { getFlutterwaveSecretKey } from '../lib/flutterwave';
 
 interface VirtualAccountRequestBody {
   plan_code?: string;
@@ -78,11 +79,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // 4. Create new transaction reference
     const txRef = `qf-bt-${Date.now()}-${userId.slice(0, 8)}`;
-    const rawSecret = process.env.FLW_SECRET_KEY || '';
-    const flwSecretKey = rawSecret.trim().replace(/^['"]|['"]$/g, '');
+    const flwSecretKey = getFlutterwaveSecretKey();
 
     const expiryMinutes = 60;
     const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString();
+
+    const userEmail = (user.email && user.email.includes('@'))
+      ? user.email.trim()
+      : `${userId.slice(0, 8)}@nooraya.app`;
+    const userFullName = (user.displayName || user.email?.split('@')[0] || 'Nooraya Seeker').trim();
 
     let bankName = '';
     let accountNumber = '';
@@ -97,7 +102,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const origin = `${proto}://${hostHeader}`;
 
     // 5. Call Flutterwave dynamic bank transfer charge API
-    if (flwSecretKey && !flwSecretKey.includes('placeholder')) {
+    if (flwSecretKey) {
       try {
         const flwRes = await fetch('https://api.flutterwave.com/v3/charges?type=bank_transfer', {
           method: 'POST',
@@ -108,22 +113,37 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           body: JSON.stringify({
             amount: plan.amount,
             currency: plan.currency || 'NGN',
-            email: user.email,
+            email: userEmail,
             tx_ref: txRef,
-            fullname: user.displayName || user.email.split('@')[0],
+            fullname: userFullName,
+            is_permanent: false,
           }),
         });
 
         const flwData = (await flwRes.json().catch(() => ({}))) as any;
 
         if (flwRes.ok && (flwData?.status === 'success' || flwData?.status === 'pending')) {
-          const auth = flwData?.meta?.authorization || flwData?.data;
-          const candidateAccount = auth?.transfer_account || auth?.account_number || auth?.accountnumber;
+          const auth = flwData?.meta?.authorization || flwData?.data?.meta?.authorization || flwData?.data;
+          const candidateAccount =
+            auth?.transfer_account ||
+            auth?.account_number ||
+            auth?.accountnumber ||
+            flwData?.data?.account_number ||
+            flwData?.data?.transfer_account;
 
           if (candidateAccount) {
             accountNumber = String(candidateAccount).trim();
-            bankName = auth.transfer_bank || auth.bank_name || auth.bankname || 'Flutterwave Partner Bank';
-            accountName = auth.account_name || auth.transfer_account_name || `Nooraya / ${user.email.split('@')[0]}`;
+            bankName =
+              auth?.transfer_bank ||
+              auth?.bank_name ||
+              auth?.bankname ||
+              flwData?.data?.bank_name ||
+              'Wema Bank / Flutterwave';
+            accountName =
+              auth?.account_name ||
+              auth?.transfer_account_name ||
+              flwData?.data?.account_name ||
+              `Nooraya / ${userFullName}`;
             flwRef = flwData?.data?.flw_ref || auth?.flw_ref || null;
             flwId = flwData?.data?.id ? String(flwData.data.id) : null;
           } else {
@@ -136,7 +156,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         flwErrorMessage = err?.message || 'Network error reaching Flutterwave API.';
       }
     } else {
-      flwErrorMessage = 'FLW_SECRET_KEY is not configured in server environment.';
+      flwErrorMessage = 'Flutterwave Secret Key is not configured in Vercel environment variables (add FLW_SECRET_KEY or FLUTTERWAVE_SECRET_KEY).';
     }
 
     // 6. If Flutterwave returned a real virtual account: Store & return it
@@ -191,7 +211,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Generate fallback hosted checkout link so the user can still pay seamlessly via card or bank transfer
     let fallbackCheckoutUrl: string | null = null;
-    if (flwSecretKey && !flwSecretKey.includes('placeholder')) {
+    if (flwSecretKey) {
       try {
         const redirectUrl = `${origin}/premium?status=successful&tx_ref=${encodeURIComponent(txRef)}&plan_code=${encodeURIComponent(plan.code)}`;
         const fallbackRes = await fetch('https://api.flutterwave.com/v3/payments', {
@@ -206,8 +226,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             currency: plan.currency || 'NGN',
             redirect_url: redirectUrl,
             customer: {
-              email: user.email,
-              name: user.displayName || user.email.split('@')[0],
+              email: userEmail,
+              name: userFullName,
             },
             customizations: {
               title: 'Nooraya Quranic Sanctuary',

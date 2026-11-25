@@ -8,6 +8,7 @@ import {
   getPlanByCode,
   createPaymentRecord,
 } from '../lib/supabase-server';
+import { getFlutterwaveSecretKey } from '../lib/flutterwave';
 
 interface HostedCheckoutRequestBody {
   plan_code?: string;
@@ -35,16 +36,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const userId = user.uid || (user as any).id;
     const txRef = `qf-ch-${Date.now()}-${userId.slice(0, 8)}`;
+    const flwSecretKey = getFlutterwaveSecretKey();
 
-    const rawSecret = process.env.FLW_SECRET_KEY || '';
-    const flwSecretKey = rawSecret.trim().replace(/^['"]|['"]$/g, '');
-
-    if (!flwSecretKey || flwSecretKey.includes('placeholder')) {
-      console.error('[Payments] Hosted checkout failed: FLW_SECRET_KEY is not configured in environment variables.');
+    if (!flwSecretKey) {
+      console.error('[Payments] Hosted checkout failed: Flutterwave secret key is not configured in environment variables.');
       return sendJson(res, 500, {
-        error: 'Payment gateway configuration error. Please ensure FLW_SECRET_KEY is configured in Vercel.',
+        error: 'Payment gateway configuration error. Please ensure FLW_SECRET_KEY or FLUTTERWAVE_SECRET_KEY is configured in Vercel.',
       });
     }
+
+    const userEmail = (user.email && user.email.includes('@'))
+      ? user.email.trim()
+      : `${userId.slice(0, 8)}@nooraya.app`;
+    const userFullName = (user.displayName || user.email?.split('@')[0] || 'Nooraya Seeker').trim();
 
     // Determine return URL
     const hostHeader = req.headers.host || 'localhost:3000';
@@ -65,8 +69,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         currency: plan.currency || 'NGN',
         redirect_url: redirectUrl,
         customer: {
-          email: user.email,
-          name: user.displayName || user.email.split('@')[0],
+          email: userEmail,
+          name: userFullName,
         },
         customizations: {
           title: 'Nooraya Quranic Sanctuary',

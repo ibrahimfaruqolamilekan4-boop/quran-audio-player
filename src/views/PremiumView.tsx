@@ -765,29 +765,40 @@ export function PremiumView() {
                 <div className="space-y-4 py-2 text-center">
                   <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 space-y-2">
                     <p className="text-xs text-amber-200 leading-relaxed">
-                      Direct virtual transfer account generation is currently provisioning on Flutterwave. You can pay instantly using Bank Transfer, Card, or USSD via Flutterwave secure checkout:
+                      {pollingError || 'Direct virtual transfer account generation is currently provisioning on Flutterwave. You can pay instantly using Bank Transfer, Card, or USSD via Flutterwave secure checkout:'}
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleCardCheckout}
-                    disabled={loadingHosted}
-                    className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    {loadingHosted ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" />
-                        <span>Redirecting to Checkout...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CreditCard size={14} />
-                        <span>Pay via Flutterwave Multi-Channel Checkout</span>
-                        <ExternalLink size={14} />
-                      </>
-                    )}
-                  </button>
+                  {fallbackCheckoutUrl ? (
+                    <a
+                      href={fallbackCheckoutUrl}
+                      className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <CreditCard size={14} />
+                      <span>Open Flutterwave Checkout (Transfer / Card / USSD)</span>
+                      <ExternalLink size={14} />
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleCardCheckout}
+                      disabled={loadingHosted}
+                      className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                    >
+                      {loadingHosted ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          <span>Redirecting to Checkout...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard size={14} />
+                          <span>Pay via Flutterwave Multi-Channel Checkout</span>
+                          <ExternalLink size={14} />
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </motion.div>

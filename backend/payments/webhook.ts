@@ -10,6 +10,7 @@ import {
   activateUserPremium,
   getPlanByCode,
 } from '../lib/supabase-server';
+import { getFlutterwaveSecretKey, getFlutterwaveWebhookHash } from '../lib/flutterwave';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -17,7 +18,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   // 1. Verify webhook signature hash against FLW_WEBHOOK_HASH
-  const secretHash = process.env.FLW_WEBHOOK_HASH;
+  const secretHash = getFlutterwaveWebhookHash();
   const signature = req.headers['verif-hash'];
 
   if (secretHash && signature !== secretHash) {
@@ -55,13 +56,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // 4. Server-side verification with official Flutterwave API
-    const flwSecretKey = process.env.FLW_SECRET_KEY;
+    const flwSecretKey = getFlutterwaveSecretKey();
     let verifiedStatus = data.status;
     let verifiedAmount = Number(data.amount) || 0;
     let verifiedCurrency = (data.currency || 'NGN').toUpperCase();
     let flwRef = data.flw_ref || null;
 
-    if (flwSecretKey && !flwSecretKey.includes('placeholder')) {
+    if (flwSecretKey) {
       try {
         const verifyRes = await fetch(
           `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(txId)}/verify`,

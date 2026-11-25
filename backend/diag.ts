@@ -8,6 +8,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readJson, sendJson, getPool } from './_lib.mjs';
+import { getFlutterwaveEnvInfo } from './lib/flutterwave';
 
 interface RateLimitBucket {
   count: number;
@@ -43,10 +44,19 @@ export default async function diagHandler(
   res: ServerResponse
 ): Promise<void> {
   if (req.method === 'GET') {
+    const flwInfo = getFlutterwaveEnvInfo();
     sendJson(res, 200, {
       ok: true,
       count: recentReports.length,
       reports: recentReports.slice(0, 20),
+      paymentGateway: {
+        configured: flwInfo.hasSecret,
+        mode: flwInfo.secretMode,
+        secretVar: flwInfo.secretKeyName,
+        publicVar: flwInfo.publicKeyName,
+        hasWebhookHash: flwInfo.hasWebhookHash,
+        warnings: flwInfo.warnings,
+      },
     });
     return;
   }
