@@ -191,7 +191,14 @@ export function RecitersHubView() {
       togglePlayPause();
       return;
     }
-    const chapter = currentChapter ?? chapters[0];
+    let chapter = currentChapter;
+    if (!chapter) {
+      if (reciter.isPartial && Array.isArray(reciter.availableSurahs) && reciter.availableSurahs.length > 0) {
+        chapter = chapters.find(c => reciter.availableSurahs!.includes(c.id)) ?? chapters[0];
+      } else {
+        chapter = chapters[0];
+      }
+    }
     if (!chapter) return;
     setReciter(reciter);
     playChapter(chapter, reciter);
@@ -203,6 +210,10 @@ export function RecitersHubView() {
     if (!reciter) return null;
     const active = isActive(reciter);
     const showPause = active && isPlaying && !!currentChapter;
+    const fallbackId = reciter.fallbackReciterId || 'afs';
+    const fallbackReciter =
+      allReciters.find(r => r.id === fallbackId) ||
+      allReciters.find(r => r.id === 'afs');
 
     return (
       <div className="animate-in slide-in-from-right-8 duration-500 pb-24">
@@ -349,6 +360,7 @@ export function RecitersHubView() {
               const playingThis = active && currentChapter?.id === chapter.id;
               const isDl = Boolean(downloadedMap[chapter.id]);
               const isUnavail = !isOnline && !isDl;
+              const isRecorded = !reciter.isPartial || (reciter.availableSurahs?.includes(chapter.id));
 
               return (
                 <div
@@ -377,7 +389,7 @@ export function RecitersHubView() {
                       {String(chapter.id).padStart(3, '0')}
                     </span>
                     <div className="flex flex-col min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-serif text-sm sm:text-base truncate group-hover:text-[#34C38F] transition-colors">
                           {chapter.name_simple}
                         </span>
@@ -385,6 +397,11 @@ export function RecitersHubView() {
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#34C38F]/15 text-[#34C38F] text-[9px] font-medium shrink-0">
                             <CheckCircle2 size={10} />
                             <span>Downloaded</span>
+                          </span>
+                        )}
+                        {!isRecorded && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[9px] font-medium shrink-0">
+                            Via {fallbackReciter?.name ? fallbackReciter.name.split(' ')[0] : 'Fallback'}
                           </span>
                         )}
                         {isUnavail && (

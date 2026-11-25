@@ -98,13 +98,21 @@ if (!offlineMgrContent.includes('FREE_DOWNLOAD_LIMIT = 3')) {
   console.log('✓ Verified FREE_DOWNLOAD_LIMIT = 3 in offlineManager.ts');
 }
 
-// 5. Verify Sheikh Alhaji Okin in constants.ts
+// 5. Verify Sheikh Alhaji Okin in constants.ts and fallbackReciter in RecitersHubView
 const constantsContent = fs.readFileSync(path.resolve(process.cwd(), 'src/lib/constants.ts'), 'utf8');
 if (!constantsContent.includes('mumeen_okin') || !constantsContent.includes('Sheikh Alhaji Abdulmumin (Mumini) Okin')) {
   console.error('❌ Sheikh Alhaji Abdulmumin Okin missing from constants.ts');
   failed = true;
 } else {
   console.log('✓ Verified Sheikh Alhaji Abdulmumin (Mumini) Okin in constants.ts');
+}
+
+const recitersHubContent = fs.readFileSync(path.resolve(process.cwd(), 'src/views/RecitersHubView.tsx'), 'utf8');
+if (!recitersHubContent.includes('const fallbackReciter =')) {
+  console.error('❌ fallbackReciter definition missing from RecitersHubView.tsx');
+  failed = true;
+} else {
+  console.log('✓ Verified fallbackReciter is explicitly declared in RecitersHubView.tsx');
 }
 
 if (failed) {
