@@ -5028,8 +5028,8 @@
       56,
       67
     ],
-    "serverUrl": "https://cdn.mp3quran.net/audio/mishary-alafasy/r1/",
-    "sourceHost": "cdn.mp3quran.net",
+    "serverUrl": "/audio/reciters/mumeen_okin/",
+    "sourceHost": "local-bundled",
     "sourceLicense": "Permissible Open CDN (mp3quran.net public mirror, free non-commercial streaming permitted)",
     "imageLicense": "Official Channel / Public Distribution",
     "imageCredit": "Official Abdulmuhmen Okin Media Channel",

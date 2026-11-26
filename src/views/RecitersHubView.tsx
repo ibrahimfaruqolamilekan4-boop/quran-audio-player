@@ -18,10 +18,12 @@ import {
   CheckCircle2,
   Filter,
   Info,
+  Upload,
 } from 'lucide-react';
 import { SurahDownloadButton } from '../components/SurahDownloadButton';
 import { isSurahDownloaded } from '../lib/offlineManager';
-import type { Reciter } from '../types';
+import { uploadRecitation, loadRecitations } from '../lib/recitations';
+import type { Reciter, Chapter } from '../types';
 
 const SECTION_ORDER = [
   'African Masters',
@@ -46,6 +48,7 @@ const COUNTRY_FLAGS: Record<string, string> = {
   Libya: '🇱🇾',
   Iraq: '🇮🇶',
   Indonesia: '🇮🇩',
+  Nigeria: '🇳🇬',
 };
 
 function getCountryFlag(region?: string): string {
@@ -73,6 +76,8 @@ export function RecitersHubView() {
     togglePlayPause,
     customReciters,
     allReciters,
+    recitations,
+    setRecitations,
   } = usePlayer();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,6 +88,28 @@ export function RecitersHubView() {
   const [downloadedMap, setDownloadedMap] = useState<Record<number, boolean>>({});
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
+  const [uploadingSurahId, setUploadingSurahId] = useState<number | null>(null);
+
+  const handleUploadSurahMp3 = async (reciter: Reciter, chapter: Chapter, file: File) => {
+    setUploadingSurahId(chapter.id);
+    try {
+      await uploadRecitation(file, {
+        reciterId: reciter.id,
+        reciterName: reciter.name,
+        surah: chapter.id,
+        surahName: chapter.name_simple,
+      });
+      const updated = await loadRecitations();
+      setRecitations(updated);
+      setReciter(reciter);
+      playChapter(chapter, reciter);
+    } catch (err) {
+      setOfflineNotice(`Failed to upload ${chapter.name_simple}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setTimeout(() => setOfflineNotice(null), 4000);
+    } finally {
+      setUploadingSurahId(null);
+    }
+  };
 
   React.useEffect(() => {
     const on = () => setIsOnline(true);
@@ -359,7 +386,9 @@ export function RecitersHubView() {
             {chapters.map(chapter => {
               const playingThis = active && currentChapter?.id === chapter.id;
               const isDl = Boolean(downloadedMap[chapter.id]);
-              const isUnavail = !isOnline && !isDl;
+              const isLocalReciter = Boolean(reciter.serverUrl?.startsWith('/') || reciter.id === 'mumeen_okin');
+              const isUploaded = recitations.some(r => r.reciterId === reciter.id && r.surah === chapter.id);
+              const isUnavail = !isOnline && !isDl && !isUploaded;
               const isRecorded = !reciter.isPartial || (reciter.availableSurahs?.includes(chapter.id));
 
               return (
@@ -393,7 +422,13 @@ export function RecitersHubView() {
                         <span className="font-serif text-sm sm:text-base truncate group-hover:text-[#34C38F] transition-colors">
                           {chapter.name_simple}
                         </span>
-                        {isDl && (
+                        {isUploaded && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px] font-medium shrink-0">
+                            <CheckCircle2 size={10} />
+                            <span>Sheikh Audio Ready</span>
+                          </span>
+                        )}
+                        {!isUploaded && isDl && (
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#34C38F]/15 text-[#34C38F] text-[9px] font-medium shrink-0">
                             <CheckCircle2 size={10} />
                             <span>Downloaded</span>
@@ -421,8 +456,32 @@ export function RecitersHubView() {
                     >
                       {chapter.name_arabic}
                     </span>
-                    <div onClick={e => e.stopPropagation()}>
-                      <SurahDownloadButton chapter={chapter} reciter={reciter} />
+                    <div onClick={e => e.stopPropagation()} className="flex items-center gap-1.5">
+                      {isRecorded && isLocalReciter && (
+                        <label
+                          title={isUploaded ? 'Replace Sheikh MP3' : 'Upload Sheikh MP3'}
+                          className={`cursor-pointer px-2 py-1 rounded-lg border text-[10px] font-medium flex items-center gap-1 transition-colors ${
+                            isUploaded
+                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25'
+                              : 'bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25'
+                          }`}
+                        >
+                          <Upload size={11} />
+                          <span>{uploadingSurahId === chapter.id ? '...' : isUploaded ? 'Replace' : 'Upload MP3'}</span>
+                          <input
+                            type="file"
+                            accept="audio/*,.mp3,.m4a,.wav,.ogg"
+                            className="hidden"
+                            disabled={uploadingSurahId !== null}
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (file) void handleUploadSurahMp3(reciter, chapter, file);
+                            }}
+                          />
+                        </label>
+                      )}
+                      {!isLocalReciter && <SurahDownloadButton chapter={chapter} reciter={reciter} />}
                     </div>
                     <div
                       className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 transition-opacity ${

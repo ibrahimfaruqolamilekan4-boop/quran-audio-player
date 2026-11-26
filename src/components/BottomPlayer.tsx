@@ -108,7 +108,7 @@ export function BottomPlayer() {
                   <span className="truncate">{currentReciter?.name}</span>
                   {fallbackNotice && (
                     <span className="text-amber-400 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 shrink-0">
-                      via {fallbackNotice.fallbackReciter.name}
+                      via {fallbackNotice.fallbackReciter?.name || 'Fallback'}
                     </span>
                   )}
                   {currentAmbient && (
