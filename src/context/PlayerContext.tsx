@@ -634,7 +634,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } else {
       setIsLoading(false);
       setIsPlaying(false);
-      setPlaybackError('Audio is not available, choose another sheik.');
+      const reciter = currentReciterRef.current;
+      const chapter = currentChapterRef.current;
+      if (reciter && (reciter.serverUrl?.startsWith('/') || reciter.id === 'mumeen_okin')) {
+        setPlaybackError(
+          `Recording for Surah ${chapter?.name_simple || ''} by ${reciter.name} is not uploaded on this device yet. Open Reciters Hub to upload the Sheikh's MP3.`
+        );
+      } else {
+        setPlaybackError('Audio is not available, choose another sheik.');
+      }
     }
   }, []);
 
@@ -1124,19 +1132,26 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    attemptPlayback(0);
-
-    // Asynchronously prepend admin-uploaded recitation if available
+    // Resolve admin/user-uploaded recitation BEFORE starting playback so local uploads
+    // play immediately without racing against missing/404 static URLs or CDN mirrors.
     const uploadedEntry = recitationsRef.current.find(
       r => r.reciterId === playbackReciter.id && r.surah === chapter.id
     );
     if (uploadedEntry) {
       recitationObjectUrl(uploadedEntry).then(upUrl => {
-        if (upUrl && attemptRef.current?.cacheKey === cacheKey && quranAudioRef.current?.src !== upUrl) {
+        if (upUrl && attemptRef.current?.cacheKey === cacheKey) {
           attemptRef.current.urls = [upUrl, ...streamUrls];
           attemptPlayback(0);
+        } else if (attemptRef.current?.cacheKey === cacheKey) {
+          attemptPlayback(0);
         }
-      }).catch(() => {});
+      }).catch(() => {
+        if (attemptRef.current?.cacheKey === cacheKey) {
+          attemptPlayback(0);
+        }
+      });
+    } else {
+      attemptPlayback(0);
     }
 
     // Check CacheStorage offline URL (/offline-audio/ with 206 Range support) without using revocable Blob URLs

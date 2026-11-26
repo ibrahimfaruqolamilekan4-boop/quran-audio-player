@@ -344,7 +344,7 @@ export function NowPlayingOverlay() {
                     <span>{currentReciter?.name || 'Reciter'}</span>
                     {fallbackNotice && (
                       <span className="text-[11px] font-normal text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full shrink-0">
-                        Plays via {fallbackNotice.fallbackReciter.name} (unrecorded surah)
+                        Plays via {fallbackNotice.fallbackReciter?.name || 'Fallback'} (unrecorded surah)
                       </span>
                     )}
                   </p>

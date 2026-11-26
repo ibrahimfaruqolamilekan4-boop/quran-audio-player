@@ -51,7 +51,7 @@ async function generateExactAudit() {
 
     const missingSurahs = all114.filter(n => !availableSurahs.includes(n));
     const isComplete = availableSurahs.length === 114;
-    const host = new URL(rec.serverUrl).hostname;
+    const host = rec.serverUrl.startsWith('/') ? 'local-bundled' : new URL(rec.serverUrl).hostname;
 
     auditResults.push({
       reciterId: rec.id,
