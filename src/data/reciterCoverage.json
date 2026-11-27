@@ -4907,9 +4907,9 @@
     "location": "Ilorin, Kwara State",
     "riwaya": "Hafs 'an 'Asim",
     "tariq": "Shatibiyyah",
-    "totalAvailable": 7,
+    "totalAvailable": 8,
     "isComplete": false,
-    "missingCount": 107,
+    "missingCount": 106,
     "missingSurahs": [
       1,
       2,
@@ -4928,7 +4928,6 @@
       15,
       16,
       17,
-      19,
       21,
       22,
       24,
@@ -5021,6 +5020,7 @@
     ],
     "availableSurahs": [
       18,
+      19,
       20,
       23,
       36,

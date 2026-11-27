@@ -55,15 +55,33 @@ export function normalizeServerUrl(url: string): string {
  * Primary serverUrl first, followed by configured fallback mirrors.
  * MP3 is always the primary format to prevent failed probes and avoid breaking browser user gestures.
  */
-export function candidateUrls(reciter: Pick<Reciter, 'id' | 'serverUrl' | 'formats' | 'fallbackServerUrls'>, chapterId: number): string[] {
-  if (!reciter.serverUrl) return [];
-
-  const surahStr = String(chapterId).padStart(SURAH_WIDTH, '0');
+export function candidateUrls(
+  reciter: Pick<Reciter, 'id' | 'serverUrl' | 'formats' | 'fallbackServerUrls' | 'customSurahUrls'>,
+  chapterId: number
+): string[] {
   const urls: string[] = [];
 
-  // Primary URL
-  const primaryBase = normalizeServerUrl(reciter.serverUrl);
-  urls.push(`${primaryBase}${surahStr}.mp3`);
+  // Per-surah custom URLs first (for partial/community reciters with direct hosted MP3s)
+  const customForSurah = reciter.customSurahUrls?.[chapterId];
+  if (Array.isArray(customForSurah)) {
+    for (const u of customForSurah) {
+      if (u && u.trim() && !urls.includes(u.trim())) {
+        urls.push(u.trim());
+      }
+    }
+  }
+
+  if (reciter.serverUrl) {
+    const surahStr = String(chapterId).padStart(SURAH_WIDTH, '0');
+    const primaryBase = normalizeServerUrl(reciter.serverUrl);
+    const primaryUrl = `${primaryBase}${surahStr}.mp3`;
+    if (!urls.includes(primaryUrl)) {
+      urls.push(primaryUrl);
+    }
+  }
+
+  if (!reciter.serverUrl) return urls;
+  const surahStr = String(chapterId).padStart(SURAH_WIDTH, '0');
 
   // Fallback mirrors
   if (Array.isArray(reciter.fallbackServerUrls)) {

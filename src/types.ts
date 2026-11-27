@@ -40,6 +40,8 @@ export interface Reciter {
   fallbackReciterId?: string;
   /** Fallback servers to try in order if serverUrl fails */
   fallbackServerUrls?: string[];
+  /** Explicit per-surah stream URLs (e.g. for partial/community reciters without 001..114 CDN naming) */
+  customSurahUrls?: Record<number, string[]>;
   /** Moshaf recitation style/narration name */
   moshafName?: string;
 }
