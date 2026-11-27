@@ -1201,7 +1201,8 @@ export async function updateProfileAdmin(
   }
 ): Promise<{ ok: boolean; error?: string }> {
   const client = getSupabaseClient();
-  if (client) {
+  // Role promotions/demotions must always go through the server-verified /api/admin/role endpoint.
+  if (client && updates.role === undefined) {
     try {
       const { error } = await client.from('profiles').update(updates).eq('id', userId);
       if (!error) return { ok: true };
