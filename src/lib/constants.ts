@@ -538,6 +538,10 @@ export const CURATED_RECITERS: Reciter[] = [
     location: 'Ilorin, Kwara State',
     region: 'Nigeria',
     serverUrl: '/audio/reciters/mumeen_okin/',
+    fallbackServerUrls: [
+      'https://cdn.mp3quran.net/audio/mishary-alafasy/r1/',
+      'https://server8.mp3quran.net/afs/',
+    ],
     imageUrl: '/images/reciters/mumeen_okin.jpg',
     imageLicense: 'Official Channel / Public Distribution',
     imageCredit: 'Official Abdulmuhmen Okin Media Channel',

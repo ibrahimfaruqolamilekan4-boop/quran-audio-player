@@ -287,7 +287,12 @@ function reloadAudioSourceAtPosition(
   recoveryUrl: string,
   targetPos: number
 ): void {
+  // Always assign src and call load() so iOS WebKit/Safari clears any MediaError
+  // and re-opens closed HTTP Range sockets even when recoveryUrl matches audio.src.
   audio.src = recoveryUrl;
+  try {
+    audio.load();
+  } catch {}
   if (targetPos > 0) {
     const restorePos = () => {
       try {
@@ -296,9 +301,6 @@ function reloadAudioSourceAtPosition(
         }
       } catch {}
     };
-    try {
-      audio.currentTime = targetPos;
-    } catch {}
     audio.addEventListener('loadedmetadata', restorePos, { once: true });
     audio.addEventListener('canplay', restorePos, { once: true });
   }

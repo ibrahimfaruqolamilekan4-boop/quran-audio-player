@@ -219,12 +219,15 @@ export function RecitersHubView() {
       return;
     }
     let chapter = currentChapter;
-    if (!chapter) {
-      if (reciter.isPartial && Array.isArray(reciter.availableSurahs) && reciter.availableSurahs.length > 0) {
-        chapter = chapters.find(c => reciter.availableSurahs!.includes(c.id)) ?? chapters[0];
-      } else {
-        chapter = chapters[0];
-      }
+    if (
+      reciter.isPartial &&
+      Array.isArray(reciter.availableSurahs) &&
+      reciter.availableSurahs.length > 0 &&
+      (!chapter || !reciter.availableSurahs.includes(chapter.id))
+    ) {
+      chapter = chapters.find(c => reciter.availableSurahs!.includes(c.id)) ?? chapters[0];
+    } else if (!chapter) {
+      chapter = chapters[0];
     }
     if (!chapter) return;
     setReciter(reciter);

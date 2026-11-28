@@ -1565,48 +1565,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           .then(() => {
             setPlaybackError(null);
             setIsPlaying(true);
-            if (ambientAudioRef.current && ambientAudioRef.current.getAttribute('src')) {
+            if (
+              document.visibilityState === 'visible' &&
+              ambientAudioRef.current &&
+              ambientAudioRef.current.getAttribute('src')
+            ) {
               ambientAudioRef.current.play().catch(() => {});
             }
             try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
           })
           .catch((firstErr) => {
             try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
-            window.setTimeout(() => {
-              const retry = quranAudioRef.current;
-              if (!retry) return;
-              resumeQuranPlaybackSync({
-                fallbackUrls: attemptRef.current?.urls,
-                forceReload: true,
-              })
-                .then(() => {
-                  setPlaybackError(null);
-                  setIsPlaying(true);
-                  if (ambientAudioRef.current && ambientAudioRef.current.getAttribute('src')) {
-                    ambientAudioRef.current.play().catch(() => {});
-                  }
-                  try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-                })
-                .catch((retryErr) => {
-                  setIsPlaying(false);
-                  setPlaybackError(
-                    'Playback paused while locked — tap Play to continue from your saved position.'
-                  );
-                  recordDiagEvent({
-                    category: 'error',
-                    event: 'MEDIASSESSION_PLAY_FINAL_FAILURE',
-                    elementId: 'quran',
-                    readyState: retry.readyState,
-                    networkState: retry.networkState,
-                    errorCode: retry.error ? retry.error.code : null,
-                    errorMessage: `${retryErr?.name || firstErr?.name || 'Error'}: ${
-                      retryErr?.message || firstErr?.message || 'Resume blocked'
-                    }`,
-                    currentTime: retry.currentTime,
-                    src: retry.src,
-                  });
-                });
-            }, 150);
+            setIsPlaying(false);
+            setPlaybackError(
+              'Playback paused while locked — tap Play to continue from your saved position.'
+            );
+            recordDiagEvent({
+              category: 'error',
+              event: 'MEDIASSESSION_PLAY_FINAL_FAILURE',
+              elementId: 'quran',
+              readyState: audio.readyState,
+              networkState: audio.networkState,
+              errorCode: audio.error ? audio.error.code : null,
+              errorMessage: `${firstErr?.name || 'Error'}: ${firstErr?.message || 'Resume blocked'}`,
+              currentTime: audio.currentTime,
+              src: audio.src,
+            });
           });
       }],
       ['pause', () => {

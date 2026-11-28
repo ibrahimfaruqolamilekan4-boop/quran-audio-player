@@ -37,6 +37,12 @@ export function resolveReciters<T extends Reciter>(base: T[], globals: GlobalRec
     const override = globals.find(g => g.id === reciter.id);
     if (!override) return reciter;
     const cleanImg = override.imageUrl ? override.imageUrl.replace(/^https?:\/\/localhost(:\d+)?/, '') : undefined;
+    // Never let a stale DB override point Sheikh Okin back to Mishary Alafasy's CDN
+    const isStaleAlafasyOverride =
+      reciter.id === 'mumeen_okin' &&
+      Boolean(override.serverUrl) &&
+      (override.serverUrl!.includes('mishary-alafasy') || override.serverUrl!.includes('/afs'));
+    const safeServerUrl = isStaleAlafasyOverride ? undefined : override.serverUrl;
     return {
       ...reciter,
       ...(override.name && override.name !== reciter.id ? { name: override.name } : {}),
@@ -47,7 +53,7 @@ export function resolveReciters<T extends Reciter>(base: T[], globals: GlobalRec
       ...(override.region ? { region: override.region } : {}),
       ...(override.location ? { location: override.location } : {}),
       ...(override.bio ? { bio: override.bio } : {}),
-      ...(override.serverUrl ? { serverUrl: override.serverUrl } : {}),
+      ...(safeServerUrl ? { serverUrl: safeServerUrl } : {}),
       ...(cleanImg ? { imageUrl: cleanImg, imageCredit: undefined } : {}),
       ...(override.isPartial !== undefined ? { isPartial: override.isPartial } : {}),
       ...(override.surahCount !== undefined ? { surahCount: override.surahCount } : {}),

@@ -59,6 +59,7 @@ export function SettingsView() {
   );
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const effectiveTab: SettingsTab = !isAdmin && activeTab === 'admin' ? 'profile' : activeTab;
 
   // Managing 114 Surahs for a specific Reciter
   const [managingReciterId, setManagingReciterId] = useState<string | null>(null);
@@ -469,7 +470,9 @@ export function SettingsView() {
             <SettingsIcon className="w-6 h-6 text-teal-400" />
           </div>
           <div>
-            <h1 className="text-3xl font-serif font-bold text-white tracking-tight">Admin &amp; Settings</h1>
+            <h1 className="text-3xl font-serif font-bold text-white tracking-tight">
+              {isAdmin ? 'Admin & Settings' : 'Settings'}
+            </h1>
             <p className="text-slate-400 text-sm mt-0.5">
               Personal sanctuary preferences, custom recitations, and atmospheric controls.
             </p>
@@ -552,7 +555,7 @@ export function SettingsView() {
 
       {/* Tab Panels */}
       <div>
-        {activeTab === 'profile' && (
+        {effectiveTab === 'profile' && (
           <ProfileSection
             user={user}
             isAdmin={isAdmin}
@@ -562,7 +565,7 @@ export function SettingsView() {
           />
         )}
 
-        {activeTab === 'reciters' && (
+        {effectiveTab === 'reciters' && (
           <section className="bg-[#0D121F]/90 backdrop-blur-xl border border-teal-900/40 rounded-3xl p-6 lg:p-8 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-96 h-96 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -594,7 +597,7 @@ export function SettingsView() {
           </section>
         )}
 
-        {activeTab === 'atmosphere' && (
+        {effectiveTab === 'atmosphere' && (
           <BackgroundManager
             customVideos={customVideos}
             setCustomVideos={setCustomVideos}
@@ -607,7 +610,7 @@ export function SettingsView() {
           />
         )}
 
-        {activeTab === 'admin' && isAdmin && (
+        {effectiveTab === 'admin' && isAdmin && (
           <AdminUsersSection
             isAdmin={isAdmin}
             activeBackgroundVideoName={activeVideoName}
